@@ -30,6 +30,7 @@ __pycache__/
 .python-version
 .venv/
 venv/
+venv05012026
 env/
 
 # Build / dist

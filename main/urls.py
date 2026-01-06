@@ -8,6 +8,10 @@ urlpatterns = [
     path("projects/new/", views.ProjectCreateView.as_view(), name="project-create"),
     path("projects/<slug:slug>/", views.ProjectDetailView.as_view(), name="project-detail"),
     path("projects/<slug:slug>/edit/", views.ProjectUpdateView.as_view(), name="project-edit"),
+    path("projects/<slug:slug>/characters/", views.CharacterListView.as_view(), name="character-list"),
+    path("projects/<slug:slug>/characters/new/", views.CharacterCreateView.as_view(), name="character-create"),
+    path("projects/<slug:slug>/characters/<uuid:pk>/edit/", views.CharacterUpdateView.as_view(), name="character-edit"),
+    path("projects/<slug:slug>/characters/<uuid:pk>/delete/", views.CharacterDeleteView.as_view(), name="character-delete"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
     path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
     path(

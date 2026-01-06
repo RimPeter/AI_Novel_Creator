@@ -8,10 +8,10 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 from django.views.decorators.http import require_POST
-from django.db.models import Max
+from django.db.models import Max, Q
 
-from .forms import NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
-from .models import NovelProject, OutlineNode, StoryBible
+from .forms import CharacterForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
+from .models import Character, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_structure_json, render_from_structure, structurize_chapter
 from .llm import call_llm
@@ -216,6 +216,100 @@ class ProjectDetailView(DetailView):
     template_name = "main/project_detail.html"
     slug_field = "slug"
     slug_url_kwarg = "slug"
+
+
+class CharacterListView(ListView):
+    model = Character
+    template_name = "main/character_list.html"
+    context_object_name = "characters"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        qs = Character.objects.filter(project=self.project).order_by("name")
+        q = (self.request.GET.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(role__icontains=q))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["q"] = (self.request.GET.get("q") or "").strip()
+        return ctx
+
+
+class CharacterCreateView(CreateView):
+    model = Character
+    form_class = CharacterForm
+    template_name = "main/character_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.project = self.project
+        response = super().form_valid(form)
+        messages.success(self.request, "Character created.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+    def get_success_url(self):
+        return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
+
+
+class CharacterUpdateView(UpdateView):
+    form_class = CharacterForm
+    template_name = "main/character_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return Character.objects.filter(project=self.project)
+
+    def form_valid(self, form):
+        messages.success(self.request, "Character saved.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+    def get_success_url(self):
+        return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
+
+
+class CharacterDeleteView(DeleteView):
+    template_name = "main/character_confirm_delete.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return Character.objects.filter(project=self.project)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+    def get_success_url(self):
+        return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
+
+    def form_valid(self, form):
+        messages.success(self.request, "Character deleted.")
+        return super().form_valid(form)
 
 
 class ProjectCreateView(CreateView):

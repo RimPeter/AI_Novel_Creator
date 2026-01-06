@@ -1,0 +1,23 @@
+{% extends "main/base.html" %}
+
+{% block title %}Delete character | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>Delete character</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Back</a>
+      </div>
+    </div>
+
+    <p>Delete <strong>{{ object.name }}</strong> from <strong>{{ project.title }}</strong>?</p>
+
+    <form method="post" class="actions">
+      {% csrf_token %}
+      <button class="btn btn-primary" type="submit">Delete</button>
+      <a class="btn btn-secondary" href="{% url 'character-edit' slug=project.slug pk=object.id %}">Cancel</a>
+    </form>
+  </section>
+{% endblock %}
+

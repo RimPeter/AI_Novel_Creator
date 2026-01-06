@@ -9,6 +9,7 @@
       <h1>{{ project.title }}</h1>
       <div class="actions">
         <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a>
+        <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
         <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
         <a class="btn btn-secondary" href="{% url 'project-list' %}">All projects</a>
       </div>

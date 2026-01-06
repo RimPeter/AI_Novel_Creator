@@ -1,7 +1,7 @@
 from django import forms
 import json
 
-from .models import NovelProject, OutlineNode, StoryBible
+from .models import Character, NovelProject, OutlineNode, StoryBible
 
 
 class NovelProjectForm(forms.ModelForm):
@@ -114,4 +114,39 @@ class OutlineSceneForm(forms.ModelForm):
             "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "pov": forms.TextInput(attrs={"class": "form-control"}),
             "location": forms.TextInput(attrs={"class": "form-control"}),
+        }
+
+
+class CharacterForm(forms.ModelForm):
+    class Meta:
+        model = Character
+        fields = [
+            "name",
+            "role",
+            "age",
+            "gender",
+            "personality",
+            "appearance",
+            "background",
+            "description",
+            "goals",
+            "voice_notes",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "role": forms.TextInput(attrs={"class": "form-control"}),
+            "age": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": 1}),
+            "gender": forms.TextInput(attrs={"class": "form-control"}),
+            "personality": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "appearance": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "background": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "goals": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "voice_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+        }
+        labels = {
+            "personality": "Personality",
+            "appearance": "Body features / appearance",
+            "background": "Backstory",
+            "description": "Other notes",
         }

@@ -1,0 +1,53 @@
+{% extends "main/base.html" %}
+
+{% block title %}Characters | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>Characters</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Back</a>
+        <a class="btn btn-primary" href="{% url 'character-create' slug=project.slug %}">New character</a>
+      </div>
+    </div>
+
+    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
+
+    <form method="get" class="form">
+      <div class="form-row">
+        <label class="form-label" for="q">Search</label>
+        <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or role" />
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" type="submit">Search</button>
+        {% if q %}
+          <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if characters %}
+      <ul class="list">
+        {% for c in characters %}
+          <li class="list-item">
+            <div>
+              <div class="list-title">{{ c.name }}</div>
+              <div class="muted">
+                {{ c.role|default:"-" }}
+                {% if c.age %} · {{ c.age }}{% endif %}
+                {% if c.gender %} · {{ c.gender }}{% endif %}
+              </div>
+            </div>
+            <div class="actions">
+              <a class="btn btn-secondary btn-sm" href="{% url 'character-edit' slug=project.slug pk=c.id %}">Edit</a>
+              <a class="btn btn-secondary btn-sm" href="{% url 'character-delete' slug=project.slug pk=c.id %}">Delete</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No characters yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

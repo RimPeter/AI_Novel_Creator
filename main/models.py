@@ -54,6 +54,11 @@ class Character(TimeStampedModel):
 
     name = models.CharField(max_length=120)
     role = models.CharField(max_length=120, blank=True, default="")
+    age = models.PositiveIntegerField(blank=True, null=True)
+    gender = models.CharField(max_length=60, blank=True, default="")
+    personality = models.TextField(blank=True, default="")
+    appearance = models.TextField(blank=True, default="")
+    background = models.TextField(blank=True, default="")
     description = models.TextField(blank=True, default="")
     goals = models.TextField(blank=True, default="")
     voice_notes = models.TextField(blank=True, default="")

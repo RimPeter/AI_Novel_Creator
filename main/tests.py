@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
 
-from .models import NovelProject, OutlineNode
+from .models import Character, NovelProject, OutlineNode
 from .llm import LLMResult
 
 
@@ -190,3 +190,38 @@ class ChapterStructurizeRenderTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.chapter.refresh_from_db()
         self.assertIn("Prose text.", self.chapter.rendered_text)
+
+
+class CharacterViewsTests(TestCase):
+    def setUp(self):
+        self.project_a = NovelProject.objects.create(
+            title="Project A",
+            slug="project-a",
+            target_word_count=1000,
+        )
+        self.project_b = NovelProject.objects.create(
+            title="Project B",
+            slug="project-b",
+            target_word_count=1000,
+        )
+        self.char_a1 = Character.objects.create(project=self.project_a, name="Ava", role="Protagonist", age=22, gender="Female")
+        self.char_a2 = Character.objects.create(project=self.project_a, name="Zed", role="Antagonist")
+        self.char_b1 = Character.objects.create(project=self.project_b, name="Bryn", role="Sidekick")
+
+    def test_list_scoped_to_project(self):
+        url = reverse("character-list", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url)
+        self.assertContains(resp, "Ava")
+        self.assertContains(resp, "Zed")
+        self.assertNotContains(resp, "Bryn")
+
+    def test_search_filters(self):
+        url = reverse("character-list", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url, {"q": "ava"})
+        self.assertContains(resp, "Ava")
+        self.assertNotContains(resp, "Zed")
+
+    def test_edit_is_project_scoped(self):
+        url = reverse("character-edit", kwargs={"slug": self.project_a.slug, "pk": self.char_b1.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 404)

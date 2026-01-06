@@ -20,11 +20,11 @@
       </div>
       <div class="dl-row">
         <dt>Genre</dt>
-        <dd>{{ project.genre|default:"—" }}</dd>
+        <dd>{{ project.genre|default:"-" }}</dd>
       </div>
       <div class="dl-row">
         <dt>Tone</dt>
-        <dd>{{ project.tone|default:"—" }}</dd>
+        <dd>{{ project.tone|default:"-" }}</dd>
       </div>
       <div class="dl-row">
         <dt>Target word count</dt>
@@ -46,6 +46,52 @@
       <li>{{ project.outline_nodes.count }} outline nodes</li>
       <li>{{ project.runs.count }} generation runs</li>
     </ul>
+  </section>
+
+  <section class="card">
+    <div class="header-row">
+      <h1>Story bible</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'bible-edit' slug=project.slug %}">Edit bible</a>
+        {% if bible %}
+          <span class="muted">Updated {{ bible.updated_at }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if bible and bible.summary_md %}
+      <p class="pre">{{ bible.summary_md }}</p>
+    {% else %}
+      <p class="muted">No story bible yet. Click "Generate bible".</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="header-row">
+      <h1>Recent runs</h1>
+    </div>
+
+    {% if recent_runs %}
+      <ul class="list">
+        {% for run in recent_runs %}
+          <li class="list-item">
+            <div>
+              <div class="list-title">{{ run.run_type }} - {{ run.status }}</div>
+              <div class="muted">{{ run.created_at }}</div>
+            </div>
+            {% if run.output_text %}
+              <span class="muted">output</span>
+            {% elif run.error %}
+              <span class="muted">error</span>
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No runs yet.</p>
+    {% endif %}
   </section>
 
   <section class="card">
@@ -72,7 +118,7 @@
                             {% if scene.pov or scene.location %}
                               <span class="muted">
                                 {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
-                                {% if scene.pov and scene.location %} · {% endif %}
+                                {% if scene.pov and scene.location %} / {% endif %}
                                 {% if scene.location %}{{ scene.location }}{% endif %}
                               </span>
                             {% endif %}

@@ -9,4 +9,5 @@ urlpatterns = [
     path("projects/<slug:slug>/", views.ProjectDetailView.as_view(), name="project-detail"),
     path("projects/<slug:slug>/edit/", views.ProjectUpdateView.as_view(), name="project-edit"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
+    path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
 ]

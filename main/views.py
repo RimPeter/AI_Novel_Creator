@@ -1,11 +1,11 @@
 from django.contrib import messages
 from django.http import HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
-from .forms import NovelProjectForm
-from .models import NovelProject, OutlineNode
+from .forms import NovelProjectForm, StoryBibleForm
+from .models import NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 
 def home(request):
@@ -56,6 +56,13 @@ class ProjectDashboardView(DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         project = self.object
+
+        try:
+            ctx["bible"] = project.bible
+        except StoryBible.DoesNotExist:
+            ctx["bible"] = None
+
+        ctx["recent_runs"] = project.runs.order_by("-created_at")[:10]
 
         # Build outline tree in one query, then group in Python
         nodes = (
@@ -116,3 +123,29 @@ class ProjectDashboardView(DetailView):
             messages.error(request, "Unknown action.")
 
         return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
+
+
+class StoryBibleUpdateView(UpdateView):
+    form_class = StoryBibleForm
+    template_name = "main/bible_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        bible, _created = StoryBible.objects.get_or_create(project=self.project)
+        return bible
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Story bible saved.")
+        return response
+
+    def get_success_url(self):
+        return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})

@@ -2,10 +2,11 @@ import re
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
+from django.views.decorators.http import require_POST
 from django.db.models import Max
 
 from .forms import NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
@@ -82,6 +83,122 @@ def _renumber_outline_for_project(project: NovelProject) -> None:
 
 def home(request):
     return render(request, "main/base.html")
+
+
+@require_POST
+def move_scene(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+
+    scene_id = request.POST.get("scene_id")
+    target_chapter_id = request.POST.get("target_chapter_id")
+    before_scene_id = request.POST.get("before_scene_id") or None
+
+    if not scene_id or not target_chapter_id:
+        if wants_json:
+            return JsonResponse({"ok": False, "error": "Missing scene or target chapter."}, status=400)
+        messages.error(request, "Missing scene or target chapter.")
+        return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
+
+    scene = get_object_or_404(
+        OutlineNode,
+        id=scene_id,
+        project=project,
+        node_type=OutlineNode.NodeType.SCENE,
+    )
+    target_chapter = get_object_or_404(
+        OutlineNode,
+        id=target_chapter_id,
+        project=project,
+        node_type=OutlineNode.NodeType.CHAPTER,
+    )
+
+    before_scene = None
+    if before_scene_id:
+        before_scene = get_object_or_404(
+            OutlineNode,
+            id=before_scene_id,
+            project=project,
+            node_type=OutlineNode.NodeType.SCENE,
+        )
+        if before_scene.parent_id != target_chapter.id:
+            if wants_json:
+                return JsonResponse({"ok": False, "error": "Invalid drop target."}, status=400)
+            messages.error(request, "Invalid drop target.")
+            return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
+        if before_scene.id == scene.id:
+            before_scene = None
+
+    source_chapter_id = scene.parent_id
+
+    with transaction.atomic():
+        target_ids = list(
+            OutlineNode.objects.filter(
+                project=project,
+                node_type=OutlineNode.NodeType.SCENE,
+                parent=target_chapter,
+            )
+            .order_by("order", "created_at", "id")
+            .values_list("id", flat=True)
+        )
+        target_ids = [sid for sid in target_ids if sid != scene.id]
+
+        if before_scene is not None:
+            try:
+                insert_at = target_ids.index(before_scene.id)
+            except ValueError:
+                insert_at = len(target_ids)
+            target_ids.insert(insert_at, scene.id)
+        else:
+            target_ids.append(scene.id)
+
+        target_objs = {obj.id: obj for obj in OutlineNode.objects.filter(id__in=target_ids)}
+        target_updates = []
+        for order, sid in enumerate(target_ids, start=1):
+            obj = target_objs[sid]
+            changed = False
+            if obj.parent_id != target_chapter.id:
+                obj.parent_id = target_chapter.id
+                changed = True
+            if obj.order != order:
+                obj.order = order
+                changed = True
+            if changed:
+                target_updates.append(obj)
+        if target_updates:
+            OutlineNode.objects.bulk_update(target_updates, ["parent", "order"])
+
+        if source_chapter_id and source_chapter_id != target_chapter.id:
+            source_ids = list(
+                OutlineNode.objects.filter(
+                    project=project,
+                    node_type=OutlineNode.NodeType.SCENE,
+                    parent_id=source_chapter_id,
+                )
+                .order_by("order", "created_at", "id")
+                .values_list("id", flat=True)
+            )
+            source_ids = [sid for sid in source_ids if sid != scene.id]
+            if source_ids:
+                source_objs = {obj.id: obj for obj in OutlineNode.objects.filter(id__in=source_ids)}
+                source_updates = []
+                for order, sid in enumerate(source_ids, start=1):
+                    obj = source_objs[sid]
+                    if obj.order != order:
+                        obj.order = order
+                        source_updates.append(obj)
+                if source_updates:
+                    OutlineNode.objects.bulk_update(source_updates, ["order"])
+
+        _renumber_outline_for_project(project)
+
+    if wants_json:
+        return JsonResponse({"ok": True})
+
+    messages.success(request, "Moved scene.")
+    return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
 
 
 class ProjectListView(ListView):

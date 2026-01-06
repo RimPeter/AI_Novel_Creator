@@ -10,6 +10,13 @@
   <body>
     {% include "main/navbar.html" %}
     <main class="wrap">
+      {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}
+            <li class="message message-{{ message.tags }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
       {% block content %}
         <section class="card">
           <h1>Welcome to AI Novel Creator</h1>

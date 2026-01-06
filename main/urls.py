@@ -21,6 +21,11 @@ urlpatterns = [
         name="scene-add",
     ),
     path(
+        "projects/<slug:slug>/outline/scenes/move/",
+        views.move_scene,
+        name="scene-move",
+    ),
+    path(
         "projects/<slug:slug>/outline/node/<uuid:pk>/edit/",
         views.OutlineNodeUpdateView.as_view(),
         name="outline-node-edit",

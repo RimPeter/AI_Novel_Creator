@@ -302,3 +302,8 @@ def generate_all_scenes(project_id: str, *, model_name: str = "your-model", para
         generate_scene.delay(str(scene.id), model_name=model_name, params=params or {}, target_words=target_words)
         count += 1
     return count
+
+
+@shared_task
+def celery_ping() -> str:
+    return "pong"

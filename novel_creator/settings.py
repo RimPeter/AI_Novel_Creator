@@ -11,9 +11,19 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY is not set")
 
 
 # Quick-start development settings - unsuitable for production
@@ -26,6 +36,7 @@ SECRET_KEY = 'django-insecure-a@59m%nsxzedimgx*61t!@#%pdnv=+4u3!fv@%r1a!p*tm0ipe
 DEBUG = True
 
 ALLOWED_HOSTS = ['127.0.0.1:8010','local','127.0.0.1']
+
 
 
 # Application definition
@@ -110,6 +121,44 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+
+# CELERY (Redis)
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/1")
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+CELERY_TASK_TIME_LIMIT = 60 * 30
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25
+
+CELERY_REDIS_SOCKET_CONNECT_TIMEOUT = float(os.environ.get("CELERY_REDIS_SOCKET_CONNECT_TIMEOUT", "1"))
+CELERY_REDIS_SOCKET_TIMEOUT = float(os.environ.get("CELERY_REDIS_SOCKET_TIMEOUT", "5"))
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_connect_timeout": CELERY_REDIS_SOCKET_CONNECT_TIMEOUT,
+    "socket_timeout": CELERY_REDIS_SOCKET_TIMEOUT,
+}
+CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
+    "socket_connect_timeout": CELERY_REDIS_SOCKET_CONNECT_TIMEOUT,
+    "socket_timeout": CELERY_REDIS_SOCKET_TIMEOUT,
+    "retry_policy": {
+        "max_retries": int(os.environ.get("CELERY_RESULT_BACKEND_MAX_RETRIES", "3")),
+        "interval_start": 0,
+        "interval_step": 0.2,
+        "interval_max": 0.5,
+    },
+}
+
+# Celery on Windows doesn't support the default prefork pool.
+if os.name == "nt":
+    CELERY_WORKER_POOL = os.environ.get("CELERY_WORKER_POOL", "solo")
+
+
 
 
 # Static files (CSS, JavaScript, Images)

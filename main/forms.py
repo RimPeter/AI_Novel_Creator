@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import NovelProject, StoryBible
+from .models import NovelProject, OutlineNode, StoryBible
 
 
 class NovelProjectForm(forms.ModelForm):
@@ -55,4 +55,38 @@ class StoryBibleForm(forms.ModelForm):
                     "placeholder": 'Example: {"protagonist": "Ava", "setting": "Orbital colony"}',
                 }
             ),
+        }
+
+
+class OutlineChapterForm(forms.ModelForm):
+    class Meta:
+        model = OutlineNode
+        fields = [
+            "order",
+            "title",
+            "summary",
+        ]
+        widgets = {
+            "order": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "title": forms.TextInput(attrs={"class": "form-control"}),
+            "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+        }
+
+
+class OutlineSceneForm(forms.ModelForm):
+    class Meta:
+        model = OutlineNode
+        fields = [
+            "order",
+            "title",
+            "summary",
+            "pov",
+            "location",
+        ]
+        widgets = {
+            "order": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "title": forms.TextInput(attrs={"class": "form-control"}),
+            "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "pov": forms.TextInput(attrs={"class": "form-control"}),
+            "location": forms.TextInput(attrs={"class": "form-control"}),
         }

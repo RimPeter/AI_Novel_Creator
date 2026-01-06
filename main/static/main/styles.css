@@ -257,3 +257,25 @@ dd {
   font-size: 24px;
   font-weight: 700;
 }
+
+.btn-sm {
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.outline-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.outline-sep {
+  border: 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.18);
+  margin: 12px 0;
+}

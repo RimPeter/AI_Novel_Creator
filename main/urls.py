@@ -10,4 +10,24 @@ urlpatterns = [
     path("projects/<slug:slug>/edit/", views.ProjectUpdateView.as_view(), name="project-edit"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
     path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
+    path(
+        "projects/<slug:slug>/outline/chapters/new/<uuid:act_id>/",
+        views.OutlineChapterCreateView.as_view(),
+        name="chapter-add",
+    ),
+    path(
+        "projects/<slug:slug>/outline/scenes/new/<uuid:chapter_id>/",
+        views.OutlineSceneCreateView.as_view(),
+        name="scene-add",
+    ),
+    path(
+        "projects/<slug:slug>/outline/node/<uuid:pk>/edit/",
+        views.OutlineNodeUpdateView.as_view(),
+        name="outline-node-edit",
+    ),
+    path(
+        "projects/<slug:slug>/outline/node/<uuid:pk>/delete/",
+        views.OutlineNodeDeleteView.as_view(),
+        name="outline-node-delete",
+    ),
 ]

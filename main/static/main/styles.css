@@ -234,3 +234,26 @@ dd {
 .pre {
   white-space: pre-wrap;
 }
+
+.collapsible {
+  margin: 0;
+}
+
+.collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-title {
+  font-size: 24px;
+  font-weight: 700;
+}

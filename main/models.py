@@ -96,6 +96,8 @@ class OutlineNode(TimeStampedModel):
     objectives = models.JSONField(blank=True, default=list)
     beats = models.JSONField(blank=True, default=list)
     tags = models.JSONField(blank=True, default=list)
+    structure_json = models.TextField(blank=True, default="")
+    rendered_text = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["project", "parent_id", "order", "created_at"]

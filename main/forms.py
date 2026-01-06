@@ -1,4 +1,5 @@
 from django import forms
+import json
 
 from .models import NovelProject, OutlineNode, StoryBible
 
@@ -65,12 +66,36 @@ class OutlineChapterForm(forms.ModelForm):
             "order",
             "title",
             "summary",
+            "structure_json",
+            "rendered_text",
         ]
         widgets = {
             "order": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "structure_json": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 14,
+                    "placeholder": '{\n  "schema_version": 1,\n  "chapter_title": "Chapter 1",\n  "chapter_summary": "...",\n  "scenes": [\n    {"index": 1, "title": "Scene 1", "summary": "..."}\n  ]\n}',
+                }
+            ),
+            "rendered_text": forms.Textarea(attrs={"class": "form-control", "rows": 16}),
         }
+        help_texts = {
+            "structure_json": "Scene structure JSON for this chapter (editable).",
+            "rendered_text": "Rendered draft text from the structure (editable).",
+        }
+
+    def clean_structure_json(self):
+        value = self.cleaned_data.get("structure_json") or ""
+        if not value.strip():
+            return ""
+        try:
+            json.loads(value)
+        except Exception as e:
+            raise forms.ValidationError(f"Invalid JSON: {e}")
+        return value
 
 
 class OutlineSceneForm(forms.ModelForm):

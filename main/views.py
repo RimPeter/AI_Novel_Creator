@@ -1,6 +1,7 @@
 import re
 
 from django.contrib import messages
+from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -12,6 +13,8 @@ from django.db.models import Max
 from .forms import NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
 from .models import NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
+from .chapter_tools import parse_structure_json, render_from_structure, structurize_chapter
+from .llm import call_llm
 
 
 def _renumber_outline_for_project(project: NovelProject) -> None:
@@ -461,6 +464,77 @@ class OutlineNodeUpdateView(UpdateView):
 
     def get_success_url(self):
         return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        action = request.POST.get("action") or ""
+
+        if self.object.node_type == OutlineNode.NodeType.CHAPTER and action in {"structurize", "render"}:
+            if action == "structurize":
+                data = request.POST.copy()
+                data.pop("structure_json", None)
+                data.pop("rendered_text", None)
+                form = self.get_form_class()(data=data, instance=self.object)
+            else:
+                form = self.get_form()
+            if not form.is_valid():
+                return self.form_invalid(form)
+
+            chapter = form.save(commit=False)
+            if action == "structurize":
+                summary = (chapter.summary or "").strip()
+                if not summary:
+                    form.add_error("summary", "Add a chapter summary first.")
+                    return self.form_invalid(form)
+                chapter.structure_json = structurize_chapter(
+                    chapter_title=chapter.title,
+                    chapter_summary=summary,
+                )
+                chapter.save()
+                messages.success(request, "Structurized chapter summary into JSON.")
+            else:
+                try:
+                    structure = parse_structure_json(chapter.structure_json)
+                except Exception as e:
+                    form.add_error("structure_json", str(e))
+                    return self.form_invalid(form)
+                prompt = "\n".join(
+                    [
+                        "Write the next chapter content as polished novel prose (no bullet points, no JSON, no markdown headings).",
+                        "Use scene breaks with a blank line, then `***`, then a blank line between scenes.",
+                        "Keep it grounded in the provided structure; preserve POV/location notes when present.",
+                        "Avoid meta commentary and avoid explaining what you are doing.",
+                        "",
+                        "Chapter structure (JSON):",
+                        chapter.structure_json.strip(),
+                    ]
+                ).strip()
+
+                try:
+                    result = call_llm(
+                        prompt=prompt,
+                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                        params={
+                            "temperature": 0.8,
+                            "max_tokens": 1800,
+                        },
+                    )
+                    chapter.rendered_text = (result.text or "").strip() + "\n"
+                    chapter.save()
+                    messages.success(request, "Rendered novel prose from structure JSON.")
+                except Exception:
+                    chapter.rendered_text = render_from_structure(structure)
+                    chapter.save()
+                    messages.warning(
+                        request,
+                        "OpenAI render failed; saved a local placeholder draft instead. Check your model/API settings and try again.",
+                    )
+
+            return HttpResponseRedirect(
+                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": chapter.id})
+            )
+
+        return super().post(request, *args, **kwargs)
 
 
 class OutlineNodeDeleteView(DeleteView):

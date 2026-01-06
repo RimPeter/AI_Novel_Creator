@@ -1,3 +1,4 @@
+import json
 import re
 
 from django.contrib import messages
@@ -202,6 +203,84 @@ def move_scene(request, slug):
 
     messages.success(request, "Moved scene.")
     return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
+
+
+@require_POST
+def brainstorm_character(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    allowed_fields = [
+        "name",
+        "role",
+        "age",
+        "gender",
+        "personality",
+        "appearance",
+        "background",
+        "goals",
+        "voice_notes",
+        "description",
+    ]
+
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    empty_fields = [k for k in allowed_fields if not current.get(k)]
+    if not empty_fields:
+        return JsonResponse({"ok": True, "suggestions": {}})
+
+    prompt = "\n".join(
+        [
+            "You are a novelist's character assistant.",
+            "Goal: fill in ONLY the currently-empty fields with plausible details that complement the already-filled fields.",
+            "Rules:",
+            "- Return STRICT JSON only (no markdown, no extra text).",
+            "- Output an object with only keys from: " + ", ".join(allowed_fields),
+            "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+            "- Keep answers concise but useful.",
+            "- 'age' must be an integer (omit it if unsure).",
+            "",
+            "Existing character fields (may be blank):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 500},
+        )
+        raw = (result.text or "").strip()
+        suggestions = json.loads(raw) if raw else {}
+        if not isinstance(suggestions, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+        filtered = {}
+        for key, value in suggestions.items():
+            if key not in allowed_fields or key not in empty_fields:
+                continue
+            if value is None:
+                continue
+            if key == "age":
+                try:
+                    age_int = int(value)
+                except Exception:
+                    continue
+                if age_int < 0 or age_int > 130:
+                    continue
+                filtered[key] = age_int
+            else:
+                text = str(value).strip()
+                if text:
+                    filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
 class ProjectListView(ListView):

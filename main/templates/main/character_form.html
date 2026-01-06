@@ -1,9 +1,10 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}{% if object %}Edit{% else %}New{% endif %} character | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card">
+  <section class="card" data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}">
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
       <div class="actions">
@@ -35,6 +36,7 @@
 
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
+        <button class="btn btn-secondary" type="button" id="character-brainstorm-btn">Brainstorm</button>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Cancel</a>
         {% if object %}
           <a class="btn btn-secondary" href="{% url 'character-delete' slug=project.slug pk=object.id %}">Delete</a>
@@ -42,5 +44,6 @@
       </div>
     </form>
   </section>
-{% endblock %}
 
+  <script src="{% static 'main/character_brainstorm.js' %}" defer></script>
+{% endblock %}

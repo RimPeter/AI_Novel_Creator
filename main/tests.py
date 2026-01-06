@@ -225,3 +225,32 @@ class CharacterViewsTests(TestCase):
         url = reverse("character-edit", kwargs={"slug": self.project_a.slug, "pk": self.char_b1.id})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
+
+    def test_brainstorm_returns_suggestions_for_empty_fields_only(self):
+        url = reverse("character-brainstorm", kwargs={"slug": self.project_a.slug})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"age": 30, "gender": "Male", "name": "SHOULD_NOT_OVERWRITE"}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "name": "Ava",
+                    "role": "",
+                    "age": "",
+                    "gender": "",
+                    "personality": "",
+                    "appearance": "",
+                    "background": "",
+                    "goals": "",
+                    "voice_notes": "",
+                    "description": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True, "suggestions": {"age": 30, "gender": "Male"}})

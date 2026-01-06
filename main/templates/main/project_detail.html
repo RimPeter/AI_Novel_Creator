@@ -1,0 +1,45 @@
+{% extends "main/base.html" %}
+
+{% block title %}{{ object.title }} | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>{{ object.title }}</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-edit' slug=object.slug %}">Edit</a>
+        <a class="btn btn-secondary" href="{% url 'project-list' %}">Back</a>
+      </div>
+    </div>
+
+    <dl class="dl">
+      <div class="dl-row">
+        <dt>Slug</dt>
+        <dd>{{ object.slug }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Genre</dt>
+        <dd>{{ object.genre|default:"—" }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Tone</dt>
+        <dd>{{ object.tone|default:"—" }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Target word count</dt>
+        <dd>{{ object.target_word_count }}</dd>
+      </div>
+    </dl>
+
+    {% if object.seed_idea %}
+      <h2 class="h2">Seed idea</h2>
+      <p class="pre">{{ object.seed_idea }}</p>
+    {% endif %}
+
+    {% if object.style_notes %}
+      <h2 class="h2">Style notes</h2>
+      <p class="pre">{{ object.style_notes }}</p>
+    {% endif %}
+  </section>
+{% endblock %}
+

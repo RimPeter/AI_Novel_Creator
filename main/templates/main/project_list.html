@@ -1,0 +1,30 @@
+{% extends "main/base.html" %}
+
+{% block title %}Projects | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>Projects</h1>
+      <a class="btn btn-primary" href="{% url 'project-create' %}">New project</a>
+    </div>
+
+    {% if projects %}
+      <ul class="list">
+        {% for project in projects %}
+          <li class="list-item">
+            <div>
+              <a class="list-title" href="{% url 'project-detail' slug=project.slug %}">{{ project.title }}</a>
+              <div class="muted">/{{ project.slug }}/</div>
+            </div>
+            <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No projects yet.</p>
+      <p><a href="{% url 'project-create' %}">Create your first project</a>.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+

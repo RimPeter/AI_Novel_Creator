@@ -4,22 +4,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI Novel Creator</title>
+    <title>{% block title %}AI Novel Creator{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'main/styles.css' %}" />
   </head>
   <body>
     {% include "main/navbar.html" %}
     <main class="wrap">
-      <section class="card">
-        <h1>Welcome to AI Novel Creator</h1>
-        <p>Your Django project is running and the <code>main</code> app is connected.</p>
-        <p>Next steps you might add:</p>
-        <ul>
-          <li>Story input form</li>
-          <li>Character and chapter models</li>
-          <li>Generated output preview</li>
-        </ul>
-      </section>
+      {% block content %}
+        <section class="card">
+          <h1>Welcome to AI Novel Creator</h1>
+          <p>Your Django project is running and the <code>main</code> app is connected.</p>
+          <p>Start here:</p>
+          <ul>
+            <li><a href="{% url 'project-list' %}">View projects</a></li>
+            <li><a href="{% url 'project-create' %}">Create a new project</a></li>
+          </ul>
+        </section>
+      {% endblock %}
     </main>
   </body>
 </html>

@@ -73,6 +73,11 @@ h1 {
   font-size: 32px;
 }
 
+h2.h2 {
+  margin: 18px 0 8px;
+  font-size: 18px;
+}
+
 p {
   margin: 0 0 12px;
 }
@@ -88,3 +93,144 @@ ul {
   padding-left: 20px;
 }
 
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: rgba(127, 127, 127, 0.12);
+  text-decoration: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn:hover {
+  text-decoration: none;
+  filter: brightness(1.05);
+}
+
+.btn-primary {
+  border-color: rgba(90, 140, 255, 0.65);
+  background: rgba(90, 140, 255, 0.22);
+}
+
+.btn-secondary {
+  opacity: 0.95;
+}
+
+.muted {
+  opacity: 0.75;
+  font-size: 14px;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.list-title {
+  font-weight: 700;
+}
+
+.form {
+  margin-top: 12px;
+}
+
+.form-row {
+  margin-bottom: 14px;
+}
+
+.form-label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.form-control,
+input[type="text"],
+input[type="number"],
+textarea,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+}
+
+.field-error {
+  margin-top: 6px;
+  color: #d44;
+  font-size: 14px;
+}
+
+.form-errors {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(212, 68, 68, 0.35);
+  background: rgba(212, 68, 68, 0.12);
+}
+
+.dl {
+  margin: 12px 0 0;
+}
+
+.dl-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.15);
+}
+
+.dl-row:first-child {
+  border-top: 0;
+}
+
+dt {
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+dd {
+  margin: 0;
+}
+
+.pre {
+  white-space: pre-wrap;
+}

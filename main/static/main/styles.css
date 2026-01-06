@@ -315,24 +315,6 @@ dd {
   margin: 12px 0;
 }
 
-.drag-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin-right: 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(127, 127, 127, 0.25);
-  background: rgba(127, 127, 127, 0.08);
-  cursor: grab;
-  user-select: none;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
-
 .scene-list-empty {
   margin: 10px 0 0;
 }
@@ -340,7 +322,6 @@ dd {
 .scene-drag {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
   padding: 6px 10px;
   border-radius: 10px;
   cursor: grab;

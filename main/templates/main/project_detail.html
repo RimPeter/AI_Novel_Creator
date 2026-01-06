@@ -7,6 +7,7 @@
     <div class="header-row">
       <h1>{{ object.title }}</h1>
       <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
         <a class="btn btn-secondary" href="{% url 'project-edit' slug=object.slug %}">Edit</a>
         <a class="btn btn-secondary" href="{% url 'project-list' %}">Back</a>
       </div>
@@ -42,4 +43,3 @@
     {% endif %}
   </section>
 {% endblock %}
-

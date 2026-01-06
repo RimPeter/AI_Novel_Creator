@@ -1,0 +1,98 @@
+{% extends "main/base.html" %}
+
+{% block title %}{{ project.title }} Dashboard | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>{{ project.title }}</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a>
+        <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+        <a class="btn btn-secondary" href="{% url 'project-list' %}">All projects</a>
+      </div>
+    </div>
+
+    <dl class="dl">
+      <div class="dl-row">
+        <dt>Slug</dt>
+        <dd>{{ project.slug }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Genre</dt>
+        <dd>{{ project.genre|default:"—" }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Tone</dt>
+        <dd>{{ project.tone|default:"—" }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Target word count</dt>
+        <dd>{{ project.target_word_count }}</dd>
+      </div>
+    </dl>
+
+    <h2 class="h2">Actions</h2>
+    <form method="post" class="actions">
+      {% csrf_token %}
+      <button class="btn btn-primary" type="submit" name="action" value="generate_bible">Generate bible</button>
+      <button class="btn btn-primary" type="submit" name="action" value="generate_outline">Generate outline</button>
+      <button class="btn btn-secondary" type="submit" name="action" value="generate_all_scenes">Generate all scenes</button>
+    </form>
+
+    <h2 class="h2">Quick stats</h2>
+    <ul>
+      <li>{{ project.characters.count }} characters</li>
+      <li>{{ project.outline_nodes.count }} outline nodes</li>
+      <li>{{ project.runs.count }} generation runs</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <div class="header-row">
+      <h1>Outline</h1>
+      <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit project</a>
+    </div>
+
+    {% if outline_tree %}
+      <ul>
+        {% for item in outline_tree %}
+          <li>
+            <strong>{{ item.act.title|default:"(Untitled act)" }}</strong>
+            {% if item.chapters %}
+              <ul>
+                {% for chapter_item in item.chapters %}
+                  <li>
+                    {{ chapter_item.chapter.title|default:"(Untitled chapter)" }}
+                    {% if chapter_item.scenes %}
+                      <ul>
+                        {% for scene in chapter_item.scenes %}
+                          <li>
+                            {{ scene.title|default:"(Untitled scene)" }}
+                            {% if scene.pov or scene.location %}
+                              <span class="muted">
+                                {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
+                                {% if scene.pov and scene.location %} · {% endif %}
+                                {% if scene.location %}{{ scene.location }}{% endif %}
+                              </span>
+                            {% endif %}
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <div class="muted">No scenes yet.</div>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="muted">No chapters yet.</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No outline nodes yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

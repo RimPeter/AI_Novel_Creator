@@ -4,6 +4,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.contrib import messages
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -17,6 +19,10 @@ from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm
+
+
+def _get_project_for_user(request, slug: str) -> NovelProject:
+    return get_object_or_404(NovelProject, slug=slug, owner=request.user)
 
 
 def _add_query_params(url: str, **params) -> str:
@@ -101,8 +107,9 @@ def home(request):
 
 
 @require_POST
+@login_required
 def move_scene(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -217,8 +224,9 @@ def move_scene(request, slug):
 
 
 @require_POST
+@login_required
 def brainstorm_character(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -295,8 +303,9 @@ def brainstorm_character(request, slug):
 
 
 @require_POST
+@login_required
 def add_character_details(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -380,27 +389,33 @@ def add_character_details(request, slug):
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
-class ProjectListView(ListView):
+class ProjectListView(LoginRequiredMixin, ListView):
     model = NovelProject
     template_name = "main/project_list.html"
     context_object_name = "projects"
     ordering = ["title"]
 
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user).order_by(*self.ordering)
 
-class ProjectDetailView(DetailView):
+
+class ProjectDetailView(LoginRequiredMixin, DetailView):
     model = NovelProject
     template_name = "main/project_detail.html"
     slug_field = "slug"
     slug_url_kwarg = "slug"
 
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
 
-class CharacterListView(ListView):
+
+class CharacterListView(LoginRequiredMixin, ListView):
     model = Character
     template_name = "main/character_list.html"
     context_object_name = "characters"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -417,13 +432,13 @@ class CharacterListView(ListView):
         return ctx
 
 
-class CharacterCreateView(CreateView):
+class CharacterCreateView(LoginRequiredMixin, CreateView):
     model = Character
     form_class = CharacterForm
     template_name = "main/character_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
@@ -441,12 +456,12 @@ class CharacterCreateView(CreateView):
         return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
 
 
-class CharacterUpdateView(UpdateView):
+class CharacterUpdateView(LoginRequiredMixin, UpdateView):
     form_class = CharacterForm
     template_name = "main/character_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -465,11 +480,11 @@ class CharacterUpdateView(UpdateView):
         return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
 
 
-class CharacterDeleteView(DeleteView):
+class CharacterDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "main/character_confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -519,8 +534,9 @@ def _extract_json_object(raw: str) -> str:
 
 
 @require_POST
+@login_required
 def brainstorm_location_description(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -573,8 +589,9 @@ def brainstorm_location_description(request, slug):
 
 
 @require_POST
+@login_required
 def add_location_details(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -628,8 +645,9 @@ def add_location_details(request, slug):
 
 
 @require_POST
+@login_required
 def extract_location_objects(request, slug):
-    project = get_object_or_404(NovelProject, slug=slug)
+    project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
     )
@@ -698,13 +716,13 @@ def extract_location_objects(request, slug):
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
-class LocationListView(ListView):
+class LocationListView(LoginRequiredMixin, ListView):
     model = Location
     template_name = "main/location_list.html"
     context_object_name = "locations"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -721,13 +739,13 @@ class LocationListView(ListView):
         return ctx
 
 
-class LocationCreateView(CreateView):
+class LocationCreateView(LoginRequiredMixin, CreateView):
     model = Location
     form_class = LocationForm
     template_name = "main/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -756,12 +774,12 @@ class LocationCreateView(CreateView):
         return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
 
 
-class LocationUpdateView(UpdateView):
+class LocationUpdateView(LoginRequiredMixin, UpdateView):
     form_class = LocationForm
     template_name = "main/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -791,11 +809,11 @@ class LocationUpdateView(UpdateView):
         return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
 
 
-class LocationDeleteView(DeleteView):
+class LocationDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "main/location_confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -814,32 +832,48 @@ class LocationDeleteView(DeleteView):
         return super().form_valid(form)
 
 
-class ProjectCreateView(CreateView):
+class ProjectCreateView(LoginRequiredMixin, CreateView):
     model = NovelProject
     form_class = NovelProjectForm
     template_name = "main/project_form.html"
+
+    def form_valid(self, form):
+        form.instance.owner = self.request.user
+        response = super().form_valid(form)
+        messages.success(self.request, "Project created.")
+        return response
 
     def get_success_url(self):
         return reverse_lazy("project-detail", kwargs={"slug": self.object.slug})
 
 
-class ProjectUpdateView(UpdateView):
+class ProjectUpdateView(LoginRequiredMixin, UpdateView):
     model = NovelProject
     form_class = NovelProjectForm
     template_name = "main/project_form.html"
     slug_field = "slug"
     slug_url_kwarg = "slug"
 
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
+
+    def form_valid(self, form):
+        messages.success(self.request, "Project saved.")
+        return super().form_valid(form)
+
     def get_success_url(self):
         return reverse_lazy("project-detail", kwargs={"slug": self.object.slug})
 
 
-class ProjectDashboardView(DetailView):
+class ProjectDashboardView(LoginRequiredMixin, DetailView):
     model = NovelProject
     template_name = "main/project_dashboard.html"
     slug_field = "slug"
     slug_url_kwarg = "slug"
     context_object_name = "project"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -913,12 +947,12 @@ class ProjectDashboardView(DetailView):
         return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
 
 
-class StoryBibleUpdateView(UpdateView):
+class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
     form_class = StoryBibleForm
     template_name = "main/bible_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
@@ -939,12 +973,12 @@ class StoryBibleUpdateView(UpdateView):
         return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
 
 
-class OutlineChapterCreateView(CreateView):
+class OutlineChapterCreateView(LoginRequiredMixin, CreateView):
     form_class = OutlineChapterForm
     template_name = "main/outline_node_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         self.act = get_object_or_404(
             OutlineNode,
             id=kwargs["act_id"],
@@ -983,12 +1017,12 @@ class OutlineChapterCreateView(CreateView):
         return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
 
 
-class OutlineSceneCreateView(CreateView):
+class OutlineSceneCreateView(LoginRequiredMixin, CreateView):
     form_class = OutlineSceneForm
     template_name = "main/outline_node_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         self.chapter = get_object_or_404(
             OutlineNode,
             id=kwargs["chapter_id"],
@@ -1041,11 +1075,11 @@ class OutlineSceneCreateView(CreateView):
         return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
 
 
-class OutlineNodeUpdateView(UpdateView):
+class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "main/outline_node_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -1165,11 +1199,11 @@ class OutlineNodeUpdateView(UpdateView):
         return super().post(request, *args, **kwargs)
 
 
-class OutlineNodeDeleteView(DeleteView):
+class OutlineNodeDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "main/outline_node_confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):

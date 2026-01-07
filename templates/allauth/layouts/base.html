@@ -1,0 +1,30 @@
+{% load i18n %}
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block head_title %}AI Novel Creator{% endblock head_title %}</title>
+    <link rel="stylesheet" href="{% static 'main/styles.css' %}" />
+    {% block extra_head %}{% endblock extra_head %}
+  </head>
+  <body>
+    {% include "main/navbar.html" %}
+    <main class="wrap">
+      {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}
+            <li class="message message-{{ message.tags }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      {% block body %}
+        <section class="card">
+          {% block content %}{% endblock content %}
+        </section>
+      {% endblock body %}
+    </main>
+    {% block extra_body %}{% endblock extra_body %}
+  </body>
+</html>

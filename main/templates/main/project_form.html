@@ -1,11 +1,18 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}
   {% if object %}Edit project{% else %}New project{% endif %} | AI Novel Creator
 {% endblock %}
 
 {% block content %}
-  <section class="card">
+  <section
+    class="card"
+    {% if object %}
+      data-project-brainstorm-url="{% url 'project-brainstorm' slug=object.slug %}"
+      data-project-add-details-url="{% url 'project-add-details' slug=object.slug %}"
+    {% endif %}
+  >
     <div class="header-row">
       <h1>{% if object %}Edit project{% else %}New project{% endif %}</h1>
       <a class="btn btn-secondary" href="{% url 'project-list' %}">Back</a>
@@ -33,9 +40,16 @@
 
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
+        {% if object %}
+          <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="project-add-details-btn">Add more details</button>
+        {% endif %}
         <a class="btn btn-secondary" href="{% url 'project-list' %}">Cancel</a>
       </div>
     </form>
   </section>
-{% endblock %}
 
+  {% if object %}
+    <script src="{% static 'main/project_brainstorm.js' %}" defer></script>
+  {% endif %}
+{% endblock %}

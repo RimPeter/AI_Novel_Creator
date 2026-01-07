@@ -108,6 +108,134 @@ def home(request):
 
 @require_POST
 @login_required
+def brainstorm_project(request, slug):
+    project = _get_project_for_user(request, slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    allowed_fields = [
+        "seed_idea",
+        "genre",
+        "tone",
+        "style_notes",
+    ]
+
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    empty_fields = [k for k in allowed_fields if not current.get(k)]
+    if not empty_fields:
+        return JsonResponse({"ok": True, "suggestions": {}})
+
+    prompt = "\n".join(
+        [
+            "You are a novelist's project brainstorming assistant.",
+            "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
+            "Rules:",
+            "- Return STRICT JSON only (no markdown, no extra text).",
+            "- Output an object with only keys from: " + ", ".join(allowed_fields),
+            "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+            "- Keep genre/tone short (a few words).",
+            "- For seed_idea/style_notes, write concise prose (no bullet points).",
+            "",
+            "Project title: " + (project.title or ""),
+            "Existing fields (may be blank):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    ).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 500},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+        filtered = {}
+        for key, value in data.items():
+            if key not in empty_fields:
+                continue
+            text = str(value or "").strip()
+            if not text:
+                continue
+            filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+@require_POST
+@login_required
+def add_project_details(request, slug):
+    project = _get_project_for_user(request, slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    allowed_fields = [
+        "seed_idea",
+        "genre",
+        "tone",
+        "style_notes",
+    ]
+
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    if not any(current.values()):
+        return JsonResponse({"ok": False, "error": "Add at least one project detail first."}, status=400)
+
+    prompt = "\n".join(
+        [
+            "You are a novelist's project development assistant.",
+            "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
+            "Rules:",
+            "- Return STRICT JSON only (no markdown, no extra text).",
+            "- Output an object with only keys from: " + ", ".join(allowed_fields),
+            "- For genre/tone: only include if currently blank.",
+            "- For seed_idea/style_notes: provide an additive paragraph (no bullet points).",
+            "",
+            "Project title: " + (project.title or ""),
+            "Current fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    ).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 500},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+        filtered = {}
+        for key, value in data.items():
+            if key not in allowed_fields:
+                continue
+            if key in {"genre", "tone"} and current.get(key):
+                continue
+            text = str(value or "").strip()
+            if not text:
+                continue
+            if current.get(key) and text in current[key]:
+                continue
+            filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+@require_POST
+@login_required
 def move_scene(request, slug):
     project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (

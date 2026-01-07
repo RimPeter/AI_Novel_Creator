@@ -130,7 +130,7 @@ class MoveSceneTests(TestCase):
         self.assertEqual(resp.json(), {"ok": True})
 
 
-class ChapterStructurizeRenderTests(TestCase):
+class SceneStructurizeRenderTests(TestCase):
     def setUp(self):
         self.project = NovelProject.objects.create(
             title="Test Project",
@@ -150,46 +150,60 @@ class ChapterStructurizeRenderTests(TestCase):
             parent=self.act,
             order=1,
             title="Chapter 1",
+            summary="Chapter summary.",
+        )
+        self.scene = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter,
+            order=1,
+            title="Scene 1",
             summary="A tense meeting sets the stakes. A secret surfaces.",
+            pov="Ava",
+            location="Docking bay",
         )
 
     def test_structurize_fills_structure_json(self):
-        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.chapter.id})
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         resp = self.client.post(
             url,
             data={
                 "order": 1,
-                "title": self.chapter.title,
-                "summary": self.chapter.summary,
+                "title": self.scene.title,
+                "summary": self.scene.summary,
+                "pov": self.scene.pov,
+                "location": self.scene.location,
                 "action": "structurize",
             },
         )
         self.assertEqual(resp.status_code, 302)
-        self.chapter.refresh_from_db()
-        self.assertTrue(self.chapter.structure_json.strip())
+        self.scene.refresh_from_db()
+        self.assertTrue(self.scene.structure_json.strip())
 
     def test_render_uses_llm_when_available(self):
-        self.chapter.structure_json = (
-            '{\n  "schema_version": 1,\n  "chapter_title": "Chapter 1",\n  "chapter_summary": "x",\n  "scenes": []\n}'
+        self.scene.structure_json = (
+            '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "x",\n  "pov": "Ava",\n  "location": "Docking bay",\n  "beats": []\n}'
         )
-        self.chapter.save(update_fields=["structure_json"])
+        self.scene.save(update_fields=["structure_json"])
 
-        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.chapter.id})
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         with patch("main.views.call_llm", return_value=LLMResult(text="Prose text.", usage={"ok": True})):
             resp = self.client.post(
                 url,
                 data={
                     "order": 1,
-                    "title": self.chapter.title,
-                    "summary": self.chapter.summary,
-                    "structure_json": self.chapter.structure_json,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "structure_json": self.scene.structure_json,
                     "rendered_text": "",
                     "action": "render",
                 },
             )
         self.assertEqual(resp.status_code, 302)
-        self.chapter.refresh_from_db()
-        self.assertIn("Prose text.", self.chapter.rendered_text)
+        self.scene.refresh_from_db()
+        self.assertIn("Prose text.", self.scene.rendered_text)
 
 
 class CharacterViewsTests(TestCase):
@@ -254,3 +268,32 @@ class CharacterViewsTests(TestCase):
             )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"ok": True, "suggestions": {"age": 30, "gender": "Male"}})
+
+    def test_add_details_does_not_return_name_and_can_enhance_fields(self):
+        url = reverse("character-add-details", kwargs={"slug": self.project_a.slug})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"name": "NOPE", "personality": "Adds a subtle tell: taps her ring when lying."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "name": "Ava",
+                    "role": "Protagonist",
+                    "age": "22",
+                    "gender": "Female",
+                    "personality": "Driven and guarded.",
+                    "appearance": "",
+                    "background": "",
+                    "goals": "",
+                    "voice_notes": "",
+                    "description": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True, "suggestions": {"personality": "Adds a subtle tell: taps her ring when lying."}})

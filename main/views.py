@@ -14,7 +14,7 @@ from django.db.models import Max, Q
 from .forms import CharacterForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
 from .models import Character, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
-from .chapter_tools import parse_structure_json, render_from_structure, structurize_chapter
+from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm
 
 
@@ -277,6 +277,92 @@ def brainstorm_character(request, slug):
                 text = str(value).strip()
                 if text:
                     filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+@require_POST
+def add_character_details(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    allowed_fields = [
+        "role",
+        "age",
+        "gender",
+        "personality",
+        "appearance",
+        "background",
+        "goals",
+        "voice_notes",
+        "description",
+    ]
+
+    name = (request.POST.get("name") or "").strip()
+    current = {k: (request.POST.get(k) or "").strip() for k in ["name", *allowed_fields]}
+    if not name:
+        return JsonResponse({"ok": False, "error": "Name is required to add details."}, status=400)
+
+    prompt = "\n".join(
+        [
+            "You are a novelist's character development assistant.",
+            "Goal: refine the character by adding useful, specific detail.",
+            "Rules:",
+            "- Return STRICT JSON only (no markdown, no extra text).",
+            "- Output an object with only keys from: " + ", ".join(allowed_fields),
+            "- Do NOT change the character's name.",
+            "- For fields that already have text, return ONLY additional text to append (do not rewrite or repeat).",
+            "- For fields that are empty, provide a good starter value when it helps.",
+            "- Keep additions concise but concrete (sensory, behavior, contradictions, tells).",
+            "- 'age' must be an integer (omit if unsure).",
+            "",
+            "Current character fields:",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 650},
+        )
+        raw = (result.text or "").strip()
+        suggestions = json.loads(raw) if raw else {}
+        if not isinstance(suggestions, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+        filtered = {}
+        for key, value in suggestions.items():
+            if key not in allowed_fields:
+                continue
+            if value is None:
+                continue
+            if key == "age":
+                try:
+                    age_int = int(value)
+                except Exception:
+                    continue
+                if age_int < 0 or age_int > 130:
+                    continue
+                if str(current.get("age") or "").strip():
+                    continue
+                filtered[key] = age_int
+            else:
+                text = str(value).strip()
+                if not text:
+                    continue
+                # Avoid no-op "additions" that are identical to existing content.
+                existing = (current.get(key) or "").strip()
+                if existing and text in existing:
+                    continue
+                filtered[key] = text
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
@@ -642,7 +728,7 @@ class OutlineNodeUpdateView(UpdateView):
         self.object = self.get_object()
         action = request.POST.get("action") or ""
 
-        if self.object.node_type == OutlineNode.NodeType.CHAPTER and action in {"structurize", "render"}:
+        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render"}:
             if action == "structurize":
                 data = request.POST.copy()
                 data.pop("structure_json", None)
@@ -653,33 +739,35 @@ class OutlineNodeUpdateView(UpdateView):
             if not form.is_valid():
                 return self.form_invalid(form)
 
-            chapter = form.save(commit=False)
+            scene = form.save(commit=False)
             if action == "structurize":
-                summary = (chapter.summary or "").strip()
+                summary = (scene.summary or "").strip()
                 if not summary:
-                    form.add_error("summary", "Add a chapter summary first.")
+                    form.add_error("summary", "Add a scene summary first.")
                     return self.form_invalid(form)
-                chapter.structure_json = structurize_chapter(
-                    chapter_title=chapter.title,
-                    chapter_summary=summary,
+                scene.structure_json = structurize_scene(
+                    title=scene.title,
+                    summary=summary,
+                    pov=scene.pov,
+                    location=scene.location,
                 )
-                chapter.save()
-                messages.success(request, "Structurized chapter summary into JSON.")
+                scene.save()
+                messages.success(request, "Structurized scene summary into JSON.")
             else:
                 try:
-                    structure = parse_structure_json(chapter.structure_json)
+                    structure = parse_scene_structure_json(scene.structure_json)
                 except Exception as e:
                     form.add_error("structure_json", str(e))
                     return self.form_invalid(form)
                 prompt = "\n".join(
                     [
-                        "Write the next chapter content as polished novel prose (no bullet points, no JSON, no markdown headings).",
-                        "Use scene breaks with a blank line, then `***`, then a blank line between scenes.",
-                        "Keep it grounded in the provided structure; preserve POV/location notes when present.",
+                        "Write a single scene as polished novel prose (no bullet points, no JSON, no markdown headings).",
+                        "Write in continuous prose with paragraphs; do not include section headers.",
+                        "Keep it grounded in the provided structure; preserve POV/location notes when present, but do not label them.",
                         "Avoid meta commentary and avoid explaining what you are doing.",
                         "",
-                        "Chapter structure (JSON):",
-                        chapter.structure_json.strip(),
+                        "Scene structure (JSON):",
+                        scene.structure_json.strip(),
                     ]
                 ).strip()
 
@@ -689,22 +777,22 @@ class OutlineNodeUpdateView(UpdateView):
                         model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
                         params={
                             "temperature": 0.8,
-                            "max_tokens": 1800,
+                            "max_tokens": 1200,
                         },
                     )
-                    chapter.rendered_text = (result.text or "").strip() + "\n"
-                    chapter.save()
+                    scene.rendered_text = (result.text or "").strip() + "\n"
+                    scene.save()
                     messages.success(request, "Rendered novel prose from structure JSON.")
                 except Exception:
-                    chapter.rendered_text = render_from_structure(structure)
-                    chapter.save()
+                    scene.rendered_text = render_scene_from_structure(structure)
+                    scene.save()
                     messages.warning(
                         request,
                         "OpenAI render failed; saved a local placeholder draft instead. Check your model/API settings and try again.",
                     )
 
             return HttpResponseRedirect(
-                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": chapter.id})
+                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
             )
 
         return super().post(request, *args, **kwargs)

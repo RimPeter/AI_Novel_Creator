@@ -24,10 +24,8 @@
       {% endif %}
 
       {% for field in form %}
-        {% if node_kind == "chapter" and not object %}
-          {% if field.name == "structure_json" or field.name == "rendered_text" %}
-            {# Only show structure/render fields when editing an existing chapter. #}
-          {% else %}
+        {% if field.name == "structure_json" or field.name == "rendered_text" %}
+          {% if node_kind == "scene" and object %}
             <div class="form-row">
               <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
               {{ field }}
@@ -38,24 +36,26 @@
                 <div class="field-error">{{ error }}</div>
               {% endfor %}
             </div>
+          {% else %}
+            {# Only show structure/render fields when editing an existing scene. #}
           {% endif %}
         {% else %}
-        <div class="form-row">
-          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% if field.help_text %}
-            <div class="muted">{{ field.help_text }}</div>
-          {% endif %}
-          {% for error in field.errors %}
-            <div class="field-error">{{ error }}</div>
-          {% endfor %}
-        </div>
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
         {% endif %}
       {% endfor %}
 
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
-        {% if object and node_kind == "chapter" %}
+        {% if object and node_kind == "scene" %}
           <button class="btn btn-secondary" type="submit" name="action" value="structurize">Structurize</button>
           <button class="btn btn-secondary" type="submit" name="action" value="render">Render</button>
         {% endif %}

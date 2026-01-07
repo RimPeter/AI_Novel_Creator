@@ -4,7 +4,11 @@
 {% block title %}{% if object %}Edit{% else %}New{% endif %} character | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card" data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}">
+  <section
+    class="card"
+    data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}"
+    data-character-add-details-url="{% url 'character-add-details' slug=project.slug %}"
+  >
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
       <div class="actions">
@@ -37,6 +41,7 @@
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
         <button class="btn btn-secondary" type="button" id="character-brainstorm-btn">Brainstorm</button>
+        <button class="btn btn-secondary" type="button" id="character-add-details-btn">Add more details</button>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Cancel</a>
         {% if object %}
           <a class="btn btn-secondary" href="{% url 'character-delete' slug=project.slug pk=object.id %}">Delete</a>

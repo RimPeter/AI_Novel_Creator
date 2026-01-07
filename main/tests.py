@@ -1,6 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
+from urllib.parse import quote
 
 from .models import Character, NovelProject, OutlineNode
 from .llm import LLMResult
@@ -205,6 +206,73 @@ class SceneStructurizeRenderTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.scene.refresh_from_db()
         self.assertIn("Prose text.", self.scene.rendered_text)
+
+
+class SceneLocationDropdownTests(TestCase):
+    def setUp(self):
+        self.project = NovelProject.objects.create(
+            title="Test Project",
+            slug="test-project",
+            target_word_count=1000,
+        )
+        self.act = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.ACT,
+            parent=None,
+            order=1,
+            title="Act I",
+        )
+        self.chapter = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.CHAPTER,
+            parent=self.act,
+            order=1,
+            title="Chapter 1",
+        )
+        self.scene = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter,
+            order=1,
+            title="Scene 1",
+            summary="",
+            location="Docking Bay",
+        )
+        Location.objects.create(project=self.project, name="Docking Bay", description="")
+        Location.objects.create(project=self.project, name="Garden", description="")
+
+    def test_edit_scene_renders_location_select_with_create_option(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'name="location"')
+        self.assertContains(resp, 'value="Docking Bay"')
+        self.assertContains(resp, 'value="Garden"')
+        self.assertContains(resp, 'value="__create__"')
+
+    def test_posting_create_sentinel_redirects_to_location_creator(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.post(
+            url,
+            data={
+                "order": 1,
+                "title": "Scene 1",
+                "summary": "",
+                "pov": "",
+                "location": "__create__",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("location-create", kwargs={"slug": self.project.slug}), resp["Location"])
+        self.assertIn("next=", resp["Location"])
+
+    def test_location_create_with_next_returns_to_scene_with_prefill(self):
+        scene_url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        create_url = reverse("location-create", kwargs={"slug": self.project.slug}) + "?next=" + quote(scene_url, safe="")
+        resp = self.client.post(create_url, data={"name": "Engine Room", "description": ""})
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(resp["Location"].startswith(scene_url))
+        self.assertIn("prefill_location=Engine+Room", resp["Location"])
 
 
 class CharacterViewsTests(TestCase):

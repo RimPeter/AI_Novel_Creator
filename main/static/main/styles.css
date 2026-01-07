@@ -6,6 +6,15 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   line-height: 1.5;
+  background: #0f0f12;
+  color: #f3f4f6;
+}
+
+@media (prefers-color-scheme: light) {
+  body {
+    background: #fbfbfd;
+    color: #101114;
+  }
 }
 
 a {
@@ -238,6 +247,33 @@ select {
   border: 1px solid rgba(127, 127, 127, 0.35);
   background: rgba(127, 127, 127, 0.08);
   color: inherit;
+  font: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  select,
+  option {
+    background-color: #14141a;
+    color: #f3f4f6;
+    font: inherit;
+  }
+
+  select {
+    color-scheme: dark;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  select,
+  option {
+    background-color: #ffffff;
+    color: #101114;
+    font: inherit;
+  }
+
+  select {
+    color-scheme: light;
+  }
 }
 
 .field-error {

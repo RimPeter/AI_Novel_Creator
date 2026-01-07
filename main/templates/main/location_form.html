@@ -10,12 +10,16 @@
     data-location-add-details-url="{% url 'location-add-details' slug=project.slug %}"
     data-location-extract-objects-url="{% url 'location-extract-objects' slug=project.slug %}"
   >
-    <div class="header-row">
-      <h1>{% if object %}Edit{% else %}New{% endif %} location</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Back</a>
+      <div class="header-row">
+        <h1>{% if object %}Edit{% else %}New{% endif %} location</h1>
+        <div class="actions">
+        {% if next_url %}
+          <a class="btn btn-secondary" href="{{ next_url }}">Back</a>
+        {% else %}
+          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Back</a>
+        {% endif %}
+        </div>
       </div>
-    </div>
 
     <p class="muted">Project: <strong>{{ project.title }}</strong></p>
 
@@ -79,7 +83,11 @@
 
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
-        <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Cancel</a>
+        {% if next_url %}
+          <a class="btn btn-secondary" href="{{ next_url }}">Cancel</a>
+        {% else %}
+          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Cancel</a>
+        {% endif %}
         {% if object %}
           <a class="btn btn-secondary" href="{% url 'location-delete' slug=project.slug pk=object.id %}">Delete</a>
         {% endif %}

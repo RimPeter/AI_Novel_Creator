@@ -1,9 +1,15 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}Edit outline | AI Novel Creator{% endblock %}
 
 {% block content %}
-  <section class="card">
+  <section
+    class="card"
+    {% if node_kind == "scene" %}
+      data-location-create-url="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
+    {% endif %}
+  >
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}Add{% endif %} {{ node_kind }}</h1>
       <div class="actions">
@@ -40,16 +46,38 @@
             {# Only show structure/render fields when editing an existing scene. #}
           {% endif %}
         {% else %}
-          <div class="form-row">
-            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% if field.help_text %}
-              <div class="muted">{{ field.help_text }}</div>
-            {% endif %}
-            {% for error in field.errors %}
-              <div class="field-error">{{ error }}</div>
-            {% endfor %}
-          </div>
+          {% if node_kind == "scene" and field.name == "location" %}
+            <div class="form-row">
+              <div class="form-label-row">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <div class="actions">
+                  <a
+                    class="btn btn-secondary btn-sm"
+                    href="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
+                  >New location</a>
+                </div>
+              </div>
+              {{ field }}
+              <div class="muted">Pick an existing location or choose "Create new location..." to add one.</div>
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="form-row">
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
         {% endif %}
       {% endfor %}
 
@@ -63,4 +91,8 @@
       </div>
     </form>
   </section>
+
+  {% if node_kind == "scene" %}
+    <script src="{% static 'main/scene_location_select.js' %}" defer></script>
+  {% endif %}
 {% endblock %}

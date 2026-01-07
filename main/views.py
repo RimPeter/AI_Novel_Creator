@@ -1,5 +1,6 @@
 import json
 import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.contrib import messages
 from django.conf import settings
@@ -16,6 +17,16 @@ from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm
+
+
+def _add_query_params(url: str, **params) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    for k, v in params.items():
+        if v is None:
+            continue
+        query[k] = str(v)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, doseq=True), parts.fragment))
 
 
 def _renumber_outline_for_project(project: NovelProject) -> None:
@@ -723,6 +734,7 @@ class LocationCreateView(CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["object_rows"] = []
+        ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
 
     def form_valid(self, form):
@@ -738,6 +750,9 @@ class LocationCreateView(CreateView):
         return response
 
     def get_success_url(self):
+        next_url = (self.request.GET.get("next") or "").strip()
+        if next_url:
+            return _add_query_params(next_url, prefill_location=self.object.name)
         return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
 
 
@@ -756,6 +771,7 @@ class LocationUpdateView(UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["object_rows"] = sorted((self.object.objects_map or {}).items(), key=lambda kv: kv[0].lower())
+        ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
 
     def form_valid(self, form):
@@ -769,6 +785,9 @@ class LocationUpdateView(UpdateView):
         return super().form_valid(form)
 
     def get_success_url(self):
+        next_url = (self.request.GET.get("next") or "").strip()
+        if next_url:
+            return _add_query_params(next_url, prefill_location=self.object.name)
         return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
 
 
@@ -996,6 +1015,20 @@ class OutlineSceneCreateView(CreateView):
         ctx["node_kind"] = "scene"
         return ctx
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.project
+        prefill = (self.request.GET.get("prefill_location") or "").strip()
+        if prefill:
+            kwargs["prefill_location"] = prefill
+        return kwargs
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get("location") == OutlineSceneForm.LOCATION_CREATE_SENTINEL:
+            create_url = reverse("location-create", kwargs={"slug": self.project.slug})
+            return HttpResponseRedirect(_add_query_params(create_url, next=request.get_full_path()))
+        return super().post(request, *args, **kwargs)
+
     def form_valid(self, form):
         form.instance.project = self.project
         form.instance.parent = self.chapter
@@ -1027,6 +1060,15 @@ class OutlineNodeUpdateView(UpdateView):
             return OutlineChapterForm
         return OutlineSceneForm
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if getattr(self.object, "node_type", None) == OutlineNode.NodeType.SCENE:
+            kwargs["project"] = self.project
+            prefill = (self.request.GET.get("prefill_location") or "").strip()
+            if prefill:
+                kwargs["prefill_location"] = prefill
+        return kwargs
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         obj = self.object
@@ -1046,12 +1088,19 @@ class OutlineNodeUpdateView(UpdateView):
         self.object = self.get_object()
         action = request.POST.get("action") or ""
 
+        if self.object.node_type == OutlineNode.NodeType.SCENE:
+            if request.POST.get("location") == OutlineSceneForm.LOCATION_CREATE_SENTINEL:
+                create_url = reverse("location-create", kwargs={"slug": self.project.slug})
+                return HttpResponseRedirect(_add_query_params(create_url, next=request.get_full_path()))
+
         if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render"}:
             if action == "structurize":
                 data = request.POST.copy()
                 data.pop("structure_json", None)
                 data.pop("rendered_text", None)
-                form = self.get_form_class()(data=data, instance=self.object)
+                kwargs = self.get_form_kwargs()
+                kwargs["data"] = data
+                form = self.get_form_class()(**kwargs)
             else:
                 form = self.get_form()
             if not form.is_valid():

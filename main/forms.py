@@ -75,6 +75,8 @@ class OutlineChapterForm(forms.ModelForm):
 
 
 class OutlineSceneForm(forms.ModelForm):
+    LOCATION_CREATE_SENTINEL = "__create__"
+
     class Meta:
         model = OutlineNode
         fields = [
@@ -91,7 +93,6 @@ class OutlineSceneForm(forms.ModelForm):
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "pov": forms.TextInput(attrs={"class": "form-control"}),
-            "location": forms.TextInput(attrs={"class": "form-control"}),
             "structure_json": forms.Textarea(
                 attrs={
                     "class": "form-control",
@@ -105,6 +106,44 @@ class OutlineSceneForm(forms.ModelForm):
             "structure_json": "Scene structure JSON (editable).",
             "rendered_text": "Rendered scene prose (editable).",
         }
+
+    def __init__(self, *args, project=None, prefill_location=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        resolved_project = project or getattr(self.instance, "project", None)
+        location_field = self.fields.get("location")
+        if location_field is None:
+            return
+
+        location_field.widget = forms.Select(attrs={"class": "form-control"})
+
+        existing_names = []
+        if resolved_project:
+            existing_names = list(
+                Location.objects.filter(project=resolved_project).order_by("name").values_list("name", flat=True)
+            )
+
+        current = (getattr(self.instance, "location", "") or "").strip()
+
+        choices = [("", "— Select —")]
+        for name in existing_names:
+            choices.append((name, name))
+        if current and current not in existing_names:
+            choices.insert(1, (current, f"{current} (current)"))
+        choices.append((self.LOCATION_CREATE_SENTINEL, "Create new location..."))
+        location_field.choices = choices
+        location_field.widget.choices = choices
+
+        if prefill_location:
+            self.initial["location"] = prefill_location
+        elif current:
+            self.initial.setdefault("location", current)
+
+    def clean_location(self):
+        value = (self.cleaned_data.get("location") or "").strip()
+        if value == self.LOCATION_CREATE_SENTINEL:
+            raise forms.ValidationError("Create a new location first, then select it.")
+        return value
 
     def clean_structure_json(self):
         value = self.cleaned_data.get("structure_json") or ""

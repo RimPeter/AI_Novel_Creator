@@ -1,7 +1,7 @@
 from django import forms
 import json
 
-from .models import Character, NovelProject, OutlineNode, StoryBible
+from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 
 
 class NovelProjectForm(forms.ModelForm):
@@ -149,4 +149,17 @@ class CharacterForm(forms.ModelForm):
             "appearance": "Body features / appearance",
             "background": "Backstory",
             "description": "Other notes",
+        }
+
+
+class LocationForm(forms.ModelForm):
+    class Meta:
+        model = Location
+        fields = [
+            "name",
+            "description",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
         }

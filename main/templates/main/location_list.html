@@ -1,0 +1,51 @@
+{% extends "main/base.html" %}
+
+{% block title %}Locations | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>Locations</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Back</a>
+        <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
+      </div>
+    </div>
+
+    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
+
+    <form method="get" class="form">
+      <div class="form-row">
+        <label class="form-label" for="q">Search</label>
+        <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or description" />
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" type="submit">Search</button>
+        {% if q %}
+          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if locations %}
+      <ul class="list">
+        {% for loc in locations %}
+          <li class="list-item">
+            <div>
+              <div class="list-title">{{ loc.name }}</div>
+              <div class="muted">
+                {% if loc.objects_map %}{{ loc.objects_map|length }} objects{% else %}0 objects{% endif %}
+              </div>
+            </div>
+            <div class="actions">
+              <a class="btn btn-secondary btn-sm" href="{% url 'location-edit' slug=project.slug pk=loc.id %}">Edit</a>
+              <a class="btn btn-secondary btn-sm" href="{% url 'location-delete' slug=project.slug pk=loc.id %}">Delete</a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No locations yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

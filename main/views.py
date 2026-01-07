@@ -11,8 +11,8 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 from django.views.decorators.http import require_POST
 from django.db.models import Max, Q
 
-from .forms import CharacterForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
-from .models import Character, NovelProject, OutlineNode, StoryBible
+from .forms import CharacterForm, LocationForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
+from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm
@@ -474,6 +474,324 @@ class CharacterDeleteView(DeleteView):
 
     def form_valid(self, form):
         messages.success(self.request, "Character deleted.")
+        return super().form_valid(form)
+
+
+def _parse_location_objects(post_data) -> dict[str, str]:
+    keys = post_data.getlist("object_key")
+    values = post_data.getlist("object_value")
+
+    objects: dict[str, str] = {}
+    for k, v in zip(keys, values):
+        key = (k or "").strip()
+        value = (v or "").strip()
+        if not key and not value:
+            continue
+        if not key:
+            raise ValueError("Object name cannot be blank.")
+        if key in objects:
+            raise ValueError(f"Duplicate object name: {key}")
+        objects[key] = value
+
+    return objects
+
+
+def _extract_json_object(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return "{}"
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("Response did not contain a JSON object.")
+    return text[start : end + 1]
+
+
+@require_POST
+def brainstorm_location_description(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    name = (request.POST.get("name") or "").strip()
+    description = (request.POST.get("description") or "").strip()
+
+    if not name:
+        return JsonResponse({"ok": False, "error": "Name is required."}, status=400)
+    if description:
+        return JsonResponse({"ok": True, "suggestions": {}})
+
+    try:
+        objects_map = _parse_location_objects(request.POST)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    prompt = "\n".join(
+        [
+            "You are a worldbuilding assistant for a novelist.",
+            "Write a vivid but concise location description (2–5 short paragraphs).",
+            "Use sensory detail, atmosphere, and concrete specifics. Avoid bullet points.",
+            "",
+            "Return STRICT JSON only (no markdown), in the form:",
+            '{"description": "..."}',
+            "",
+            "Project title: " + (project.title or ""),
+            "Location name: " + name,
+            "Known objects (JSON map): " + json.dumps(objects_map, ensure_ascii=False),
+        ]
+    ).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 450},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+        text = str(data.get("description") or "").strip()
+        if not text:
+            return JsonResponse({"ok": True, "suggestions": {}})
+        return JsonResponse({"ok": True, "suggestions": {"description": text}})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+@require_POST
+def add_location_details(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    name = (request.POST.get("name") or "").strip()
+    description = (request.POST.get("description") or "").strip()
+    if not name:
+        return JsonResponse({"ok": False, "error": "Name is required."}, status=400)
+
+    try:
+        objects_map = _parse_location_objects(request.POST)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    prompt = "\n".join(
+        [
+            "You are a worldbuilding assistant for a novelist.",
+            "Goal: add NEW details to the existing location description (do not rewrite it).",
+            "Rules:",
+            "- Return STRICT JSON only (no markdown) in the form: {\"description\": \"...\"}",
+            "- If the description is empty, write an initial description.",
+            "- If the description already exists, return ONLY additional text to append (avoid repeating existing lines).",
+            "- Add concrete details: layout, textures, lighting, smell, ambient sound, a standout object, and a small lived-in detail.",
+            "",
+            "Project title: " + (project.title or ""),
+            "Location name: " + name,
+            "Existing description: " + description,
+            "Known objects (JSON map): " + json.dumps(objects_map, ensure_ascii=False),
+        ]
+    ).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.7, "max_tokens": 450},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+        text = str(data.get("description") or "").strip()
+        if not text:
+            return JsonResponse({"ok": True, "suggestions": {}})
+        if description and text in description:
+            return JsonResponse({"ok": True, "suggestions": {}})
+        return JsonResponse({"ok": True, "suggestions": {"description": text}})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+@require_POST
+def extract_location_objects(request, slug):
+    project = get_object_or_404(NovelProject, slug=slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    name = (request.POST.get("name") or "").strip()
+    description = (request.POST.get("description") or "").strip()
+    if not description:
+        return JsonResponse({"ok": False, "error": "Description is required."}, status=400)
+
+    try:
+        existing_objects = _parse_location_objects(request.POST)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    existing_keys_lower = {k.lower() for k in (existing_objects or {}).keys() if isinstance(k, str)}
+
+    prompt = "\n".join(
+        [
+            "You are a worldbuilding assistant for a novelist.",
+            "Task: extract concrete objects mentioned or strongly implied by the description, including background/lived-in items.",
+            "For each object, provide short attributes (materials, condition, placement, notable features) as a compact phrase.",
+            "",
+            "Rules:",
+            '- Return STRICT JSON only (no markdown) in the form: {"objects": {"key": "attributes"}}',
+            "- Keys should be short singular nouns (e.g., \"crate\", \"holo-sign\", \"workbench\").",
+            "- Do not include character names or abstract concepts as objects.",
+            "- If an object already exists in the provided object map, do not repeat it.",
+            "- Return up to 12 objects.",
+            "",
+            "Project title: " + (project.title or ""),
+            "Location name: " + name,
+            "Description: " + description,
+            "Existing objects (JSON map): " + json.dumps(existing_objects, ensure_ascii=False),
+        ]
+    ).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.4, "max_tokens": 550},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+        raw_objects = data.get("objects") or {}
+        if not isinstance(raw_objects, dict):
+            raise ValueError('"objects" must be a JSON object.')
+
+        extracted: dict[str, str] = {}
+        for raw_key, raw_val in raw_objects.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            if key.lower() in existing_keys_lower:
+                continue
+            val = str(raw_val or "").strip()
+            extracted[key] = val
+            if len(extracted) >= 12:
+                break
+
+        return JsonResponse({"ok": True, "objects": extracted})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+
+class LocationListView(ListView):
+    model = Location
+    template_name = "main/location_list.html"
+    context_object_name = "locations"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        qs = Location.objects.filter(project=self.project).order_by("name")
+        q = (self.request.GET.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["q"] = (self.request.GET.get("q") or "").strip()
+        return ctx
+
+
+class LocationCreateView(CreateView):
+    model = Location
+    form_class = LocationForm
+    template_name = "main/location_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["object_rows"] = []
+        return ctx
+
+    def form_valid(self, form):
+        form.instance.project = self.project
+        try:
+            form.instance.objects_map = _parse_location_objects(self.request.POST)
+        except Exception as e:
+            form.add_error(None, str(e))
+            return self.form_invalid(form)
+
+        response = super().form_valid(form)
+        messages.success(self.request, "Location created.")
+        return response
+
+    def get_success_url(self):
+        return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
+
+
+class LocationUpdateView(UpdateView):
+    form_class = LocationForm
+    template_name = "main/location_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return Location.objects.filter(project=self.project)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["object_rows"] = sorted((self.object.objects_map or {}).items(), key=lambda kv: kv[0].lower())
+        return ctx
+
+    def form_valid(self, form):
+        try:
+            form.instance.objects_map = _parse_location_objects(self.request.POST)
+        except Exception as e:
+            form.add_error(None, str(e))
+            return self.form_invalid(form)
+
+        messages.success(self.request, "Location saved.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
+
+
+class LocationDeleteView(DeleteView):
+    template_name = "main/location_confirm_delete.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(NovelProject, slug=kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return Location.objects.filter(project=self.project)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+    def get_success_url(self):
+        return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
+
+    def form_valid(self, form):
+        messages.success(self.request, "Location deleted.")
         return super().form_valid(form)
 
 

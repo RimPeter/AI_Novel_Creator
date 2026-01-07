@@ -213,6 +213,19 @@ ul {
   margin-bottom: 6px;
 }
 
+.form-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.form-label-row .form-label {
+  margin-bottom: 0;
+}
+
 .form-control,
 input[type="text"],
 input[type="number"],
@@ -313,6 +326,20 @@ dd {
   border: 0;
   border-top: 1px solid rgba(127, 127, 127, 0.18);
   margin: 12px 0;
+}
+
+.object-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 10px;
+  align-items: start;
+  margin: 10px 0;
+}
+
+@media (max-width: 720px) {
+  .object-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .scene-list-empty {

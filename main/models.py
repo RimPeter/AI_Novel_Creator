@@ -73,6 +73,24 @@ class Character(TimeStampedModel):
         return self.name
 
 
+class Location(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(NovelProject, on_delete=models.CASCADE, related_name="locations")
+
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    objects_map = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="uniq_location_project_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class OutlineNode(TimeStampedModel):
     class NodeType(models.TextChoices):
         ACT = "ACT", "Act"

@@ -14,6 +14,13 @@ urlpatterns = [
     path("projects/<slug:slug>/characters/add-details/", views.add_character_details, name="character-add-details"),
     path("projects/<slug:slug>/characters/<uuid:pk>/edit/", views.CharacterUpdateView.as_view(), name="character-edit"),
     path("projects/<slug:slug>/characters/<uuid:pk>/delete/", views.CharacterDeleteView.as_view(), name="character-delete"),
+    path("projects/<slug:slug>/locations/", views.LocationListView.as_view(), name="location-list"),
+    path("projects/<slug:slug>/locations/new/", views.LocationCreateView.as_view(), name="location-create"),
+    path("projects/<slug:slug>/locations/brainstorm/", views.brainstorm_location_description, name="location-brainstorm"),
+    path("projects/<slug:slug>/locations/add-details/", views.add_location_details, name="location-add-details"),
+    path("projects/<slug:slug>/locations/extract-objects/", views.extract_location_objects, name="location-extract-objects"),
+    path("projects/<slug:slug>/locations/<uuid:pk>/edit/", views.LocationUpdateView.as_view(), name="location-edit"),
+    path("projects/<slug:slug>/locations/<uuid:pk>/delete/", views.LocationDeleteView.as_view(), name="location-delete"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
     path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
     path(

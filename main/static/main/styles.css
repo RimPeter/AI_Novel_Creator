@@ -495,7 +495,7 @@ dd {
   border: 1px solid rgba(127, 127, 127, 0.35);
   background: rgba(127, 127, 127, 0.08);
   color: inherit;
-  overflow: auto;
+  overflow: hidden;
   pointer-events: none;
   scrollbar-width: none;
 }
@@ -510,6 +510,7 @@ dd {
   color: transparent;
   caret-color: #f3f4f6;
   border-color: transparent;
+  overflow: hidden;
 }
 
 .draft-highlight-token {
@@ -519,6 +520,19 @@ dd {
 
 .draft-placeholder {
   opacity: 0.5;
+}
+
+textarea.auto-grow {
+  overflow: hidden;
+  resize: none;
+}
+
+.auto-grow {
+  scrollbar-width: none;
+}
+
+.auto-grow::-webkit-scrollbar {
+  display: none;
 }
 
 @media (prefers-color-scheme: light) {

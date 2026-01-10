@@ -50,21 +50,28 @@
                     >
                       Draft from Summary
                     </button>
-                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Reshuffle</button>
+                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
                   </div>
                 </div>
                 <div class="draft-editor" data-draft-editor>
                   <div class="draft-highlight" aria-hidden="true"></div>
                   <textarea
-                    class="form-control draft-input"
+                    class="form-control draft-input auto-grow"
                     name="{{ field.html_name }}"
                     id="{{ field.id_for_label }}"
                     rows="14"
+                    data-autogrow="true"
                     data-placeholder="{{ field.field.widget.attrs.placeholder|default:'' }}"
                   >{{ field.value|default_if_none:'' }}</textarea>
                 </div>
               {% else %}
-                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <div class="form-label-row">
+                  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  <div class="actions">
+                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="render">Render from Draft</button>
+                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="import-draft">Import from Draft</button>
+                  </div>
+                </div>
                 {{ field }}
               {% endif %}
               {% if field.help_text %}
@@ -197,7 +204,6 @@
         {% if object and node_kind == "scene" %}
           <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
           <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
-          <button class="btn btn-secondary" type="submit" name="action" value="render">Render</button>
         {% endif %}
         <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
       </div>
@@ -208,6 +214,7 @@
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
     <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
     <script src="{% static 'main/scene_draft_highlight.js' %}" defer></script>
+    <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
     <script src="{% static 'main/confirm_actions.js' %}" defer></script>
     {% if object %}
       <script src="{% static 'main/scene_brainstorm.js' %}" defer></script>

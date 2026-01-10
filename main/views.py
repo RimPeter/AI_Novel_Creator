@@ -950,24 +950,15 @@ def _extract_json_object(raw: str) -> str:
 _BRACE_SEGMENT_RE = re.compile(r"\{[^{}]*\}")
 
 
-def _mask_braced_segments(text: str) -> tuple[str, list[str]]:
-    segments = []
-
-    def repl(match):
-        segments.append(match.group(0))
-        return f"<<KEEP_{len(segments) - 1}>>"
-
-    return _BRACE_SEGMENT_RE.sub(repl, text), segments
-
-
-def _restore_braced_segments(text: str, segments: list[str]) -> tuple[str, bool]:
-    restored = text
-    for idx, segment in enumerate(segments):
-        token = f"<<KEEP_{idx}>>"
-        if token not in restored:
-            return text, False
-        restored = restored.replace(token, segment)
-    return restored, True
+def _split_braced_segments(text: str) -> list[dict[str, str | bool]]:
+    parts = re.split(r"(\{[^{}]*\})", text)
+    segments: list[dict[str, str | bool]] = []
+    for part in parts:
+        if part == "":
+            continue
+        protected = bool(_BRACE_SEGMENT_RE.fullmatch(part))
+        segments.append({"text": part, "protected": protected})
+    return segments
 
 
 @require_POST
@@ -1631,7 +1622,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 create_url = reverse("location-create", kwargs={"slug": self.project.slug})
                 return HttpResponseRedirect(_add_query_params(create_url, next=request.get_full_path()))
 
-        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render", "reshuffle"}:
+        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render", "reshuffle", "import-draft"}:
             if action == "structurize":
                 data = request.POST.copy()
                 data.pop("structure_json", None)
@@ -1690,16 +1681,27 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     form.add_error("structure_json", "Add a draft first.")
                     return self.form_invalid(form)
 
-                masked_draft, segments = _mask_braced_segments(raw_draft)
+                segments = _split_braced_segments(raw_draft)
+                plain_segments = [seg["text"] for seg in segments if not seg["protected"]]
+                if not any(str(seg).strip() for seg in plain_segments):
+                    messages.warning(
+                        request,
+                        "Reshuffle ignored protected text; kept the existing draft. Try again.",
+                    )
+                    return HttpResponseRedirect(
+                        reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                    )
                 prompt_lines = [
-                    "Rewrite the draft into a fresh version with different phrasing (no bullet points, no JSON, no markdown headings).",
-                    "Write in continuous prose with paragraphs; do not include section headers.",
-                    "Preserve the story beats, POV, and location implied by the draft.",
-                    "Avoid meta commentary and avoid explaining what you are doing.",
-                    "Do not change any <<KEEP_N>> tokens.",
+                    "Rewrite each segment in the JSON array into a fresh version with different phrasing.",
+                    "Rules:",
+                    "- Return STRICT JSON only in the form: {\"segments\": [...]}",
+                    "- Keep the same number of segments and the same order.",
+                    "- If a segment is only whitespace, return it unchanged.",
+                    "- Use prose (no bullet points, no JSON inside the strings, no markdown headings).",
+                    "- Avoid meta commentary and avoid explaining what you are doing.",
                     "",
-                    "Draft:",
-                    masked_draft,
+                    "Segments (JSON array):",
+                    json.dumps(plain_segments, ensure_ascii=False),
                 ]
                 bible_lines = _get_story_bible_context(scene.project)
                 if bible_lines:
@@ -1713,30 +1715,56 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
                         params={"temperature": 0.8, "max_tokens": 900},
                     )
-                    reshuffled = (result.text or "").strip()
-                    if segments:
-                        reshuffled, ok = _restore_braced_segments(reshuffled, segments)
-                        if not ok:
-                            messages.warning(
-                                request,
-                                "Reshuffle ignored protected text; kept the existing draft. Try again.",
-                            )
-                            return HttpResponseRedirect(
-                                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
-                            )
-                    scene.structure_json = reshuffled
+                    data = json.loads(_extract_json_object(result.text))
+                    updated = data.get("segments")
+                    if not isinstance(updated, list) or len(updated) != len(plain_segments):
+                        messages.warning(
+                            request,
+                            "Reshuffle ignored protected text; kept the existing draft. Try again.",
+                        )
+                        return HttpResponseRedirect(
+                            reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                        )
+
+                    rebuilt = []
+                    idx = 0
+                    for seg in segments:
+                        if seg["protected"]:
+                            rebuilt.append(seg["text"])
+                            continue
+                        original = str(seg["text"])
+                        replacement = updated[idx] if idx < len(updated) else ""
+                        idx += 1
+                        if not original.strip():
+                            rebuilt.append(original)
+                            continue
+                        if replacement is None:
+                            rebuilt.append(original)
+                            continue
+                        replacement_text = str(replacement)
+                        rebuilt.append(replacement_text if replacement_text.strip() else original)
+                    scene.structure_json = "".join(rebuilt)
                     scene.save()
                     messages.success(request, "Reshuffled draft.")
                 except Exception:
                     messages.warning(
                         request,
-                        "OpenAI reshuffle failed; kept the existing draft. Check your model/API settings and try again.",
+                        "Reshuffle ignored protected text; kept the existing draft. Try again.",
                     )
             else:
                 raw_draft = (scene.structure_json or "").strip()
                 if not raw_draft:
                     form.add_error("structure_json", "Add a draft first.")
                     return self.form_invalid(form)
+
+                if action == "import-draft":
+                    cleaned = raw_draft.replace("{", "").replace("}", "")
+                    scene.rendered_text = cleaned + ("\n" if cleaned and not cleaned.endswith("\n") else "")
+                    scene.save()
+                    messages.success(request, "Imported draft into final text.")
+                    return HttpResponseRedirect(
+                        reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                    )
 
                 prompt = "\n".join(
                     [

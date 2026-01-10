@@ -113,10 +113,19 @@ class OutlineSceneForm(forms.ModelForm):
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "pov": forms.TextInput(attrs={"class": "form-control"}),
-            "rendered_text": forms.Textarea(attrs={"class": "form-control", "rows": 18}),
+            "rendered_text": forms.Textarea(
+                attrs={
+                    "class": "form-control auto-grow",
+                    "rows": 18,
+                    "data-autogrow": "true",
+                }
+            ),
         }
         help_texts = {
-            "rendered_text": "Rendered scene prose (editable).",
+            "rendered_text": "Final scene prose (editable).",
+        }
+        labels = {
+            "rendered_text": "Final text",
         }
 
     def __init__(self, *args, project=None, prefill_location=None, **kwargs):

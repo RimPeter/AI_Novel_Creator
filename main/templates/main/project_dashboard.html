@@ -111,61 +111,65 @@
       <ul>
         {% for item in outline_tree %}
           <li>
-            <div class="outline-row">
-              <strong>{{ item.act.title|default:"(Untitled act)" }}</strong>
-              <div class="actions">
-                <a class="btn btn-secondary btn-sm" href="{% url 'chapter-add' slug=project.slug act_id=item.act.id %}">Add chapter</a>
-              </div>
-            </div>
-            {% if item.chapters %}
-              <ul>
-                {% for chapter_item in item.chapters %}
-                  <li>
-                    <hr class="outline-sep" />
-                    <div class="outline-row">
-                      <span>{{ chapter_item.chapter.title|default:"(Untitled chapter)" }}</span>
-                      <div class="actions">
-                        <a class="btn btn-secondary btn-sm" href="{% url 'scene-add' slug=project.slug chapter_id=chapter_item.chapter.id %}">Add scene</a>
-                        <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-edit' slug=project.slug pk=chapter_item.chapter.id %}">Edit</a>
-                        <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-delete' slug=project.slug pk=chapter_item.chapter.id %}">Delete</a>
+            <details class="collapsible" open>
+              <summary class="collapsible-summary">
+                <span class="collapsible-title">{{ item.act.title|default:"(Untitled act)" }}</span>
+                <span class="actions">
+                  <span class="muted">{% if item.chapters %}{{ item.chapters|length }} chapters{% else %}0 chapters{% endif %}</span>
+                  <a class="btn btn-secondary btn-sm" href="{% url 'chapter-add' slug=project.slug act_id=item.act.id %}">Add chapter</a>
+                </span>
+              </summary>
+
+              {% if item.chapters %}
+                <ul>
+                  {% for chapter_item in item.chapters %}
+                    <li>
+                      <hr class="outline-sep" />
+                      <div class="outline-row">
+                        <span>{{ chapter_item.chapter.title|default:"(Untitled chapter)" }}</span>
+                        <div class="actions">
+                          <a class="btn btn-secondary btn-sm" href="{% url 'scene-add' slug=project.slug chapter_id=chapter_item.chapter.id %}">Add scene</a>
+                          <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-edit' slug=project.slug pk=chapter_item.chapter.id %}">Edit</a>
+                          <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-delete' slug=project.slug pk=chapter_item.chapter.id %}">Delete</a>
+                        </div>
                       </div>
-                    </div>
-                    {% if chapter_item.scenes %}
-                      <ul class="scene-list" data-chapter-id="{{ chapter_item.chapter.id }}">
-                        {% for scene in chapter_item.scenes %}
-                          <li class="scene-item" data-scene-id="{{ scene.id }}" data-chapter-id="{{ chapter_item.chapter.id }}">
-                            <div class="outline-row">
-                              <span class="scene-drag" draggable="true" title="Drag to move">
-                                {{ scene.title|default:"(Untitled scene)" }}
-                                {% if scene.pov or scene.location %}
-                                  <span class="muted">
-                                    {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
-                                    {% if scene.pov and scene.location %} / {% endif %}
-                                    {% if scene.location %}{{ scene.location }}{% endif %}
-                                  </span>
-                                {% endif %}
-                              </span>
-                              <div class="actions">
-                                <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-edit' slug=project.slug pk=scene.id %}">Edit</a>
-                                <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-delete' slug=project.slug pk=scene.id %}">Delete</a>
+                      {% if chapter_item.scenes %}
+                        <ul class="scene-list" data-chapter-id="{{ chapter_item.chapter.id }}">
+                          {% for scene in chapter_item.scenes %}
+                            <li class="scene-item" data-scene-id="{{ scene.id }}" data-chapter-id="{{ chapter_item.chapter.id }}">
+                              <div class="outline-row">
+                                <span class="scene-drag" draggable="true" title="Drag to move">
+                                  {{ scene.title|default:"(Untitled scene)" }}
+                                  {% if scene.pov or scene.location %}
+                                    <span class="muted">
+                                      {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
+                                      {% if scene.pov and scene.location %} / {% endif %}
+                                      {% if scene.location %}{{ scene.location }}{% endif %}
+                                    </span>
+                                  {% endif %}
+                                </span>
+                                <div class="actions">
+                                  <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-edit' slug=project.slug pk=scene.id %}">Edit</a>
+                                  <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-delete' slug=project.slug pk=scene.id %}">Delete</a>
+                                </div>
                               </div>
-                            </div>
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      {% else %}
+                        <ul class="scene-list scene-list-empty" data-chapter-id="{{ chapter_item.chapter.id }}">
+                          <li class="scene-dropzone" data-chapter-id="{{ chapter_item.chapter.id }}">
+                            No scenes yet — drop a scene here
                           </li>
-                        {% endfor %}
-                      </ul>
-                    {% else %}
-                      <ul class="scene-list scene-list-empty" data-chapter-id="{{ chapter_item.chapter.id }}">
-                        <li class="scene-dropzone" data-chapter-id="{{ chapter_item.chapter.id }}">
-                          No scenes yet — drop a scene here
-                        </li>
-                      </ul>
-                    {% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <div class="muted">No chapters yet.</div>
-            {% endif %}
+                        </ul>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <div class="muted">No chapters yet.</div>
+              {% endif %}
+            </details>
           </li>
         {% endfor %}
       </ul>

@@ -823,6 +823,11 @@ class CharacterCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.project = self.project
+        try:
+            form.instance.extra_fields = _parse_character_extra_fields(self.request.POST)
+        except Exception as e:
+            form.add_error(None, str(e))
+            return self.form_invalid(form)
         response = super().form_valid(form)
         messages.success(self.request, "Character created.")
         return response
@@ -830,6 +835,7 @@ class CharacterCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx["extra_rows"] = []
         return ctx
 
     def get_success_url(self):
@@ -848,12 +854,18 @@ class CharacterUpdateView(LoginRequiredMixin, UpdateView):
         return Character.objects.filter(project=self.project)
 
     def form_valid(self, form):
+        try:
+            form.instance.extra_fields = _parse_character_extra_fields(self.request.POST)
+        except Exception as e:
+            form.add_error(None, str(e))
+            return self.form_invalid(form)
         messages.success(self.request, "Character saved.")
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx["extra_rows"] = sorted((self.object.extra_fields or {}).items(), key=lambda kv: kv[0].lower())
         return ctx
 
     def get_success_url(self):
@@ -881,6 +893,25 @@ class CharacterDeleteView(LoginRequiredMixin, DeleteView):
     def form_valid(self, form):
         messages.success(self.request, "Character deleted.")
         return super().form_valid(form)
+
+
+def _parse_character_extra_fields(post_data) -> dict[str, str]:
+    keys = post_data.getlist("extra_key")
+    values = post_data.getlist("extra_value")
+
+    extras: dict[str, str] = {}
+    for k, v in zip(keys, values):
+        key = (k or "").strip()
+        value = (v or "").strip()
+        if not key and not value:
+            continue
+        if not key:
+            raise ValueError("Field name cannot be blank.")
+        if key in extras:
+            raise ValueError(f"Duplicate field name: {key}")
+        extras[key] = value
+
+    return extras
 
 
 def _parse_location_objects(post_data) -> dict[str, str]:

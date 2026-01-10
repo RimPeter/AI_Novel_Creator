@@ -12,13 +12,16 @@
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
       <div class="actions">
+        {% if object %}
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+        {% endif %}
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Back</a>
       </div>
     </div>
 
     <p class="muted">Project: <strong>{{ project.title }}</strong></p>
 
-    <form method="post" class="form">
+    <form method="post" class="form" data-dirty-guard="true">
       {% csrf_token %}
 
       {% if form.non_field_errors %}
@@ -49,6 +52,33 @@
         </div>
       {% endfor %}
 
+      <hr class="outline-sep" />
+      <div class="header-row">
+        <h2 class="h2">Extra fields</h2>
+        <div class="actions">
+          <button class="btn btn-secondary btn-sm" type="button" id="add-character-field">Add field</button>
+        </div>
+      </div>
+      <p class="muted">Add custom traits or notes as key/value pairs.</p>
+
+      <div id="character-extra-rows">
+        {% if extra_rows %}
+          {% for k, v in extra_rows %}
+            <div class="object-row">
+              <input class="form-control" name="extra_key" type="text" value="{{ k }}" placeholder="Field name" />
+              <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value">{{ v }}</textarea>
+              <button class="btn btn-secondary btn-sm remove-extra-row" type="button">Remove</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="object-row">
+            <input class="form-control" name="extra_key" type="text" placeholder="Field name" />
+            <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value"></textarea>
+            <button class="btn btn-secondary btn-sm remove-extra-row" type="button">Remove</button>
+          </div>
+        {% endif %}
+      </div>
+
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
         <button class="btn btn-secondary" type="button" id="character-brainstorm-btn">Brainstorm</button>
@@ -62,4 +92,6 @@
   </section>
 
   <script src="{% static 'main/character_brainstorm.js' %}" defer></script>
+  <script src="{% static 'main/character_extra_fields.js' %}" defer></script>
+  <script src="{% static 'main/form_dirty_guard.js' %}" defer></script>
 {% endblock %}

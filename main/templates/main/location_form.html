@@ -13,6 +13,9 @@
       <div class="header-row">
         <h1>{% if object %}Edit{% else %}New{% endif %} location</h1>
         <div class="actions">
+        {% if object %}
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+        {% endif %}
         {% if next_url %}
           <a class="btn btn-secondary" href="{{ next_url }}">Back</a>
         {% else %}
@@ -23,7 +26,7 @@
 
     <p class="muted">Project: <strong>{{ project.title }}</strong></p>
 
-    <form method="post" class="form" id="location-form">
+    <form method="post" class="form" id="location-form" data-dirty-guard="true">
       {% csrf_token %}
 
       {% if form.non_field_errors %}
@@ -98,4 +101,5 @@
   <script src="{% static 'main/location_objects.js' %}" defer></script>
   <script src="{% static 'main/location_description_ai.js' %}" defer></script>
   <script src="{% static 'main/location_extract_objects.js' %}" defer></script>
+  <script src="{% static 'main/form_dirty_guard.js' %}" defer></script>
 {% endblock %}

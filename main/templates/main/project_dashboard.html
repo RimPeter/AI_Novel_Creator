@@ -9,6 +9,7 @@
       <h1>{{ project.title }}</h1>
       <div class="actions">
         <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a>
+        <a class="btn btn-secondary" href="{% url 'full-novel' slug=project.slug %}">Full novel</a>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
         <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
         <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
@@ -32,6 +33,10 @@
       <div class="dl-row">
         <dt>Target word count</dt>
         <dd>{{ project.target_word_count }}</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Current word count</dt>
+        <dd>{{ current_word_count }}</dd>
       </div>
     </dl>
 
@@ -71,7 +76,7 @@
     </details>
   </section>
 
-  <section class="card">
+  {% comment %} <section class="card">
     <details class="collapsible">
       <summary class="collapsible-summary">
         <span class="collapsible-title">Recent runs</span>
@@ -100,7 +105,7 @@
         <p class="muted">No runs yet.</p>
       {% endif %}
     </details>
-  </section>
+  </section> {% endcomment %}
 
   <section
     class="card"

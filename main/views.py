@@ -1380,6 +1380,15 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             outline_tree.append({"act": act, "chapters": chapters})
 
         ctx["outline_tree"] = outline_tree
+        rendered_texts = OutlineNode.objects.filter(
+            project=project,
+            node_type=OutlineNode.NodeType.SCENE,
+        ).values_list("rendered_text", flat=True)
+        current_word_count = 0
+        for text in rendered_texts:
+            if text:
+                current_word_count += len(str(text).split())
+        ctx["current_word_count"] = current_word_count
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -1400,6 +1409,52 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             messages.error(request, "Unknown action.")
 
         return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
+
+
+class FullNovelView(LoginRequiredMixin, DetailView):
+    model = NovelProject
+    template_name = "main/full_novel.html"
+    slug_field = "slug"
+    slug_url_kwarg = "slug"
+    context_object_name = "project"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        project = self.object
+
+        nodes = (
+            OutlineNode.objects.filter(project=project)
+            .only("id", "node_type", "parent_id", "order", "created_at", "rendered_text")
+            .order_by("parent_id", "order", "created_at")
+        )
+
+        acts = []
+        chapters_by_act = {}
+        scenes_by_chapter = {}
+
+        for n in nodes:
+            if n.node_type == OutlineNode.NodeType.ACT:
+                acts.append(n)
+                chapters_by_act.setdefault(n.id, [])
+            elif n.node_type == OutlineNode.NodeType.CHAPTER and n.parent_id:
+                chapters_by_act.setdefault(n.parent_id, []).append(n)
+                scenes_by_chapter.setdefault(n.id, [])
+            elif n.node_type == OutlineNode.NodeType.SCENE and n.parent_id:
+                scenes_by_chapter.setdefault(n.parent_id, []).append(n)
+
+        scene_texts = []
+        for act in acts:
+            for chapter in chapters_by_act.get(act.id, []):
+                for scene in scenes_by_chapter.get(chapter.id, []):
+                    text = (scene.rendered_text or "").strip()
+                    if text:
+                        scene_texts.append(text)
+
+        ctx["full_text"] = "\n\n".join(scene_texts)
+        return ctx
 
 
 class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):

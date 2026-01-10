@@ -25,6 +25,7 @@ urlpatterns = [
     path("projects/<slug:slug>/locations/<uuid:pk>/edit/", views.LocationUpdateView.as_view(), name="location-edit"),
     path("projects/<slug:slug>/locations/<uuid:pk>/delete/", views.LocationDeleteView.as_view(), name="location-delete"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
+    path("projects/<slug:slug>/full-novel/", views.FullNovelView.as_view(), name="full-novel"),
     path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
     path(
         "projects/<slug:slug>/outline/chapters/new/<uuid:act_id>/",

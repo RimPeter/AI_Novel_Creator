@@ -525,6 +525,7 @@ dd {
 textarea.auto-grow {
   overflow: hidden;
   resize: none;
+  min-height: 260px;
 }
 
 .auto-grow {

@@ -1,0 +1,21 @@
+{% extends "main/base.html" %}
+
+{% block title %}Full novel | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <div class="header-row">
+      <h1>Full novel</h1>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Back</a>
+      </div>
+    </div>
+
+    {% if full_text %}
+      <div class="muted">All final scenes stitched together.</div>
+      <p class="pre">{{ full_text }}</p>
+    {% else %}
+      <p class="muted">No final text yet. Render scenes first.</p>
+    {% endif %}
+  </section>
+{% endblock %}

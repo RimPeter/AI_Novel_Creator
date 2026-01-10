@@ -839,6 +839,9 @@ class CharacterCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
     def get_success_url(self):
+        next_url = (self.request.GET.get("next") or "").strip()
+        if next_url:
+            return next_url
         return reverse_lazy("character-list", kwargs={"slug": self.project.slug})
 
 
@@ -1485,6 +1488,23 @@ class OutlineSceneCreateView(LoginRequiredMixin, CreateView):
         ctx["project"] = self.project
         ctx["parent_node"] = self.chapter
         ctx["node_kind"] = "scene"
+        ctx["character_list"] = Character.objects.filter(project=self.project).order_by("name")
+        form = ctx.get("form")
+        selected = []
+        if form is not None and "characters" in form.fields:
+            raw = form["characters"].value()
+            if raw:
+                if isinstance(raw, (list, tuple)):
+                    selected = [str(val) for val in raw]
+                else:
+                    selected = [str(raw)]
+        ctx["selected_character_ids"] = selected
+        if selected:
+            ctx["selected_character_names"] = list(
+                Character.objects.filter(project=self.project, id__in=selected).order_by("name").values_list("name", flat=True)
+            )
+        else:
+            ctx["selected_character_names"] = []
         return ctx
 
     def get_form_kwargs(self):
@@ -1547,6 +1567,26 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
         ctx["project"] = self.project
         ctx["parent_node"] = obj.parent
         ctx["node_kind"] = "chapter" if obj.node_type == OutlineNode.NodeType.CHAPTER else "scene"
+        if obj.node_type == OutlineNode.NodeType.SCENE:
+            ctx["character_list"] = Character.objects.filter(project=self.project).order_by("name")
+            form = ctx.get("form")
+            selected = []
+            if form is not None and "characters" in form.fields:
+                raw = form["characters"].value()
+                if raw:
+                    if isinstance(raw, (list, tuple)):
+                        selected = [str(val) for val in raw]
+                    else:
+                        selected = [str(raw)]
+            ctx["selected_character_ids"] = selected
+            if selected:
+                ctx["selected_character_names"] = list(
+                    Character.objects.filter(project=self.project, id__in=selected)
+                    .order_by("name")
+                    .values_list("name", flat=True)
+                )
+            else:
+                ctx["selected_character_names"] = []
         return ctx
 
     def form_valid(self, form):
@@ -1593,20 +1633,20 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 scene.save()
                 messages.success(request, "Structurized scene summary into JSON.")
             else:
-                try:
-                    structure = parse_scene_structure_json(scene.structure_json)
-                except Exception as e:
-                    form.add_error("structure_json", str(e))
+                raw_draft = (scene.structure_json or "").strip()
+                if not raw_draft:
+                    form.add_error("structure_json", "Add a draft first.")
                     return self.form_invalid(form)
+
                 prompt = "\n".join(
                     [
-                        "Write a single scene as polished novel prose (no bullet points, no JSON, no markdown headings).",
+                        "Rewrite the draft into polished novel prose (no bullet points, no JSON, no markdown headings).",
                         "Write in continuous prose with paragraphs; do not include section headers.",
-                        "Keep it grounded in the provided structure; preserve POV/location notes when present, but do not label them.",
+                        "Preserve the story beats, POV, and location implied by the draft.",
                         "Avoid meta commentary and avoid explaining what you are doing.",
                         "",
-                        "Scene structure (JSON):",
-                        scene.structure_json.strip(),
+                        "Draft:",
+                        raw_draft,
                     ]
                 ).strip()
 
@@ -1615,19 +1655,19 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         prompt=prompt,
                         model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
                         params={
-                            "temperature": 0.8,
+                            "temperature": 0.7,
                             "max_tokens": 1200,
                         },
                     )
                     scene.rendered_text = (result.text or "").strip() + "\n"
                     scene.save()
-                    messages.success(request, "Rendered novel prose from structure JSON.")
+                    messages.success(request, "Rendered novel prose from draft.")
                 except Exception:
-                    scene.rendered_text = render_scene_from_structure(structure)
+                    scene.rendered_text = raw_draft + ("\n" if not raw_draft.endswith("\n") else "")
                     scene.save()
                     messages.warning(
                         request,
-                        "OpenAI render failed; saved a local placeholder draft instead. Check your model/API settings and try again.",
+                        "OpenAI render failed; saved the draft as rendered prose instead. Check your model/API settings and try again.",
                     )
 
             return HttpResponseRedirect(

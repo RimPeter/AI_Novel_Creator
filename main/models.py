@@ -130,6 +130,7 @@ class OutlineNode(TimeStampedModel):
     tags = models.JSONField(blank=True, default=list)
     structure_json = models.TextField(blank=True, default="")
     rendered_text = models.TextField(blank=True, default="")
+    characters = models.JSONField(blank=True, default=list)
 
     class Meta:
         ordering = ["project", "parent_id", "order", "created_at"]

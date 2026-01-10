@@ -76,6 +76,25 @@ class OutlineChapterForm(forms.ModelForm):
 
 class OutlineSceneForm(forms.ModelForm):
     LOCATION_CREATE_SENTINEL = "__create__"
+    structure_json = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 14,
+                "placeholder": "Write the scene draft here in prose.",
+            }
+        ),
+        label="Draft",
+        help_text="Draft prose (editable).",
+    )
+    characters = forms.ModelMultipleChoiceField(
+        queryset=Character.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "checkbox-list"}),
+        label="Characters",
+        help_text="Tick all characters who appear in this scene.",
+    )
 
     class Meta:
         model = OutlineNode
@@ -85,6 +104,7 @@ class OutlineSceneForm(forms.ModelForm):
             "summary",
             "pov",
             "location",
+            "characters",
             "structure_json",
             "rendered_text",
         ]
@@ -93,17 +113,9 @@ class OutlineSceneForm(forms.ModelForm):
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "pov": forms.TextInput(attrs={"class": "form-control"}),
-            "structure_json": forms.Textarea(
-                attrs={
-                    "class": "form-control",
-                    "rows": 14,
-                    "placeholder": '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "...",\n  "pov": "",\n  "location": "",\n  "beats": ["...", "..."]\n}',
-                }
-            ),
             "rendered_text": forms.Textarea(attrs={"class": "form-control", "rows": 18}),
         }
         help_texts = {
-            "structure_json": "Scene structure JSON (editable).",
             "rendered_text": "Rendered scene prose (editable).",
         }
 
@@ -111,6 +123,15 @@ class OutlineSceneForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         resolved_project = project or getattr(self.instance, "project", None)
+        characters_field = self.fields.get("characters")
+        if characters_field is not None and resolved_project:
+            characters_qs = Character.objects.filter(project=resolved_project).order_by("name")
+            characters_field.queryset = characters_qs
+            selected = [str(pk) for pk in (getattr(self.instance, "characters", None) or [])]
+            if selected:
+                valid_ids = list(characters_qs.filter(id__in=selected).values_list("id", flat=True))
+                self.initial.setdefault("characters", valid_ids)
+
         location_field = self.fields.get("location")
         if location_field is None:
             return
@@ -146,14 +167,18 @@ class OutlineSceneForm(forms.ModelForm):
         return value
 
     def clean_structure_json(self):
-        value = self.cleaned_data.get("structure_json") or ""
-        if not value.strip():
-            return ""
-        try:
-            json.loads(value)
-        except Exception as e:
-            raise forms.ValidationError(f"Invalid JSON: {e}")
-        return value
+        return self.cleaned_data.get("structure_json") or ""
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        characters = self.cleaned_data.get("characters")
+        if characters is not None:
+            instance.characters = [str(pk) for pk in characters.values_list("id", flat=True)]
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
 
 
 class CharacterForm(forms.ModelForm):

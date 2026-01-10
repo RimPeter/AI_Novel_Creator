@@ -50,7 +50,86 @@
             {# Only show structure/render fields when editing an existing scene. #}
           {% endif %}
         {% else %}
-          {% if node_kind == "scene" and field.name == "location" %}
+          {% if node_kind == "scene" and field.name == "characters" %}
+            <div class="form-row">
+              <div class="form-label-row">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <div class="actions">
+                  <a
+                    class="btn btn-secondary btn-sm"
+                    href="{% url 'character-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
+                  >New character</a>
+                </div>
+              </div>
+              {% if character_list %}
+                <details class="multi-select">
+                  <summary class="multi-select-summary form-control">
+                    {% if selected_character_ids %}
+                      {{ selected_character_ids|length }} selected
+                    {% else %}
+                      Select characters
+                    {% endif %}
+                  </summary>
+                  <div class="multi-select-list">
+                    <ul class="checkbox-list">
+                      {% for character in character_list %}
+                        {% with char_id=character.id|stringformat:"s" %}
+                          <li>
+                            <label>
+                              <input
+                                type="checkbox"
+                                name="characters"
+                                value="{{ char_id }}"
+                                data-character-name="{{ character.name }}"
+                                {% if char_id in selected_character_ids %}checked{% endif %}
+                              />
+                              {{ character.name }}
+                            </label>
+                          </li>
+                        {% endwith %}
+                      {% endfor %}
+                    </ul>
+                  </div>
+                </details>
+                {% comment %} <div class="muted">Tick all characters who appear in this scene.</div> {% endcomment %}
+              {% else %}
+                <div class="muted">No characters yet. Add one first.</div>
+              {% endif %}
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% elif node_kind == "scene" and field.name == "pov" %}
+            <div class="form-row">
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              <select class="form-control pov-select" name="pov" id="{{ field.id_for_label }}">
+                {% if selected_character_names %}
+                  <option value="">Select POV</option>
+                  {% for name in selected_character_names %}
+                    <option value="{{ name }}" {% if field.value == name %}selected{% endif %}>{{ name }}</option>
+                  {% endfor %}
+                  {% if field.value and field.value not in selected_character_names %}
+                    <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
+                  {% endif %}
+                {% else %}
+                  <option value="">Select characters first</option>
+                  {% if field.value %}
+                    <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
+                  {% endif %}
+                {% endif %}
+              </select>
+              <div class="muted">POV options update based on selected characters.</div>
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% elif node_kind == "scene" and field.name == "location" %}
             <div class="form-row">
               <div class="form-label-row">
                 <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -100,6 +179,7 @@
 
   {% if node_kind == "scene" %}
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
+    <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
     {% if object %}
       <script src="{% static 'main/scene_brainstorm.js' %}" defer></script>
     {% endif %}

@@ -52,21 +52,23 @@
   </section>
 
   <section class="card">
-    <div class="header-row">
-      <h1>Story bible</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'bible-edit' slug=project.slug %}">Edit bible</a>
-        {% if bible %}
-          <span class="muted">Updated {{ bible.updated_at }}</span>
-        {% endif %}
-      </div>
-    </div>
+    <details class="collapsible" open>
+      <summary class="collapsible-summary">
+        <span class="collapsible-title">Story bible</span>
+        <span class="actions">
+          <a class="btn btn-secondary btn-sm" href="{% url 'bible-edit' slug=project.slug %}">Edit bible</a>
+          {% if bible %}
+            <span class="muted">Updated {{ bible.updated_at }}</span>
+          {% endif %}
+        </span>
+      </summary>
 
-    {% if bible and bible.summary_md %}
-      <p class="pre">{{ bible.summary_md }}</p>
-    {% else %}
-      <p class="muted">No story bible yet. Click "Generate bible".</p>
-    {% endif %}
+      {% if bible and bible.summary_md %}
+        <p class="pre">{{ bible.summary_md }}</p>
+      {% else %}
+        <p class="muted">No story bible yet. Click "Generate bible".</p>
+      {% endif %}
+    </details>
   </section>
 
   <section class="card">
@@ -100,7 +102,11 @@
     </details>
   </section>
 
-  <section class="card" data-scene-move-url="{% url 'scene-move' slug=project.slug %}">
+  <section
+    class="card"
+    data-scene-move-url="{% url 'scene-move' slug=project.slug %}"
+    data-scene-rename-url="{% url 'scene-rename' slug=project.slug %}"
+  >
     <div class="header-row">
       <h1>Outline</h1>
       <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit project</a>
@@ -138,13 +144,20 @@
                           {% for scene in chapter_item.scenes %}
                             <li class="scene-item" data-scene-id="{{ scene.id }}" data-chapter-id="{{ chapter_item.chapter.id }}">
                               <div class="outline-row">
-                                <span class="scene-drag" draggable="true" title="Drag to move">
-                                  {{ scene.title|default:"(Untitled scene)" }}
+                                <span class="scene-left">
+                                  <span class="scene-drag" draggable="true" title="Drag to move">Drag</span>
+                                  <input
+                                    class="scene-title-input"
+                                    type="text"
+                                    value="{{ scene.title }}"
+                                    placeholder="(Untitled scene)"
+                                    aria-label="Scene title"
+                                  />
                                   {% if scene.pov or scene.location %}
                                     <span class="muted">
                                       {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
                                       {% if scene.pov and scene.location %} / {% endif %}
-                                      {% if scene.location %}{{ scene.location }}{% endif %}
+                                      
                                     </span>
                                   {% endif %}
                                 </span>
@@ -179,4 +192,5 @@
   </section>
 
   <script src="{% static 'main/outline_dragdrop.js' %}" defer></script>
+  <script src="{% static 'main/outline_scene_title.js' %}" defer></script>
 {% endblock %}

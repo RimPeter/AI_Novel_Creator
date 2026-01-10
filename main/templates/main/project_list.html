@@ -18,6 +18,7 @@
               <div class="muted">/{{ project.slug }}/</div>
             </div>
             <div class="actions">
+              <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
               <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
               <a class="btn btn-secondary" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
             </div>

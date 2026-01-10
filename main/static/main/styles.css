@@ -428,6 +428,29 @@ dd {
   border-radius: 12px;
 }
 
+.scene-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.scene-title-input {
+  width: min(520px, 70vw);
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.28);
+  background: rgba(127, 127, 127, 0.06);
+  color: inherit;
+  font: inherit;
+}
+
+.scene-title-input:focus {
+  outline: 2px solid rgba(90, 140, 255, 0.55);
+  outline-offset: 2px;
+}
+
 .drop-over {
   outline: 2px solid rgba(90, 140, 255, 0.55);
   outline-offset: 4px;

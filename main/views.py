@@ -497,6 +497,35 @@ def move_scene(request, slug):
 
 @require_POST
 @login_required
+def rename_scene_title(request, slug):
+    project = _get_project_for_user(request, slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    scene_id = request.POST.get("scene_id")
+    title = (request.POST.get("title") or "").strip()
+
+    if not scene_id:
+        return JsonResponse({"ok": False, "error": "Missing scene_id."}, status=400)
+    if len(title) > 255:
+        return JsonResponse({"ok": False, "error": "Title is too long (max 255 characters)."}, status=400)
+
+    scene = get_object_or_404(
+        OutlineNode,
+        id=scene_id,
+        project=project,
+        node_type=OutlineNode.NodeType.SCENE,
+    )
+    scene.title = title
+    scene.save(update_fields=["title", "updated_at"])
+    return JsonResponse({"ok": True, "title": scene.title})
+
+
+@require_POST
+@login_required
 def brainstorm_character(request, slug):
     project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (

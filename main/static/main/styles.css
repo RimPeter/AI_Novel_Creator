@@ -475,6 +475,58 @@ dd {
   gap: 8px;
 }
 
+.draft-editor {
+  position: relative;
+}
+
+.draft-highlight,
+.draft-input {
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.draft-highlight {
+  position: absolute;
+  inset: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  overflow: auto;
+  pointer-events: none;
+  scrollbar-width: none;
+}
+
+.draft-highlight::-webkit-scrollbar {
+  display: none;
+}
+
+.draft-input {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  caret-color: #f3f4f6;
+  border-color: transparent;
+}
+
+.draft-highlight-token {
+  background: rgba(46, 204, 113, 0.35);
+  border-radius: 4px;
+}
+
+.draft-placeholder {
+  opacity: 0.5;
+}
+
+@media (prefers-color-scheme: light) {
+  .draft-input {
+    caret-color: #101114;
+  }
+}
+
 .object-row {
   display: grid;
   grid-template-columns: 1fr 2fr auto;

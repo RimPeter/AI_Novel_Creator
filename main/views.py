@@ -947,6 +947,29 @@ def _extract_json_object(raw: str) -> str:
     return text[start : end + 1]
 
 
+_BRACE_SEGMENT_RE = re.compile(r"\{[^{}]*\}")
+
+
+def _mask_braced_segments(text: str) -> tuple[str, list[str]]:
+    segments = []
+
+    def repl(match):
+        segments.append(match.group(0))
+        return f"<<KEEP_{len(segments) - 1}>>"
+
+    return _BRACE_SEGMENT_RE.sub(repl, text), segments
+
+
+def _restore_braced_segments(text: str, segments: list[str]) -> tuple[str, bool]:
+    restored = text
+    for idx, segment in enumerate(segments):
+        token = f"<<KEEP_{idx}>>"
+        if token not in restored:
+            return text, False
+        restored = restored.replace(token, segment)
+    return restored, True
+
+
 @require_POST
 @login_required
 def brainstorm_location_description(request, slug):
@@ -1411,7 +1434,7 @@ class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
         return response
 
     def get_success_url(self):
-        return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
+        return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
 
 
 class OutlineChapterCreateView(LoginRequiredMixin, CreateView):
@@ -1455,7 +1478,7 @@ class OutlineChapterCreateView(LoginRequiredMixin, CreateView):
         return response
 
     def get_success_url(self):
-        return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
+        return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
 
 
 class OutlineSceneCreateView(LoginRequiredMixin, CreateView):
@@ -1530,7 +1553,7 @@ class OutlineSceneCreateView(LoginRequiredMixin, CreateView):
         return response
 
     def get_success_url(self):
-        return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
+        return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
 
 
 class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
@@ -1591,10 +1614,13 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
 
     def form_valid(self, form):
         messages.success(self.request, "Saved.")
-        return super().form_valid(form)
+        self.object = form.save()
+        return HttpResponseRedirect(
+            reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
+        )
 
     def get_success_url(self):
-        return reverse_lazy("project-dashboard", kwargs={"slug": self.project.slug})
+        return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -1605,7 +1631,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 create_url = reverse("location-create", kwargs={"slug": self.project.slug})
                 return HttpResponseRedirect(_add_query_params(create_url, next=request.get_full_path()))
 
-        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render"}:
+        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render", "reshuffle"}:
             if action == "structurize":
                 data = request.POST.copy()
                 data.pop("structure_json", None)
@@ -1624,14 +1650,88 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 if not summary:
                     form.add_error("summary", "Add a scene summary first.")
                     return self.form_invalid(form)
-                scene.structure_json = structurize_scene(
-                    title=scene.title,
-                    summary=summary,
-                    pov=scene.pov,
-                    location=scene.location,
-                )
-                scene.save()
-                messages.success(request, "Structurized scene summary into JSON.")
+
+                prompt_lines = [
+                    "Write a rough scene draft in prose (no bullet points, no JSON, no markdown headings).",
+                    "Write in continuous prose with paragraphs; do not include section headers.",
+                    "Keep it grounded in the provided summary, POV, and location when available.",
+                    "Avoid meta commentary and avoid explaining what you are doing.",
+                    "",
+                    "Title: " + (scene.title or ""),
+                    "POV: " + (scene.pov or ""),
+                    "Location: " + (scene.location or ""),
+                    "Summary: " + summary,
+                ]
+                bible_lines = _get_story_bible_context(scene.project)
+                if bible_lines:
+                    prompt_lines.append("")
+                    prompt_lines.extend(bible_lines)
+                prompt = "\n".join(prompt_lines).strip()
+
+                try:
+                    result = call_llm(
+                        prompt=prompt,
+                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                        params={"temperature": 0.7, "max_tokens": 900},
+                    )
+                    scene.structure_json = (result.text or "").strip()
+                    scene.save()
+                    messages.success(request, "Generated draft from scene summary.")
+                except Exception:
+                    scene.structure_json = summary
+                    scene.save()
+                    messages.warning(
+                        request,
+                        "OpenAI draft failed; saved the summary as a placeholder draft instead. Check your model/API settings and try again.",
+                    )
+            elif action == "reshuffle":
+                raw_draft = (scene.structure_json or "").strip()
+                if not raw_draft:
+                    form.add_error("structure_json", "Add a draft first.")
+                    return self.form_invalid(form)
+
+                masked_draft, segments = _mask_braced_segments(raw_draft)
+                prompt_lines = [
+                    "Rewrite the draft into a fresh version with different phrasing (no bullet points, no JSON, no markdown headings).",
+                    "Write in continuous prose with paragraphs; do not include section headers.",
+                    "Preserve the story beats, POV, and location implied by the draft.",
+                    "Avoid meta commentary and avoid explaining what you are doing.",
+                    "Do not change any <<KEEP_N>> tokens.",
+                    "",
+                    "Draft:",
+                    masked_draft,
+                ]
+                bible_lines = _get_story_bible_context(scene.project)
+                if bible_lines:
+                    prompt_lines.append("")
+                    prompt_lines.extend(bible_lines)
+                prompt = "\n".join(prompt_lines).strip()
+
+                try:
+                    result = call_llm(
+                        prompt=prompt,
+                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                        params={"temperature": 0.8, "max_tokens": 900},
+                    )
+                    reshuffled = (result.text or "").strip()
+                    if segments:
+                        reshuffled, ok = _restore_braced_segments(reshuffled, segments)
+                        if not ok:
+                            messages.warning(
+                                request,
+                                "Reshuffle ignored protected text; kept the existing draft. Try again.",
+                            )
+                            return HttpResponseRedirect(
+                                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                            )
+                    scene.structure_json = reshuffled
+                    scene.save()
+                    messages.success(request, "Reshuffled draft.")
+                except Exception:
+                    messages.warning(
+                        request,
+                        "OpenAI reshuffle failed; kept the existing draft. Check your model/API settings and try again.",
+                    )
             else:
                 raw_draft = (scene.structure_json or "").strip()
                 if not raw_draft:

@@ -88,8 +88,8 @@ class OutlineSceneForm(forms.ModelForm):
         label="Draft",
         help_text="Draft prose (editable).",
     )
-    characters = forms.ModelMultipleChoiceField(
-        queryset=Character.objects.none(),
+    characters = forms.MultipleChoiceField(
+        choices=[],
         required=False,
         widget=forms.CheckboxSelectMultiple(attrs={"class": "checkbox-list"}),
         label="Characters",
@@ -126,11 +126,11 @@ class OutlineSceneForm(forms.ModelForm):
         characters_field = self.fields.get("characters")
         if characters_field is not None and resolved_project:
             characters_qs = Character.objects.filter(project=resolved_project).order_by("name")
-            characters_field.queryset = characters_qs
+            characters_field.choices = [(str(obj.id), obj.name) for obj in characters_qs]
             selected = [str(pk) for pk in (getattr(self.instance, "characters", None) or [])]
             if selected:
-                valid_ids = list(characters_qs.filter(id__in=selected).values_list("id", flat=True))
-                self.initial.setdefault("characters", valid_ids)
+                valid_ids = set(characters_qs.filter(id__in=selected).values_list("id", flat=True))
+                self.initial.setdefault("characters", [str(pk) for pk in valid_ids])
 
         location_field = self.fields.get("location")
         if location_field is None:
@@ -173,7 +173,7 @@ class OutlineSceneForm(forms.ModelForm):
         instance = super().save(commit=False)
         characters = self.cleaned_data.get("characters")
         if characters is not None:
-            instance.characters = [str(pk) for pk in characters.values_list("id", flat=True)]
+            instance.characters = [str(pk) for pk in characters]
         if commit:
             instance.save()
             self.save_m2m()

@@ -37,8 +37,36 @@
         {% if field.name == "structure_json" or field.name == "rendered_text" %}
           {% if node_kind == "scene" and object %}
             <div class="form-row">
-              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              {{ field }}
+              {% if field.name == "structure_json" %}
+                <div class="form-label-row">
+                  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  <div class="actions">
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      type="submit"
+                      name="action"
+                      value="structurize"
+                      data-confirm="Will erase all text from draft!!"
+                    >
+                      Draft from Summary
+                    </button>
+                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Reshuffle</button>
+                  </div>
+                </div>
+                <div class="draft-editor" data-draft-editor>
+                  <div class="draft-highlight" aria-hidden="true"></div>
+                  <textarea
+                    class="form-control draft-input"
+                    name="{{ field.html_name }}"
+                    id="{{ field.id_for_label }}"
+                    rows="14"
+                    data-placeholder="{{ field.field.widget.attrs.placeholder|default:'' }}"
+                  >{{ field.value|default_if_none:'' }}</textarea>
+                </div>
+              {% else %}
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+              {% endif %}
               {% if field.help_text %}
                 <div class="muted">{{ field.help_text }}</div>
               {% endif %}
@@ -169,7 +197,6 @@
         {% if object and node_kind == "scene" %}
           <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
           <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
-          <button class="btn btn-secondary" type="submit" name="action" value="structurize">Structurize</button>
           <button class="btn btn-secondary" type="submit" name="action" value="render">Render</button>
         {% endif %}
         <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
@@ -180,6 +207,8 @@
   {% if node_kind == "scene" %}
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
     <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
+    <script src="{% static 'main/scene_draft_highlight.js' %}" defer></script>
+    <script src="{% static 'main/confirm_actions.js' %}" defer></script>
     {% if object %}
       <script src="{% static 'main/scene_brainstorm.js' %}" defer></script>
     {% endif %}

@@ -27,7 +27,18 @@
 
       {% for field in form %}
         <div class="form-row">
-          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <div class="form-label-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {% with reject_name="reject_"|add:field.name %}
+              <label class="reject-toggle">
+                <input type="checkbox" name="{{ reject_name }}" />
+                Reject
+                <span class="reject-tooltip" role="tooltip">
+                  Check to regenerate this field when Brainstorming.
+                </span>
+              </label>
+            {% endwith %}
+          </div>
           {{ field }}
           {% if field.help_text %}
             <div class="muted">{{ field.help_text }}</div>

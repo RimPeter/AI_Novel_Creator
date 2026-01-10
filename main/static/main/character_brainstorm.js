@@ -54,6 +54,33 @@
 
   const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
 
+  const buildParams = (rejected) => {
+    const params = new URLSearchParams(new FormData(form));
+    if (rejected) {
+      for (const field of rejected) {
+        const key = `reject_${field}`;
+        if (!params.has(key)) params.append(key, "on");
+      }
+    }
+    return params;
+  };
+
+  const getRejectedFields = () => {
+    const rejected = new Set();
+    for (const name of FIELD_NAMES) {
+      const checkbox = form.querySelector(`[name="reject_${name}"]`);
+      if (checkbox?.checked) rejected.add(name);
+    }
+    return rejected;
+  };
+
+  const clearRejectedCheckboxes = () => {
+    for (const name of FIELD_NAMES) {
+      const checkbox = form.querySelector(`[name="reject_${name}"]`);
+      if (checkbox) checkbox.checked = false;
+    }
+  };
+
   const getCurrentValues = () => {
     const values = {};
     for (const name of FIELD_NAMES) {
@@ -64,12 +91,12 @@
     return values;
   };
 
-  const fillEmptyFields = (suggestions) => {
+  const fillEmptyFields = (suggestions, rejected) => {
     let filled = 0;
     for (const [name, value] of Object.entries(suggestions || {})) {
       const el = getFieldEl(name);
       if (!el) continue;
-      if ((el.value || "").trim()) continue;
+      if (!rejected?.has?.(name) && (el.value || "").trim()) continue;
       if (value === null || value === undefined) continue;
       const next = String(value).trim();
       if (!next) continue;
@@ -80,14 +107,10 @@
   };
 
   const postForSuggestions = async (postUrl) => {
-    const current = getCurrentValues();
+    const rejected = getRejectedFields();
+    const params = buildParams(rejected);
 
     try {
-      const params = new URLSearchParams();
-      for (const name of FIELD_NAMES) {
-        params.set(name, current[name] || "");
-      }
-
       const res = await fetch(postUrl, {
         method: "POST",
         headers: {
@@ -115,8 +138,9 @@
 
   btn.addEventListener("click", async () => {
     const current = getCurrentValues();
-    const empties = FIELD_NAMES.filter((name) => !current[name]);
-    if (!empties.length) {
+    const rejected = getRejectedFields();
+    const empties = FIELD_NAMES.filter((name) => !current[name] || rejected.has(name));
+    if (!empties.length && rejected.size === 0) {
       showMessage("Nothing to fill — all fields already have values.", "info");
       return;
     }
@@ -128,10 +152,11 @@
     try {
       const suggestions = await postForSuggestions(url);
       if (!suggestions) return;
-      const filled = fillEmptyFields(suggestions);
+      const filled = fillEmptyFields(suggestions, rejected);
       if (!filled) showMessage("No suggestions returned for empty fields.", "warning");
       else showMessage(`Filled ${filled} field(s).`, "success");
     } finally {
+      clearRejectedCheckboxes();
       btn.disabled = false;
       btn.textContent = originalText;
     }

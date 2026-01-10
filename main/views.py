@@ -160,6 +160,10 @@ def brainstorm_project(request, slug):
     ]
 
     current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    rejected = {k for k in allowed_fields if request.POST.get(f"reject_{k}")}
+    if rejected:
+        for k in rejected:
+            current[k] = ""
     empty_fields = [k for k in allowed_fields if not current.get(k)]
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
@@ -302,6 +306,10 @@ def brainstorm_scene(request, slug, pk):
     ]
 
     current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    rejected = {k for k in allowed_fields if request.POST.get(f"reject_{k}")}
+    if rejected:
+        for k in rejected:
+            current[k] = ""
     empty_fields = [k for k in allowed_fields if not current.get(k)]
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
@@ -601,6 +609,10 @@ def brainstorm_character(request, slug):
     ]
 
     current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    rejected = {k for k in allowed_fields if request.POST.get(f"reject_{k}")}
+    if rejected:
+        for k in rejected:
+            current[k] = ""
     empty_fields = [k for k in allowed_fields if not current.get(k)]
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})

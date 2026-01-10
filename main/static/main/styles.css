@@ -244,6 +244,55 @@ ul {
   margin-bottom: 0;
 }
 
+.reject-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  opacity: 0.8;
+  position: relative;
+  cursor: help;
+}
+
+.reject-toggle input {
+  accent-color: rgba(212, 68, 68, 0.85);
+}
+
+.reject-tooltip {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: #000000;
+  color: #f3f4f6;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 5;
+}
+
+.reject-toggle:hover .reject-tooltip,
+.reject-toggle:focus-within .reject-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-color-scheme: light) {
+  .reject-tooltip {
+    background: #000000;
+    color: #f3f4f6;
+    box-shadow: 0 6px 18px rgba(10, 10, 10, 0.12);
+  }
+}
+
 .form-control,
 input[type="text"],
 input[type="number"],

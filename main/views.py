@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
@@ -796,7 +796,11 @@ class CharacterListView(LoginRequiredMixin, ListView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = _get_project_for_user(request, kwargs["slug"])
-        return super().dispatch(request, *args, **kwargs)
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        except Http404:
+            messages.warning(request, "That outline item no longer exists. Please pick it from the outline.")
+            return HttpResponseRedirect(reverse("project-edit", kwargs={"slug": self.project.slug}))
 
     def get_queryset(self):
         qs = Character.objects.filter(project=self.project).order_by("name")
@@ -1340,6 +1344,9 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             ctx["bible"] = None
 
         ctx["recent_runs"] = project.runs.order_by("-created_at")[:10]
+
+        if not OutlineNode.objects.filter(project=project).exists():
+            generate_outline(str(project.id))
 
         # Build outline tree in one query, then group in Python
         nodes = (

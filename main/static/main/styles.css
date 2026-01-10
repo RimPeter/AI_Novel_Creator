@@ -389,6 +389,9 @@ dd {
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 12px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  transition: background 0.15s ease;
 }
 
 .collapsible-summary::-webkit-details-marker {
@@ -414,6 +417,9 @@ dd {
   gap: 12px;
   flex-wrap: wrap;
   margin: 6px 0;
+  padding: 4px 6px;
+  border-radius: 12px;
+  transition: background 0.15s ease;
 }
 
 .outline-sep {
@@ -592,9 +598,10 @@ textarea.auto-grow {
   opacity: 0.55;
 }
 
+.collapsible-summary:hover,
+.outline-row:hover,
 .scene-item:hover {
-  background: rgba(127, 127, 127, 0.05);
-  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.08);
 }
 
 .scene-left {

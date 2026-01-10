@@ -64,6 +64,15 @@ a:hover {
   opacity: 0.95;
 }
 
+.nav-user {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: rgba(127, 127, 127, 0.14);
+  font-weight: 700;
+  opacity: 0.85;
+}
+
 .wrap {
   max-width: 900px;
   margin: 0 auto;

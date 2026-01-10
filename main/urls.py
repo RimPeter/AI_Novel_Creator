@@ -8,6 +8,7 @@ urlpatterns = [
     path("projects/new/", views.ProjectCreateView.as_view(), name="project-create"),
     path("projects/<slug:slug>/", views.ProjectDetailView.as_view(), name="project-detail"),
     path("projects/<slug:slug>/edit/", views.ProjectUpdateView.as_view(), name="project-edit"),
+    path("projects/<slug:slug>/delete/", views.ProjectDeleteView.as_view(), name="project-delete"),
     path("projects/<slug:slug>/brainstorm/", views.brainstorm_project, name="project-brainstorm"),
     path("projects/<slug:slug>/add-details/", views.add_project_details, name="project-add-details"),
     path("projects/<slug:slug>/characters/", views.CharacterListView.as_view(), name="character-list"),

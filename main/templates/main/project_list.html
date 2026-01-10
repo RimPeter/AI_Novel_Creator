@@ -17,7 +17,10 @@
               <a class="list-title" href="{% url 'project-detail' slug=project.slug %}">{{ project.title }}</a>
               <div class="muted">/{{ project.slug }}/</div>
             </div>
-            <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+            <div class="actions">
+              <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+              <a class="btn btn-secondary" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
+            </div>
           </li>
         {% endfor %}
       </ul>

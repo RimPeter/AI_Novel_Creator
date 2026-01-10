@@ -9,6 +9,7 @@
       <div class="actions">
         <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
         <a class="btn btn-secondary" href="{% url 'project-edit' slug=object.slug %}">Edit</a>
+        <a class="btn btn-secondary" href="{% url 'project-delete' slug=object.slug %}">Delete</a>
         <a class="btn btn-secondary" href="{% url 'project-list' %}">Back</a>
       </div>
     </div>

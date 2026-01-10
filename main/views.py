@@ -1137,6 +1137,23 @@ class ProjectUpdateView(LoginRequiredMixin, UpdateView):
         return reverse_lazy("project-detail", kwargs={"slug": self.object.slug})
 
 
+class ProjectDeleteView(LoginRequiredMixin, DeleteView):
+    model = NovelProject
+    template_name = "main/project_confirm_delete.html"
+    slug_field = "slug"
+    slug_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
+
+    def get_success_url(self):
+        return reverse_lazy("project-list")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Project deleted.")
+        return super().form_valid(form)
+
+
 class ProjectDashboardView(LoginRequiredMixin, DetailView):
     model = NovelProject
     template_name = "main/project_dashboard.html"

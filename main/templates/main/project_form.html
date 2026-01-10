@@ -43,6 +43,7 @@
         {% if object %}
           <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
           <button class="btn btn-secondary" type="button" id="project-add-details-btn">Add more details</button>
+          <a class="btn btn-secondary" href="{% url 'project-delete' slug=object.slug %}">Delete</a>
         {% endif %}
         <a class="btn btn-secondary" href="{% url 'project-list' %}">Cancel</a>
       </div>

@@ -13,6 +13,9 @@
         <a href="{% url 'account_login' %}">Sign in</a>
         <a href="{% url 'account_signup' %}">Sign up</a>
       {% endif %}
+      {% if user.is_authenticated %}
+        <span class="nav-user">{% firstof user.get_username user.email %}</span>
+      {% endif %}
     </div>
   </div>
 </nav>

@@ -36,6 +36,31 @@ def _get_scene_for_user(request, slug: str, pk) -> OutlineNode:
     )
 
 
+def _get_story_bible_context(project: NovelProject) -> list[str]:
+    try:
+        bible = project.bible
+    except StoryBible.DoesNotExist:
+        return []
+
+    lines = []
+    summary = (bible.summary_md or "").strip()
+    if summary:
+        lines.append("Story bible summary: " + summary)
+
+    constraints = bible.constraints or []
+    if constraints:
+        lines.append("Story bible constraints (JSON): " + json.dumps(constraints, ensure_ascii=False))
+
+    facts = bible.facts or {}
+    if facts:
+        lines.append("Story bible facts (JSON): " + json.dumps(facts, ensure_ascii=False))
+
+    if not lines:
+        return []
+
+    return ["Story bible context:"] + lines
+
+
 def _add_query_params(url: str, **params) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -139,22 +164,29 @@ def brainstorm_project(request, slug):
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's project brainstorming assistant.",
+        "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- Keep genre/tone short (a few words).",
+        "- For seed_idea/style_notes, write concise prose (no bullet points).",
+        "",
+        "Project title: " + (project.title or ""),
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's project brainstorming assistant.",
-            "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- Only include keys that are empty right now: " + ", ".join(empty_fields),
-            "- Keep genre/tone short (a few words).",
-            "- For seed_idea/style_notes, write concise prose (no bullet points).",
-            "",
-            "Project title: " + (project.title or ""),
             "Existing fields (may be blank):",
             json.dumps(current, ensure_ascii=False),
         ]
-    ).strip()
+    )
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(
@@ -201,21 +233,28 @@ def add_project_details(request, slug):
     if not any(current.values()):
         return JsonResponse({"ok": False, "error": "Add at least one project detail first."}, status=400)
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's project development assistant.",
+        "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- For genre/tone: only include if currently blank.",
+        "- For seed_idea/style_notes: provide an additive paragraph (no bullet points).",
+        "",
+        "Project title: " + (project.title or ""),
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's project development assistant.",
-            "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- For genre/tone: only include if currently blank.",
-            "- For seed_idea/style_notes: provide an additive paragraph (no bullet points).",
-            "",
-            "Project title: " + (project.title or ""),
             "Current fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
-    ).strip()
+    )
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(
@@ -267,25 +306,32 @@ def brainstorm_scene(request, slug, pk):
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's scene brainstorming assistant.",
+        "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- For 'title': keep it short and specific.",
+        "- For 'summary': write concise prose (no bullet points).",
+        "- For 'pov': provide a character name or short POV tag.",
+        "- For 'location': provide a short place name.",
+        "",
+        "Project title: " + (scene.project.title or ""),
+        "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
+    ]
+    bible_lines = _get_story_bible_context(scene.project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's scene brainstorming assistant.",
-            "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- Only include keys that are empty right now: " + ", ".join(empty_fields),
-            "- For 'title': keep it short and specific.",
-            "- For 'summary': write concise prose (no bullet points).",
-            "- For 'pov': provide a character name or short POV tag.",
-            "- For 'location': provide a short place name.",
-            "",
-            "Project title: " + (scene.project.title or ""),
-            "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
             "Existing fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
-    ).strip()
+    )
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(
@@ -332,23 +378,30 @@ def add_scene_details(request, slug, pk):
     if not any(current.values()):
         return JsonResponse({"ok": False, "error": "Add at least one scene detail first."}, status=400)
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's scene development assistant.",
+        "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- For 'title': only include if currently blank.",
+        "- For 'pov'/'location': only include if currently blank.",
+        "- For 'summary': provide an additive paragraph (no bullet points).",
+        "",
+        "Project title: " + (scene.project.title or ""),
+        "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
+    ]
+    bible_lines = _get_story_bible_context(scene.project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's scene development assistant.",
-            "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- For 'title': only include if currently blank.",
-            "- For 'pov'/'location': only include if currently blank.",
-            "- For 'summary': provide an additive paragraph (no bullet points).",
-            "",
-            "Project title: " + (scene.project.title or ""),
-            "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
             "Current fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
-    ).strip()
+    )
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(
@@ -552,21 +605,28 @@ def brainstorm_character(request, slug):
     if not empty_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's character assistant.",
+        "Goal: fill in ONLY the currently-empty fields with plausible details that complement the already-filled fields.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- Keep answers concise but useful.",
+        "- 'age' must be an integer (omit it if unsure).",
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's character assistant.",
-            "Goal: fill in ONLY the currently-empty fields with plausible details that complement the already-filled fields.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- Only include keys that are empty right now: " + ", ".join(empty_fields),
-            "- Keep answers concise but useful.",
-            "- 'age' must be an integer (omit it if unsure).",
             "",
             "Existing character fields (may be blank):",
             json.dumps(current, ensure_ascii=False),
         ]
     )
+    prompt = "\n".join(prompt_lines)
 
     try:
         result = call_llm(
@@ -630,23 +690,30 @@ def add_character_details(request, slug):
     if not name:
         return JsonResponse({"ok": False, "error": "Name is required to add details."}, status=400)
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a novelist's character development assistant.",
+        "Goal: refine the character by adding useful, specific detail.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Do NOT change the character's name.",
+        "- For fields that already have text, return ONLY additional text to append (do not rewrite or repeat).",
+        "- For fields that are empty, provide a good starter value when it helps.",
+        "- Keep additions concise but concrete (sensory, behavior, contradictions, tells).",
+        "- 'age' must be an integer (omit if unsure).",
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a novelist's character development assistant.",
-            "Goal: refine the character by adding useful, specific detail.",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown, no extra text).",
-            "- Output an object with only keys from: " + ", ".join(allowed_fields),
-            "- Do NOT change the character's name.",
-            "- For fields that already have text, return ONLY additional text to append (do not rewrite or repeat).",
-            "- For fields that are empty, provide a good starter value when it helps.",
-            "- Keep additions concise but concrete (sensory, behavior, contradictions, tells).",
-            "- 'age' must be an integer (omit if unsure).",
             "",
             "Current character fields:",
             json.dumps(current, ensure_ascii=False),
         ]
     )
+    prompt = "\n".join(prompt_lines)
 
     try:
         result = call_llm(
@@ -857,20 +924,23 @@ def brainstorm_location_description(request, slug):
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
-    prompt = "\n".join(
-        [
-            "You are a worldbuilding assistant for a novelist.",
-            "Write a vivid but concise location description (2–5 short paragraphs).",
-            "Use sensory detail, atmosphere, and concrete specifics. Avoid bullet points.",
-            "",
-            "Return STRICT JSON only (no markdown), in the form:",
-            '{"description": "..."}',
-            "",
-            "Project title: " + (project.title or ""),
-            "Location name: " + name,
-            "Known objects (JSON map): " + json.dumps(objects_map, ensure_ascii=False),
-        ]
-    ).strip()
+    prompt_lines = [
+        "You are a worldbuilding assistant for a novelist.",
+        "Write a vivid but concise location description (2–5 short paragraphs).",
+        "Use sensory detail, atmosphere, and concrete specifics. Avoid bullet points.",
+        "",
+        "Return STRICT JSON only (no markdown), in the form:",
+        '{"description": "..."}',
+        "",
+        "Project title: " + (project.title or ""),
+        "Location name: " + name,
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.append("Known objects (JSON map): " + json.dumps(objects_map, ensure_ascii=False))
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(
@@ -909,22 +979,29 @@ def add_location_details(request, slug):
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
-    prompt = "\n".join(
+    prompt_lines = [
+        "You are a worldbuilding assistant for a novelist.",
+        "Goal: add NEW details to the existing location description (do not rewrite it).",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown) in the form: {\"description\": \"...\"}",
+        "- If the description is empty, write an initial description.",
+        "- If the description already exists, return ONLY additional text to append (avoid repeating existing lines).",
+        "- Add concrete details: layout, textures, lighting, smell, ambient sound, a standout object, and a small lived-in detail.",
+        "",
+        "Project title: " + (project.title or ""),
+        "Location name: " + name,
+    ]
+    bible_lines = _get_story_bible_context(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
         [
-            "You are a worldbuilding assistant for a novelist.",
-            "Goal: add NEW details to the existing location description (do not rewrite it).",
-            "Rules:",
-            "- Return STRICT JSON only (no markdown) in the form: {\"description\": \"...\"}",
-            "- If the description is empty, write an initial description.",
-            "- If the description already exists, return ONLY additional text to append (avoid repeating existing lines).",
-            "- Add concrete details: layout, textures, lighting, smell, ambient sound, a standout object, and a small lived-in detail.",
-            "",
-            "Project title: " + (project.title or ""),
-            "Location name: " + name,
             "Existing description: " + description,
             "Known objects (JSON map): " + json.dumps(objects_map, ensure_ascii=False),
         ]
-    ).strip()
+    )
+    prompt = "\n".join(prompt_lines).strip()
 
     try:
         result = call_llm(

@@ -8,6 +8,10 @@
     class="card"
     {% if node_kind == "scene" %}
       data-location-create-url="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
+      {% if object %}
+        data-scene-brainstorm-url="{% url 'scene-brainstorm' slug=project.slug pk=object.id %}"
+        data-scene-add-details-url="{% url 'scene-add-details' slug=project.slug pk=object.id %}"
+      {% endif %}
     {% endif %}
   >
     <div class="header-row">
@@ -84,6 +88,8 @@
       <div class="actions">
         <button class="btn btn-primary" type="submit">Save</button>
         {% if object and node_kind == "scene" %}
+          <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
           <button class="btn btn-secondary" type="submit" name="action" value="structurize">Structurize</button>
           <button class="btn btn-secondary" type="submit" name="action" value="render">Render</button>
         {% endif %}
@@ -94,5 +100,8 @@
 
   {% if node_kind == "scene" %}
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
+    {% if object %}
+      <script src="{% static 'main/scene_brainstorm.js' %}" defer></script>
+    {% endif %}
   {% endif %}
 {% endblock %}

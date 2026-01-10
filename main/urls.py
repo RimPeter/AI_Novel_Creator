@@ -46,6 +46,16 @@ urlpatterns = [
         name="outline-node-edit",
     ),
     path(
+        "projects/<slug:slug>/outline/node/<uuid:pk>/brainstorm/",
+        views.brainstorm_scene,
+        name="scene-brainstorm",
+    ),
+    path(
+        "projects/<slug:slug>/outline/node/<uuid:pk>/add-details/",
+        views.add_scene_details,
+        name="scene-add-details",
+    ),
+    path(
         "projects/<slug:slug>/outline/node/<uuid:pk>/delete/",
         views.OutlineNodeDeleteView.as_view(),
         name="outline-node-delete",

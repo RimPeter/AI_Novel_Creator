@@ -28,6 +28,11 @@ urlpatterns = [
     path("projects/<slug:slug>/locations/add-details/", views.add_location_details, name="location-add-details"),
     path("projects/<slug:slug>/locations/extract-objects/", views.extract_location_objects, name="location-extract-objects"),
     path("projects/<slug:slug>/locations/<uuid:pk>/edit/", views.LocationUpdateView.as_view(), name="location-edit"),
+    path(
+        "projects/<slug:slug>/locations/<uuid:pk>/image/",
+        views.generate_location_image,
+        name="location-image",
+    ),
     path("projects/<slug:slug>/locations/<uuid:pk>/delete/", views.LocationDeleteView.as_view(), name="location-delete"),
     path("projects/<slug:slug>/dashboard/", views.ProjectDashboardView.as_view(), name="project-dashboard"),
     path("projects/<slug:slug>/full-novel/", views.FullNovelView.as_view(), name="full-novel"),

@@ -90,6 +90,7 @@ class Location(TimeStampedModel):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, default="")
     objects_map = models.JSONField(blank=True, default=dict)
+    image_data_url = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["name"]

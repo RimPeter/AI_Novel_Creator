@@ -1256,6 +1256,75 @@ def extract_location_objects(request, slug):
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
+@require_POST
+@login_required
+def generate_location_image(request, slug, pk):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+
+    location = get_object_or_404(Location, id=pk, project=project)
+
+    def get_text(field, fallback):
+        value = request.POST.get(field)
+        if value is None:
+            value = fallback
+        return (value or "").strip()
+
+    name = get_text("name", location.name)
+    description = get_text("description", location.description)
+
+    if not name:
+        return JsonResponse({"ok": False, "error": "Location name is required."}, status=400)
+
+    prompt_lines = [
+        "Create a vivid establishing shot illustration of a fictional place.",
+        "Style: semi-realistic, cinematic lighting, wide shot.",
+        "No people in frame unless implied by the location.",
+        "No text, no logos, no watermarks.",
+        "",
+        "Location details:",
+        "Name: " + name,
+    ]
+    if description:
+        prompt_lines.append("Description: " + description)
+
+    try:
+        objects_map = _parse_location_objects(request.POST)
+        if objects_map:
+            prompt_lines.append("Notable objects: " + json.dumps(objects_map, ensure_ascii=False))
+    except Exception:
+        pass
+
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    try:
+        data_url = generate_image_data_url(
+            prompt="\n".join(prompt_lines),
+            model_name=model_name,
+            size="1024x1024",
+        )
+    except Exception as e:
+        if fallback_model and fallback_model != model_name:
+            try:
+                data_url = generate_image_data_url(
+                    prompt="\n".join(prompt_lines),
+                    model_name=fallback_model,
+                    size="1024x1024",
+                )
+            except Exception as fallback_error:
+                return JsonResponse({"ok": False, "error": str(fallback_error)}, status=400)
+        else:
+            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    location.image_data_url = data_url
+    location.save(update_fields=["image_data_url", "updated_at"])
+    return JsonResponse({"ok": True, "image_url": data_url})
+
+
 class LocationListView(LoginRequiredMixin, ListView):
     model = Location
     template_name = "main/location_list.html"

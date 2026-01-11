@@ -110,7 +110,7 @@
                       {% for character in character_list %}
                         {% with char_id=character.id|stringformat:"s" %}
                           <li>
-                            <label>
+                            <label class="character-option" data-portrait-url="{{ character.portrait_data_url|default_if_none:'' }}">
                               <input
                                 type="checkbox"
                                 name="characters"
@@ -213,6 +213,7 @@
   {% if node_kind == "scene" %}
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
     <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
+    <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>
     <script src="{% static 'main/scene_draft_highlight.js' %}" defer></script>
     <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
     <script src="{% static 'main/confirm_actions.js' %}" defer></script>

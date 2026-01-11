@@ -40,12 +40,12 @@
       </div>
     </dl>
 
-    <h2 class="h2">Actions</h2>
+    {% comment %} <h2 class="h2">Actions</h2>
     <form method="post" class="actions">
       {% csrf_token %}
       <button class="btn btn-primary" type="submit" name="action" value="generate_bible">Generate bible</button>
       <button class="btn btn-secondary" type="submit" name="action" value="generate_all_scenes">Generate all scenes</button>
-    </form>
+    </form> {% endcomment %}
 
     <h2 class="h2">Quick stats</h2>
     <ul>

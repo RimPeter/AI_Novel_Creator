@@ -28,6 +28,29 @@ class NovelProjectForm(forms.ModelForm):
 
 
 class StoryBibleForm(forms.ModelForm):
+    constraints = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 6,
+                "placeholder": "Write constraints and guardrails in prose.",
+            }
+        ),
+        help_text="Constraints and guardrails written in prose.",
+    )
+    facts = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 8,
+                "placeholder": "Write canonical facts in prose.",
+            }
+        ),
+        help_text="Canonical facts written in prose.",
+    )
+
     class Meta:
         model = StoryBible
         fields = [
@@ -36,27 +59,52 @@ class StoryBibleForm(forms.ModelForm):
             "facts",
         ]
         help_texts = {
-            "summary_md": "Markdown summary and reference notes for the project.",
-            "constraints": "JSON list of constraints (advanced).",
-            "facts": "JSON object of canonical facts (advanced).",
+            "summary_md": "Prose summary and reference notes for the project.",
         }
         widgets = {
-            "summary_md": forms.Textarea(attrs={"class": "form-control", "rows": 14}),
-            "constraints": forms.Textarea(
+            "summary_md": forms.Textarea(
                 attrs={
                     "class": "form-control",
-                    "rows": 6,
-                    "placeholder": 'Example: ["No time travel", "First-person POV"]',
-                }
-            ),
-            "facts": forms.Textarea(
-                attrs={
-                    "class": "form-control",
-                    "rows": 8,
-                    "placeholder": 'Example: {"protagonist": "Ava", "setting": "Orbital colony"}',
+                    "rows": 14,
+                    "placeholder": "Write the story bible summary in prose.",
                 }
             ),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.is_bound:
+            return
+
+        constraints = self.instance.constraints
+        if isinstance(constraints, list):
+            self.initial["constraints"] = "\n".join(str(item) for item in constraints if item is not None).strip()
+        elif isinstance(constraints, dict):
+            self.initial["constraints"] = "\n".join(
+                f"{key}: {value}" for key, value in constraints.items()
+            ).strip()
+        elif isinstance(constraints, str):
+            self.initial["constraints"] = constraints
+
+        facts = self.instance.facts
+        if isinstance(facts, dict):
+            self.initial["facts"] = "\n".join(f"{key}: {value}" for key, value in facts.items()).strip()
+        elif isinstance(facts, list):
+            self.initial["facts"] = "\n".join(str(item) for item in facts if item is not None).strip()
+        elif isinstance(facts, str):
+            self.initial["facts"] = facts
+
+    def clean_constraints(self):
+        value = (self.cleaned_data.get("constraints") or "").strip()
+        if not value:
+            return []
+        return value
+
+    def clean_facts(self):
+        value = (self.cleaned_data.get("facts") or "").strip()
+        if not value:
+            return {}
+        return value
 
 
 class OutlineChapterForm(forms.ModelForm):

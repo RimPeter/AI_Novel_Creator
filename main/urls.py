@@ -16,6 +16,11 @@ urlpatterns = [
     path("projects/<slug:slug>/characters/brainstorm/", views.brainstorm_character, name="character-brainstorm"),
     path("projects/<slug:slug>/characters/add-details/", views.add_character_details, name="character-add-details"),
     path("projects/<slug:slug>/characters/<uuid:pk>/edit/", views.CharacterUpdateView.as_view(), name="character-edit"),
+    path(
+        "projects/<slug:slug>/characters/<uuid:pk>/portrait/",
+        views.generate_character_portrait,
+        name="character-portrait",
+    ),
     path("projects/<slug:slug>/characters/<uuid:pk>/delete/", views.CharacterDeleteView.as_view(), name="character-delete"),
     path("projects/<slug:slug>/locations/", views.LocationListView.as_view(), name="location-list"),
     path("projects/<slug:slug>/locations/new/", views.LocationCreateView.as_view(), name="location-create"),

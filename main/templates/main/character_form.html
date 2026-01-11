@@ -8,6 +8,7 @@
     class="card"
     data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}"
     data-character-add-details-url="{% url 'character-add-details' slug=project.slug %}"
+    data-character-portrait-url="{% if object %}{% url 'character-portrait' slug=project.slug pk=object.id %}{% endif %}"
   >
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
@@ -20,6 +21,35 @@
     </div>
 
     <p class="muted">Project: <strong>{{ project.title }}</strong></p>
+
+    {% if object %}
+      <div class="character-portrait">
+        <div class="portrait-frame">
+          <img
+            id="character-portrait-img"
+            class="{% if not object.portrait_data_url %}is-hidden{% endif %}"
+            src="{{ object.portrait_data_url }}"
+            alt="Portrait of {{ object.name }}"
+          />
+          <div
+            id="character-portrait-placeholder"
+            class="portrait-placeholder {% if object.portrait_data_url %}is-hidden{% endif %}"
+          >
+            No portrait yet.
+          </div>
+        </div>
+        <div class="portrait-meta">
+          <div class="muted" id="character-portrait-status">
+            {% if object.portrait_data_url %}
+              Portrait saved for this character.
+            {% else %}
+              Generate a portrait based on the character details.
+            {% endif %}
+          </div>
+          <button class="btn btn-secondary" type="button" id="character-portrait-btn">Create Portrait Image</button>
+        </div>
+      </div>
+    {% endif %}
 
     <form method="post" class="form" data-dirty-guard="true">
       {% csrf_token %}
@@ -92,6 +122,7 @@
   </section>
 
   <script src="{% static 'main/character_brainstorm.js' %}" defer></script>
+  <script src="{% static 'main/character_portrait.js' %}" defer></script>
   <script src="{% static 'main/character_extra_fields.js' %}" defer></script>
   <script src="{% static 'main/form_dirty_guard.js' %}" defer></script>
 {% endblock %}

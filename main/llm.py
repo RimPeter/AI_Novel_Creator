@@ -32,3 +32,14 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
             "total_tokens": response.usage.total_tokens,
         },
     )
+
+
+def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1024") -> str:
+    response = client.images.generate(
+        model=model_name,
+        prompt=prompt,
+        size=size,
+        response_format="b64_json",
+    )
+    data = response.data[0].b64_json
+    return f"data:image/png;base64,{data}"

@@ -18,7 +18,7 @@ from .forms import CharacterForm, LocationForm, NovelProjectForm, OutlineChapter
 from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
-from .llm import call_llm
+from .llm import call_llm, generate_image_data_url
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
@@ -47,12 +47,18 @@ def _get_story_bible_context(project: NovelProject) -> list[str]:
     if summary:
         lines.append("Story bible summary: " + summary)
 
-    constraints = bible.constraints or []
-    if constraints:
+    constraints = bible.constraints
+    if isinstance(constraints, str):
+        if constraints.strip():
+            lines.append("Story bible constraints: " + constraints.strip())
+    elif constraints:
         lines.append("Story bible constraints (JSON): " + json.dumps(constraints, ensure_ascii=False))
 
-    facts = bible.facts or {}
-    if facts:
+    facts = bible.facts
+    if isinstance(facts, str):
+        if facts.strip():
+            lines.append("Story bible facts: " + facts.strip())
+    elif facts:
         lines.append("Story bible facts (JSON): " + json.dumps(facts, ensure_ascii=False))
 
     if not lines:
@@ -769,6 +775,102 @@ def add_character_details(request, slug):
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
+@require_POST
+@login_required
+def generate_character_portrait(request, slug, pk):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+
+    character = get_object_or_404(Character, id=pk, project=project)
+
+    def get_text(field, fallback):
+        value = request.POST.get(field)
+        if value is None:
+            value = fallback
+        return (value or "").strip()
+
+    def get_age_value(fallback):
+        raw = request.POST.get("age")
+        if raw is None:
+            return fallback
+        raw = raw.strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
+    name = get_text("name", character.name)
+    if not name:
+        return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
+
+    def add_line(label, value, lines):
+        text = (value or "").strip()
+        if text:
+            lines.append(f"{label}: {text}")
+
+    prompt_lines = [
+        "Create a portrait illustration of a fictional character.",
+        "Style: semi-realistic, cinematic lighting, clean background.",
+        "Framing: head and shoulders.",
+        "No text, no logos, no watermarks.",
+        "",
+        "Character details:",
+    ]
+    add_line("Name", name, prompt_lines)
+    add_line("Role", get_text("role", character.role), prompt_lines)
+    age_value = get_age_value(character.age)
+    if age_value is not None:
+        prompt_lines.append(f"Age: {age_value}")
+    add_line("Gender", get_text("gender", character.gender), prompt_lines)
+    add_line("Appearance", get_text("appearance", character.appearance), prompt_lines)
+    add_line("Personality", get_text("personality", character.personality), prompt_lines)
+    add_line("Background", get_text("background", character.background), prompt_lines)
+    add_line("Goals", get_text("goals", character.goals), prompt_lines)
+    add_line("Voice notes", get_text("voice_notes", character.voice_notes), prompt_lines)
+    add_line("Description", get_text("description", character.description), prompt_lines)
+    extra_fields = character.extra_fields or {}
+    if isinstance(extra_fields, dict):
+        for key, value in extra_fields.items():
+            add_line(str(key).strip() or "Extra", str(value).strip(), prompt_lines)
+
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    try:
+        data_url = generate_image_data_url(
+            prompt="\n".join(prompt_lines),
+            model_name=model_name,
+            size="1024x1024",
+        )
+    except Exception as e:
+        if fallback_model and fallback_model != model_name:
+            try:
+                data_url = generate_image_data_url(
+                    prompt="\n".join(prompt_lines),
+                    model_name=fallback_model,
+                    size="1024x1024",
+                )
+            except Exception as fallback_error:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": str(fallback_error),
+                    },
+                    status=400,
+                )
+        else:
+            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+    character.portrait_data_url = data_url
+    character.save(update_fields=["portrait_data_url", "updated_at"])
+    return JsonResponse({"ok": True, "portrait_url": data_url})
+
+
 class ProjectListView(LoginRequiredMixin, ListView):
     model = NovelProject
     template_name = "main/project_list.html"
@@ -796,11 +898,7 @@ class CharacterListView(LoginRequiredMixin, ListView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = _get_project_for_user(request, kwargs["slug"])
-        try:
-            return super().dispatch(request, *args, **kwargs)
-        except Http404:
-            messages.warning(request, "That outline item no longer exists. Please pick it from the outline.")
-            return HttpResponseRedirect(reverse("project-edit", kwargs={"slug": self.project.slug}))
+        return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
         qs = Character.objects.filter(project=self.project).order_by("name")
@@ -1614,7 +1712,11 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = _get_project_for_user(request, kwargs["slug"])
-        return super().dispatch(request, *args, **kwargs)
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        except Http404:
+            messages.warning(request, "That outline item no longer exists. Please pick it from the outline.")
+            return HttpResponseRedirect(reverse("project-edit", kwargs={"slug": self.project.slug}))
 
     def get_queryset(self):
         return OutlineNode.objects.filter(

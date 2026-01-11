@@ -71,6 +71,7 @@ class Character(TimeStampedModel):
     goals = models.TextField(blank=True, default="")
     voice_notes = models.TextField(blank=True, default="")
     extra_fields = models.JSONField(blank=True, default=dict)
+    portrait_data_url = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["name"]

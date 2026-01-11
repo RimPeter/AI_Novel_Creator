@@ -51,6 +51,12 @@
                       Draft from Summary
                     </button>
                     <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
+                    <span class="tooltip-wrap">
+                      <button class="btn btn-secondary btn-sm" type="button" id="draft-brace-btn">{...}</button>
+                      <span class="tooltip-bubble" role="tooltip">
+                        Wrap selected draft text in braces to protect it during Regenerate. Click without a selection to insert {}.
+                      </span>
+                    </span>
                   </div>
                 </div>
                 <div class="draft-editor" data-draft-editor>
@@ -215,6 +221,7 @@
     <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
     <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>
     <script src="{% static 'main/scene_draft_highlight.js' %}" defer></script>
+    <script src="{% static 'main/draft_brace_button.js' %}" defer></script>
     <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
     <script src="{% static 'main/confirm_actions.js' %}" defer></script>
     {% if object %}

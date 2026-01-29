@@ -812,9 +812,9 @@ def generate_character_portrait(request, slug, pk):
             lines.append(f"{label}: {text}")
 
     prompt_lines = [
-        "Create a portrait illustration of a fictional character.",
-        "Style: semi-realistic, cinematic lighting, clean background.",
-        "Framing: head and shoulders.",
+        "Create a passport-style portrait photo of a fictional character.",
+        "Style: realistic ID photo, neutral expression, even lighting, plain light background.",
+        "Framing: centered, front-facing head and shoulders.",
         "No text, no logos, no watermarks.",
         "",
         "Character details:",

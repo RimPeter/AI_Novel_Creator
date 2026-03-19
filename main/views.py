@@ -7,14 +7,15 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.db.models import Max, Q, ProtectedError
 from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 from django.views.decorators.http import require_POST
-from django.db.models import Max, Q
 
 from .forms import CharacterForm, LocationForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
+from .location_hierarchy import build_location_rows
 from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
@@ -1335,7 +1336,8 @@ class LocationListView(LoginRequiredMixin, ListView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        qs = Location.objects.filter(project=self.project).order_by("name")
+        Location.get_or_create_root_for_project(self.project)
+        qs = Location.objects.filter(project=self.project).select_related("parent").order_by("name")
         q = (self.request.GET.get("q") or "").strip()
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
@@ -1345,6 +1347,7 @@ class LocationListView(LoginRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["q"] = (self.request.GET.get("q") or "").strip()
+        ctx["location_rows"] = build_location_rows(ctx["locations"])
         return ctx
 
 
@@ -1363,6 +1366,11 @@ class LocationCreateView(LoginRequiredMixin, CreateView):
         ctx["object_rows"] = []
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.project
+        return kwargs
 
     def form_valid(self, form):
         form.instance.project = self.project
@@ -1393,6 +1401,11 @@ class LocationUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_queryset(self):
         return Location.objects.filter(project=self.project)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.project
+        return kwargs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1437,8 +1450,25 @@ class LocationDeleteView(LoginRequiredMixin, DeleteView):
         return reverse_lazy("location-list", kwargs={"slug": self.project.slug})
 
     def form_valid(self, form):
+        self.object = self.get_object()
+        if self.object.is_root:
+            messages.error(self.request, "The root location cannot be deleted.")
+            return HttpResponseRedirect(
+                reverse("location-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
+            )
+        try:
+            self.object.delete()
+        except ProtectedError:
+            messages.error(
+                self.request,
+                "This location has nested child locations. Move or delete those first.",
+            )
+            return HttpResponseRedirect(
+                reverse("location-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
+            )
+
         messages.success(self.request, "Location deleted.")
-        return super().form_valid(form)
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class ProjectCreateView(LoginRequiredMixin, CreateView):
@@ -1449,6 +1479,7 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.owner = self.request.user
         response = super().form_valid(form)
+        Location.get_or_create_root_for_project(self.object)
         messages.success(self.request, "Project created.")
         return response
 

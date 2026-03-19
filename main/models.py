@@ -6,6 +6,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from .location_hierarchy import collect_descendant_ids
+
 
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
@@ -84,8 +86,18 @@ class Character(TimeStampedModel):
 
 
 class Location(TimeStampedModel):
+    DEFAULT_ROOT_NAME = "World"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(NovelProject, on_delete=models.CASCADE, related_name="locations")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="children",
+        blank=True,
+        null=True,
+    )
+    is_root = models.BooleanField(default=False)
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, default="")
@@ -96,7 +108,73 @@ class Location(TimeStampedModel):
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(fields=["project", "name"], name="uniq_location_project_name"),
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=models.Q(is_root=True),
+                name="uniq_root_location_per_project",
+            ),
         ]
+
+    @classmethod
+    def get_or_create_root_for_project(cls, project):
+        root = cls.objects.filter(project=project, is_root=True).first()
+        if root is not None:
+            return root
+
+        fallback = cls.objects.filter(project=project, name=cls.DEFAULT_ROOT_NAME).order_by("created_at", "id").first()
+        if fallback is not None:
+            if fallback.parent_id is not None or not fallback.is_root:
+                fallback.parent = None
+                fallback.is_root = True
+                fallback.save(update_fields=["parent", "is_root", "updated_at"])
+            return fallback
+
+        return cls.objects.create(
+            project=project,
+            name=cls.DEFAULT_ROOT_NAME,
+            parent=None,
+            is_root=True,
+        )
+
+    def clean(self):
+        super().clean()
+        if self.is_root:
+            if self.parent_id:
+                raise ValidationError({"parent": "The root location cannot be nested inside another location."})
+            existing_root = (
+                Location.objects.filter(project_id=self.project_id, is_root=True).exclude(pk=self.pk).exists()
+                if self.project_id
+                else False
+            )
+            if existing_root:
+                raise ValidationError({"is_root": "Only one root location is allowed per project."})
+            return
+
+        if not self.parent_id:
+            return
+
+        if self.parent_id == self.id:
+            raise ValidationError({"parent": "A location cannot contain itself."})
+
+        parent = Location.objects.filter(id=self.parent_id).only("id", "project_id", "is_root").first()
+        if parent is None or parent.project_id != self.project_id:
+            raise ValidationError({"parent": "Parent location must belong to the same project."})
+
+        if self.pk:
+            project_locations = list(
+                Location.objects.filter(project_id=self.project_id).only("id", "parent_id", "name", "is_root")
+            )
+            if self.parent_id in collect_descendant_ids(project_locations, self.pk):
+                raise ValidationError({"parent": "Choose a parent outside this location's subtree."})
+
+    def save(self, *args, **kwargs):
+        if self.is_root:
+            self.parent = None
+        elif self.project_id and not self.parent_id:
+            root = self.get_or_create_root_for_project(self.project)
+            if root.id != self.id:
+                self.parent = root
+        return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.name

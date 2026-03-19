@@ -27,13 +27,15 @@
       </div>
     </form>
 
-    {% if locations %}
+    {% if location_rows %}
       <ul class="list">
-        {% for loc in locations %}
-          <li class="list-item">
+        {% for row in location_rows %}
+          {% with loc=row.location %}
+          <li class="list-item location-list-item" style="padding-left: {{ row.indent_px|add:12 }}px;">
             <div>
               <div class="list-title">{{ loc.name }}</div>
               <div class="muted">
+                {% if row.path and row.path != loc.name %}{{ row.path }}<br />{% endif %}
                 {% if loc.objects_map %}{{ loc.objects_map|length }} objects{% else %}0 objects{% endif %}
               </div>
             </div>
@@ -42,6 +44,7 @@
               <a class="btn btn-secondary btn-sm" href="{% url 'location-delete' slug=project.slug pk=loc.id %}">Delete</a>
             </div>
           </li>
+          {% endwith %}
         {% endfor %}
       </ul>
     {% else %}

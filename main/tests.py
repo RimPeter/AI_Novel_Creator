@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
@@ -8,12 +9,25 @@ from .llm import LLMResult
 from .models import Location
 
 
-class MoveSceneTests(TestCase):
+class AuthenticatedTestCase(TestCase):
     def setUp(self):
+        super().setUp()
+        self.user = get_user_model().objects.create_user(
+            username="tester",
+            email="tester@example.com",
+            password="password123",
+        )
+        self.client.force_login(self.user)
+
+
+class MoveSceneTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
         self.project = NovelProject.objects.create(
             title="Test Project",
             slug="test-project",
             target_word_count=1000,
+            owner=self.user,
         )
         self.act = OutlineNode.objects.create(
             project=self.project,
@@ -132,12 +146,14 @@ class MoveSceneTests(TestCase):
         self.assertEqual(resp.json(), {"ok": True})
 
 
-class SceneStructurizeRenderTests(TestCase):
+class SceneStructurizeRenderTests(AuthenticatedTestCase):
     def setUp(self):
+        super().setUp()
         self.project = NovelProject.objects.create(
             title="Test Project",
             slug="test-project",
             target_word_count=1000,
+            owner=self.user,
         )
         self.act = OutlineNode.objects.create(
             project=self.project,
@@ -208,12 +224,14 @@ class SceneStructurizeRenderTests(TestCase):
         self.assertIn("Prose text.", self.scene.rendered_text)
 
 
-class SceneLocationDropdownTests(TestCase):
+class SceneLocationDropdownTests(AuthenticatedTestCase):
     def setUp(self):
+        super().setUp()
         self.project = NovelProject.objects.create(
             title="Test Project",
             slug="test-project",
             target_word_count=1000,
+            owner=self.user,
         )
         self.act = OutlineNode.objects.create(
             project=self.project,
@@ -238,8 +256,9 @@ class SceneLocationDropdownTests(TestCase):
             summary="",
             location="Docking Bay",
         )
-        Location.objects.create(project=self.project, name="Docking Bay", description="")
-        Location.objects.create(project=self.project, name="Garden", description="")
+        self.root_location = Location.objects.create(project=self.project, name="Ship", description="", is_root=True)
+        Location.objects.create(project=self.project, parent=self.root_location, name="Docking Bay", description="")
+        Location.objects.create(project=self.project, parent=self.root_location, name="Garden", description="")
 
     def test_edit_scene_renders_location_select_with_create_option(self):
         url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
@@ -269,23 +288,29 @@ class SceneLocationDropdownTests(TestCase):
     def test_location_create_with_next_returns_to_scene_with_prefill(self):
         scene_url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         create_url = reverse("location-create", kwargs={"slug": self.project.slug}) + "?next=" + quote(scene_url, safe="")
-        resp = self.client.post(create_url, data={"name": "Engine Room", "description": ""})
+        resp = self.client.post(
+            create_url,
+            data={"parent": str(self.root_location.id), "name": "Engine Room", "description": ""},
+        )
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(resp["Location"].startswith(scene_url))
         self.assertIn("prefill_location=Engine+Room", resp["Location"])
 
 
-class CharacterViewsTests(TestCase):
+class CharacterViewsTests(AuthenticatedTestCase):
     def setUp(self):
+        super().setUp()
         self.project_a = NovelProject.objects.create(
             title="Project A",
             slug="project-a",
             target_word_count=1000,
+            owner=self.user,
         )
         self.project_b = NovelProject.objects.create(
             title="Project B",
             slug="project-b",
             target_word_count=1000,
+            owner=self.user,
         )
         self.char_a1 = Character.objects.create(project=self.project_a, name="Ava", role="Protagonist", age=22, gender="Female")
         self.char_a2 = Character.objects.create(project=self.project_a, name="Zed", role="Antagonist")
@@ -368,12 +393,20 @@ class CharacterViewsTests(TestCase):
         self.assertEqual(resp.json(), {"ok": True, "suggestions": {"personality": "Adds a subtle tell: taps her ring when lying."}})
 
 
-class LocationViewsTests(TestCase):
+class LocationViewsTests(AuthenticatedTestCase):
     def setUp(self):
-        self.project_a = NovelProject.objects.create(title="Project A", slug="project-a", target_word_count=1000)
-        self.project_b = NovelProject.objects.create(title="Project B", slug="project-b", target_word_count=1000)
-        self.loc_a = Location.objects.create(project=self.project_a, name="Docking Bay", objects_map={"crate": "sealed"})
-        self.loc_b = Location.objects.create(project=self.project_b, name="Garden", objects_map={})
+        super().setUp()
+        self.project_a = NovelProject.objects.create(title="Project A", slug="project-a", target_word_count=1000, owner=self.user)
+        self.project_b = NovelProject.objects.create(title="Project B", slug="project-b", target_word_count=1000, owner=self.user)
+        self.root_a = Location.objects.create(project=self.project_a, name="Ship", objects_map={}, is_root=True)
+        self.loc_a = Location.objects.create(
+            project=self.project_a,
+            parent=self.root_a,
+            name="Docking Bay",
+            objects_map={"crate": "sealed"},
+        )
+        self.root_b = Location.objects.create(project=self.project_b, name="Estate", objects_map={}, is_root=True)
+        self.loc_b = Location.objects.create(project=self.project_b, parent=self.root_b, name="Garden", objects_map={})
 
     def test_list_scoped_to_project(self):
         url = reverse("location-list", kwargs={"slug": self.project_a.slug})
@@ -386,6 +419,7 @@ class LocationViewsTests(TestCase):
         resp = self.client.post(
             url,
             data={
+                "parent": str(self.root_a.id),
                 "name": "Market",
                 "description": "Busy and loud.",
                 "object_key": ["stall", "lamp"],
@@ -394,7 +428,40 @@ class LocationViewsTests(TestCase):
         )
         self.assertEqual(resp.status_code, 302)
         loc = Location.objects.get(project=self.project_a, name="Market")
+        self.assertEqual(loc.parent_id, self.root_a.id)
         self.assertEqual(loc.objects_map, {"stall": "fruit vendor", "lamp": "flickering neon"})
+
+    def test_create_form_defaults_parent_to_root(self):
+        url = reverse("location-create", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'value="{self.root_a.id}" selected')
+
+    def test_create_defaults_to_root_when_parent_is_not_selected(self):
+        url = reverse("location-create", kwargs={"slug": self.project_a.slug})
+        resp = self.client.post(
+            url,
+            data={
+                "name": "Market",
+                "description": "Busy and loud.",
+                "object_key": [],
+                "object_value": [],
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        loc = Location.objects.get(project=self.project_a, name="Market")
+        self.assertEqual(loc.parent_id, self.root_a.id)
+
+    def test_list_renders_nested_path(self):
+        url = reverse("location-list", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url)
+        self.assertContains(resp, "Ship / Docking Bay")
+
+    def test_root_cannot_be_deleted(self):
+        url = reverse("location-delete", kwargs={"slug": self.project_a.slug, "pk": self.root_a.id})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Location.objects.filter(id=self.root_a.id).exists())
 
     def test_brainstorm_location_description_only_when_empty(self):
         url = reverse("location-brainstorm", kwargs={"slug": self.project_a.slug})

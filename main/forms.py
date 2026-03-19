@@ -1,6 +1,7 @@
 from django import forms
 import json
 
+from .location_hierarchy import build_location_label_map, collect_descendant_ids
 from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 
 
@@ -273,14 +274,92 @@ class CharacterForm(forms.ModelForm):
         }
 
 
+class NestedLocationChoiceField(forms.ModelChoiceField):
+    def __init__(self, *args, label_map=None, **kwargs):
+        self.label_map = label_map or {}
+        super().__init__(*args, **kwargs)
+
+    def label_from_instance(self, obj):
+        return self.label_map.get(obj.id, obj.name)
+
+
 class LocationForm(forms.ModelForm):
     class Meta:
         model = Location
         fields = [
+            "parent",
             "name",
             "description",
         ]
         widgets = {
+            "parent": forms.Select(attrs={"class": "form-control"}),
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
         }
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        resolved_project = project or getattr(self.instance, "project", None)
+        if resolved_project and not getattr(self.instance, "project_id", None):
+            self.instance.project = resolved_project
+        parent_field = self.fields.get("parent")
+        if parent_field is None:
+            return
+
+        parent_field.label = "Parent location"
+
+        if not resolved_project:
+            parent_field.queryset = Location.objects.none()
+            parent_field.required = False
+            parent_field.help_text = "Save the project first so locations can be linked."
+            return
+
+        root_location = Location.get_or_create_root_for_project(resolved_project)
+        project_locations = list(
+            Location.objects.filter(project=resolved_project).only("id", "name", "project_id", "parent_id", "is_root")
+        )
+        excluded_ids = set()
+        if self.instance.pk:
+            excluded_ids.add(self.instance.pk)
+            excluded_ids.update(collect_descendant_ids(project_locations, self.instance.pk))
+
+        available_locations = [loc for loc in project_locations if loc.id not in excluded_ids]
+        label_map = build_location_label_map(project_locations)
+
+        self.fields["parent"] = NestedLocationChoiceField(
+            queryset=Location.objects.filter(id__in=[loc.id for loc in available_locations]).order_by("name"),
+            required=False,
+            empty_label=None,
+            label="Parent location",
+            help_text=(
+                "Choose the location that contains this one. If left unchanged, it will stay under the root location."
+                if available_locations
+                else "This project uses a single root location."
+            ),
+            widget=forms.Select(attrs={"class": "form-control"}),
+            label_map=label_map,
+        )
+
+        if self.instance.is_root:
+            self.fields["parent"].disabled = True
+            self.fields["parent"].required = False
+            self.fields["parent"].help_text = "This is the project's top-level root location and cannot be nested."
+            self.initial["parent"] = None
+            return
+
+        if self.instance.pk and self.instance.parent_id:
+            self.initial.setdefault("parent", self.instance.parent_id)
+        else:
+            self.initial.setdefault("parent", root_location.id)
+
+    def clean_parent(self):
+        parent = self.cleaned_data.get("parent")
+        if getattr(self.instance, "is_root", False):
+            return None
+
+        project = getattr(self.instance, "project", None)
+        if project is None:
+            return parent
+
+        return parent or Location.get_or_create_root_for_project(project)

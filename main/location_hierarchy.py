@@ -57,6 +57,38 @@ def build_location_label_map(locations):
     return {row["location"].id: row["path"] or row["location"].name for row in build_location_rows(locations)}
 
 
+def build_location_tree(locations):
+    locations = list(locations)
+    by_parent, by_id = _build_children_map(locations)
+    visited = set()
+
+    def visit(loc, ancestors):
+        if loc.id in visited:
+            return None
+        visited.add(loc.id)
+        path_parts = [*ancestors, loc.name]
+        return {
+            "location": loc,
+            "path": " / ".join(part for part in path_parts if part),
+            "children": [
+                child_node
+                for child_node in (visit(child, path_parts) for child in by_parent.get(loc.id, []))
+                if child_node is not None
+            ],
+        }
+
+    roots = [loc for loc in locations if loc.parent_id is None or loc.parent_id not in by_id]
+    tree = [node for node in (visit(loc, []) for loc in _sort_locations(roots)) if node is not None]
+
+    for loc in _sort_locations(locations):
+        if loc.id not in visited:
+            node = visit(loc, [])
+            if node is not None:
+                tree.append(node)
+
+    return tree
+
+
 def collect_descendant_ids(locations, root_id):
     locations = list(locations)
     by_parent, _by_id = _build_children_map(locations)

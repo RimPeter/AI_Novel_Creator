@@ -393,11 +393,44 @@ class CharacterViewsTests(AuthenticatedTestCase):
         self.assertEqual(resp.json(), {"ok": True, "suggestions": {"personality": "Adds a subtle tell: taps her ring when lying."}})
 
 
+class ProjectSharedAccessTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.other_user = get_user_model().objects.create_user(
+            username="project-owner",
+            email="project-owner@example.com",
+            password="password123",
+        )
+        self.project = NovelProject.objects.create(
+            title="Shared Project",
+            slug="shared-project",
+            target_word_count=1000,
+            owner=self.other_user,
+        )
+
+    def test_project_list_shows_projects_owned_by_other_users(self):
+        url = reverse("project-list")
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Shared Project")
+
+    def test_project_detail_allows_shared_access(self):
+        url = reverse("project-detail", kwargs={"slug": self.project.slug})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Shared Project")
+
+
 class LocationViewsTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()
+        self.other_user = get_user_model().objects.create_user(
+            username="other",
+            email="other@example.com",
+            password="password123",
+        )
         self.project_a = NovelProject.objects.create(title="Project A", slug="project-a", target_word_count=1000, owner=self.user)
-        self.project_b = NovelProject.objects.create(title="Project B", slug="project-b", target_word_count=1000, owner=self.user)
+        self.project_b = NovelProject.objects.create(title="Project B", slug="project-b", target_word_count=1000, owner=self.other_user)
         self.root_a = Location.objects.create(project=self.project_a, name="Ship", objects_map={}, is_root=True)
         self.loc_a = Location.objects.create(
             project=self.project_a,
@@ -413,6 +446,12 @@ class LocationViewsTests(AuthenticatedTestCase):
         resp = self.client.get(url)
         self.assertContains(resp, "Docking Bay")
         self.assertNotContains(resp, "Garden")
+
+    def test_shared_access_allows_opening_other_users_location_pages(self):
+        url = reverse("location-world-map", kwargs={"slug": self.project_b.slug})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Garden")
 
     def test_create_parses_object_pairs(self):
         url = reverse("location-create", kwargs={"slug": self.project_a.slug})
@@ -455,7 +494,50 @@ class LocationViewsTests(AuthenticatedTestCase):
     def test_list_renders_nested_path(self):
         url = reverse("location-list", kwargs={"slug": self.project_a.slug})
         resp = self.client.get(url)
+        self.assertContains(resp, "World map")
         self.assertContains(resp, "Ship / Docking Bay")
+
+    def test_world_map_page_renders_location_boxes(self):
+        url = reverse("location-world-map", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "World Map")
+        self.assertContains(resp, "class=\"world-location-box")
+        self.assertContains(resp, "class=\"world-location-children")
+        self.assertContains(resp, "data-location-move-url")
+        self.assertContains(resp, "Docking Bay")
+        self.assertNotContains(resp, "Garden")
+
+    def test_move_location_reparents_under_new_parent(self):
+        market = Location.objects.create(project=self.project_a, parent=self.root_a, name="Market", objects_map={})
+        url = reverse("location-move", kwargs={"slug": self.project_a.slug})
+        resp = self.client.post(
+            url,
+            data={
+                "location_id": str(market.id),
+                "target_parent_id": str(self.loc_a.id),
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True})
+        market.refresh_from_db()
+        self.assertEqual(market.parent_id, self.loc_a.id)
+
+    def test_move_location_rejects_moving_root(self):
+        url = reverse("location-move", kwargs={"slug": self.project_a.slug})
+        resp = self.client.post(
+            url,
+            data={
+                "location_id": str(self.root_a.id),
+                "target_parent_id": str(self.loc_a.id),
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["ok"], False)
 
     def test_root_cannot_be_deleted(self):
         url = reverse("location-delete", kwargs={"slug": self.project_a.slug, "pk": self.root_a.id})

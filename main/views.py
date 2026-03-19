@@ -15,7 +15,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 from django.views.decorators.http import require_POST
 
 from .forms import CharacterForm, LocationForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
-from .location_hierarchy import build_location_rows
+from .location_hierarchy import build_location_rows, build_location_tree
 from .models import Character, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
@@ -23,7 +23,7 @@ from .llm import call_llm, generate_image_data_url
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
-    return get_object_or_404(NovelProject, slug=slug, owner=request.user)
+    return get_object_or_404(NovelProject, slug=slug)
 
 
 def _get_scene_for_user(request, slug: str, pk) -> OutlineNode:
@@ -565,6 +565,54 @@ def move_scene(request, slug):
 
 @require_POST
 @login_required
+def move_location(request, slug):
+    project = _get_project_for_user(request, slug)
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+
+    location_id = request.POST.get("location_id")
+    target_parent_id = request.POST.get("target_parent_id")
+
+    if not location_id or not target_parent_id:
+        if wants_json:
+            return JsonResponse({"ok": False, "error": "Missing location or target parent."}, status=400)
+        messages.error(request, "Missing location or target parent.")
+        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+
+    location = get_object_or_404(Location, id=location_id, project=project)
+    target_parent = get_object_or_404(Location, id=target_parent_id, project=project)
+
+    if location.is_root:
+        if wants_json:
+            return JsonResponse({"ok": False, "error": "The root location cannot be moved."}, status=400)
+        messages.error(request, "The root location cannot be moved.")
+        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+
+    if location.id == target_parent.id:
+        if wants_json:
+            return JsonResponse({"ok": False, "error": "A location cannot be nested inside itself."}, status=400)
+        messages.error(request, "A location cannot be nested inside itself.")
+        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+
+    location.parent = target_parent
+    try:
+        location.full_clean()
+        location.save(update_fields=["parent", "updated_at"])
+    except Exception as e:
+        if wants_json:
+            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        messages.error(request, str(e))
+        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+
+    if wants_json:
+        return JsonResponse({"ok": True})
+    messages.success(request, "Location moved.")
+    return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+
+
+@require_POST
+@login_required
 def rename_scene_title(request, slug):
     project = _get_project_for_user(request, slug)
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
@@ -879,7 +927,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
     ordering = ["title"]
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user).order_by(*self.ordering)
+        return super().get_queryset().order_by(*self.ordering)
 
 
 class ProjectDetailView(LoginRequiredMixin, DetailView):
@@ -889,7 +937,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset()
 
 
 class CharacterListView(LoginRequiredMixin, ListView):
@@ -1351,6 +1399,15 @@ class LocationListView(LoginRequiredMixin, ListView):
         return ctx
 
 
+class LocationWorldMapView(LocationListView):
+    template_name = "main/world_map.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["location_tree"] = build_location_tree(ctx["locations"])
+        return ctx
+
+
 class LocationCreateView(LoginRequiredMixin, CreateView):
     model = Location
     form_class = LocationForm
@@ -1495,7 +1552,7 @@ class ProjectUpdateView(LoginRequiredMixin, UpdateView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset()
 
     def form_valid(self, form):
         messages.success(self.request, "Project saved.")
@@ -1512,7 +1569,7 @@ class ProjectDeleteView(LoginRequiredMixin, DeleteView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset()
 
     def get_success_url(self):
         return reverse_lazy("project-list")
@@ -1530,7 +1587,7 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
     context_object_name = "project"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset()
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1624,7 +1681,7 @@ class FullNovelView(LoginRequiredMixin, DetailView):
     context_object_name = "project"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset()
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

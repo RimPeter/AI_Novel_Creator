@@ -1,0 +1,33 @@
+{% extends "main/base.html" %}
+{% load static %}
+
+{% block title %}World Map | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <section class="card world-map-card">
+    <div class="header-row">
+      <div>
+        <h1>World Map</h1>
+        <p class="muted">Nested box view of every location in the project hierarchy.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
+        <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
+      </div>
+    </div>
+
+    <div
+      class="world-map-canvas"
+      aria-label="World map"
+      data-location-move-url="{% url 'location-move' slug=project.slug %}"
+    >
+      {% for node in location_tree %}
+        {% include "main/includes/world_map_node.html" with node=node project=project only %}
+      {% empty %}
+        <p class="muted">No locations yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script src="{% static 'main/location_dragdrop.js' %}" defer></script>
+{% endblock %}

@@ -1,3 +1,6 @@
+import json
+from types import SimpleNamespace
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -5,7 +8,7 @@ from unittest.mock import patch
 from urllib.parse import quote
 
 from .models import Character, NovelProject, OutlineNode
-from .llm import LLMResult
+from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import Location
 
 
@@ -18,6 +21,25 @@ class AuthenticatedTestCase(TestCase):
             password="password123",
         )
         self.client.force_login(self.user)
+
+
+class LLMTests(TestCase):
+    def test_call_llm_replaces_em_dash_and_uses_global_instruction(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Wait\u2014no. Use this\u2014instead."))],
+            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
+        )
+
+        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+            result = call_llm(prompt="Test prompt", model_name="test-model", params={"temperature": 0.2, "max_tokens": 42})
+
+        self.assertEqual(result.text, "Wait-no. Use this-instead.")
+        self.assertEqual(
+            result.usage,
+            {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+        )
+        messages = mocked.call_args.kwargs["messages"]
+        self.assertEqual(messages[0], {"role": "system", "content": SYSTEM_PROMPT})
 
 
 class MoveSceneTests(AuthenticatedTestCase):
@@ -198,6 +220,112 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.scene.refresh_from_db()
         self.assertTrue(self.scene.structure_json.strip())
 
+    def test_structurize_includes_selected_character_details_in_prompt(self):
+        selected = Character.objects.create(
+            project=self.project,
+            name="Ava",
+            role="Protagonist",
+            age=22,
+            gender="Female",
+            personality="Driven and guarded.",
+            appearance="Tall, watchful, practical.",
+            background="Raised in cargo fleets.",
+            goals="Expose the conspiracy.",
+            voice_notes="Clipped, precise sentences.",
+            description="Keeps emotional distance until pressured.",
+            extra_fields={"secret": "Smuggling evidence in her jacket lining"},
+        )
+        Character.objects.create(
+            project=self.project,
+            name="Zed",
+            role="Rival",
+            personality="Provocative.",
+        )
+
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch("main.views.call_llm", return_value=LLMResult(text="Draft text.", usage={"ok": True})) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "order": 1,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                    "action": "structurize",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 302)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Selected scene characters:", prompt)
+        self.assertIn("- Ava: role=Protagonist; age=22; gender=Female", prompt)
+        self.assertIn("personality=Driven and guarded.", prompt)
+        self.assertIn("appearance=Tall, watchful, practical.", prompt)
+        self.assertIn("background=Raised in cargo fleets.", prompt)
+        self.assertIn("goals=Expose the conspiracy.", prompt)
+        self.assertIn("voice_notes=Clipped, precise sentences.", prompt)
+        self.assertIn("description=Keeps emotional distance until pressured.", prompt)
+        self.assertIn("secret=Smuggling evidence in her jacket lining", prompt)
+        self.assertNotIn("- Zed:", prompt)
+
+    def test_structurize_includes_previous_scene_from_same_chapter_only(self):
+        previous_scene = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter,
+            order=1,
+            title="Scene 0",
+            summary="A quiet argument reveals the central lie.",
+            pov="Mira",
+            location="Observation deck",
+            rendered_text="Mira corners Ava on the observation deck and forces the first crack in the cover story.",
+        )
+        self.scene.order = 2
+        self.scene.save(update_fields=["order"])
+
+        other_chapter = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.CHAPTER,
+            parent=self.act,
+            order=2,
+            title="Chapter 2",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=other_chapter,
+            order=1,
+            title="Other chapter scene",
+            summary="Should not leak into the prompt.",
+        )
+
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch("main.views.call_llm", return_value=LLMResult(text="Draft text.", usage={"ok": True})) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "order": 2,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "action": "structurize",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 302)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Previous scene in this chapter:", prompt)
+        self.assertIn("Title: Scene 0", prompt)
+        self.assertIn("POV: Mira", prompt)
+        self.assertIn("Location: Observation deck", prompt)
+        self.assertIn("Summary: A quiet argument reveals the central lie.", prompt)
+        self.assertIn("Text for continuity: Mira corners Ava on the observation deck", prompt)
+        self.assertNotIn("Other chapter scene", prompt)
+        self.assertNotIn("Should not leak into the prompt.", prompt)
+
     def test_render_uses_llm_when_available(self):
         self.scene.structure_json = (
             '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "x",\n  "pov": "Ava",\n  "location": "Docking bay",\n  "beats": []\n}'
@@ -222,6 +350,46 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         self.scene.refresh_from_db()
         self.assertIn("Prose text.", self.scene.rendered_text)
+
+    def test_regenerate_targeted_text_uses_full_draft_context(self):
+        self.scene.structure_json = "Opening beat. !{Old line.}! Closing beat."
+        self.scene.save(update_fields=["structure_json"])
+
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(text='{"segments": ["New line."]}', usage={"ok": True}),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "order": 1,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "structure_json": self.scene.structure_json,
+                    "rendered_text": "",
+                    "action": "reshuffle",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 302)
+        self.scene.refresh_from_db()
+        self.assertEqual(self.scene.structure_json, "Opening beat. New line. Closing beat.")
+        self.assertIn("hl=", resp["Location"])
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Full draft with marked target sections:", prompt)
+        self.assertIn("Opening beat. !{Old line.}! Closing beat.", prompt)
+
+    def test_edit_scene_shows_regenerate_marker_buttons(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="draft-target-btn"')
+        self.assertContains(resp, "!{...}!")
+        self.assertContains(resp, 'id="draft-unbrace-btn"')
+        self.assertContains(resp, "Remove {}")
 
 
 class SceneLocationDropdownTests(AuthenticatedTestCase):
@@ -391,6 +559,51 @@ class CharacterViewsTests(AuthenticatedTestCase):
             )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"ok": True, "suggestions": {"personality": "Adds a subtle tell: taps her ring when lying."}})
+
+    def test_add_details_strips_repeated_prefix_from_existing_field(self):
+        url = reverse("character-add-details", kwargs={"slug": self.project_a.slug})
+        existing = "tall and lean, with rugged features; short-cropped dark hair and deep-set blue eyes"
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text=json.dumps(
+                    {
+                        "appearance": (
+                            existing
+                            + "; often wears practical, worn work attire that reflects his hands-on job"
+                        )
+                    }
+                ),
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "name": "Ava",
+                    "role": "Protagonist",
+                    "age": "22",
+                    "gender": "Female",
+                    "personality": "",
+                    "appearance": existing,
+                    "background": "",
+                    "goals": "",
+                    "voice_notes": "",
+                    "description": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "appearance": "often wears practical, worn work attire that reflects his hands-on job"
+                },
+            },
+        )
 
 
 class ProjectSharedAccessTests(AuthenticatedTestCase):

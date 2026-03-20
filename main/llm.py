@@ -5,6 +5,7 @@ from openai import OpenAI
 
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
+SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash character (U+2014); use a plain hyphen instead."
 
 
 @dataclass
@@ -13,11 +14,15 @@ class LLMResult:
     usage: dict
 
 
+def _normalize_llm_text(text: str | None) -> str:
+    return (text or "").replace("\u2014", "-")
+
+
 def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
     response = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "You are a professional novelist."},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
         temperature=params.get("temperature", 0.7),
@@ -25,7 +30,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
     )
 
     return LLMResult(
-        text=response.choices[0].message.content,
+        text=_normalize_llm_text(response.choices[0].message.content),
         usage={
             "prompt_tokens": response.usage.prompt_tokens,
             "completion_tokens": response.usage.completion_tokens,

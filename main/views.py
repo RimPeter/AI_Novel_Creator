@@ -68,6 +68,104 @@ def _get_story_bible_context(project: NovelProject) -> list[str]:
     return ["Story bible context:"] + lines
 
 
+def _get_selected_character_context(project: NovelProject, selected_ids: list[str] | None) -> list[str]:
+    ids = [str(pk).strip() for pk in (selected_ids or []) if str(pk).strip()]
+    if not ids:
+        return []
+
+    characters = {str(obj.id): obj for obj in Character.objects.filter(project=project, id__in=ids)}
+    if not characters:
+        return []
+
+    lines = ["Selected scene characters:"]
+    for char_id in ids:
+        character = characters.get(char_id)
+        if character is None:
+            continue
+
+        details = []
+        if (character.role or "").strip():
+            details.append(f"role={character.role.strip()}")
+        if character.age is not None:
+            details.append(f"age={character.age}")
+        if (character.gender or "").strip():
+            details.append(f"gender={character.gender.strip()}")
+        if (character.personality or "").strip():
+            details.append(f"personality={character.personality.strip()}")
+        if (character.appearance or "").strip():
+            details.append(f"appearance={character.appearance.strip()}")
+        if (character.background or "").strip():
+            details.append(f"background={character.background.strip()}")
+        if (character.goals or "").strip():
+            details.append(f"goals={character.goals.strip()}")
+        if (character.voice_notes or "").strip():
+            details.append(f"voice_notes={character.voice_notes.strip()}")
+        if (character.description or "").strip():
+            details.append(f"description={character.description.strip()}")
+        if isinstance(character.extra_fields, dict):
+            for key, value in character.extra_fields.items():
+                key_text = str(key or "").strip()
+                value_text = str(value or "").strip()
+                if key_text and value_text:
+                    details.append(f"{key_text}={value_text}")
+
+        line = f"- {character.name}"
+        if details:
+            line += ": " + "; ".join(details)
+        lines.append(line)
+
+    return lines if len(lines) > 1 else []
+
+
+def _truncate_prompt_text(text: str, limit: int = 2000) -> str:
+    value = (text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3].rstrip() + "..."
+
+
+def _get_previous_scene_context(scene: OutlineNode) -> list[str]:
+    if not scene.parent_id:
+        return []
+
+    siblings = list(
+        OutlineNode.objects.filter(
+            project=scene.project,
+            parent_id=scene.parent_id,
+            node_type=OutlineNode.NodeType.SCENE,
+        ).order_by("order", "created_at", "id")
+    )
+    if not siblings:
+        return []
+
+    previous = None
+    for idx, sibling in enumerate(siblings):
+        if sibling.id != scene.id:
+            continue
+        if idx > 0:
+            previous = siblings[idx - 1]
+        break
+
+    if previous is None:
+        return []
+
+    lines = ["Previous scene in this chapter:"]
+    if (previous.title or "").strip():
+        lines.append("Title: " + previous.title.strip())
+    if (previous.pov or "").strip():
+        lines.append("POV: " + previous.pov.strip())
+    if (previous.location or "").strip():
+        lines.append("Location: " + previous.location.strip())
+    if (previous.summary or "").strip():
+        lines.append("Summary: " + previous.summary.strip())
+
+    continuity_text = (previous.rendered_text or "").strip() or (previous.structure_json or "").strip()
+    if continuity_text:
+        lines.append("Text for continuity: " + _truncate_prompt_text(continuity_text))
+
+    return lines if len(lines) > 1 else []
+
+
 def _add_query_params(url: str, **params) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -810,12 +908,9 @@ def add_character_details(request, slug):
                     continue
                 filtered[key] = age_int
             else:
-                text = str(value).strip()
-                if not text:
-                    continue
-                # Avoid no-op "additions" that are identical to existing content.
                 existing = (current.get(key) or "").strip()
-                if existing and text in existing:
+                text = _dedupe_appended_text(existing, str(value))
+                if not text:
                     continue
                 filtered[key] = text
 
@@ -1098,7 +1193,35 @@ def _extract_json_object(raw: str) -> str:
     return text[start : end + 1]
 
 
+def _dedupe_appended_text(existing: str, addition: str) -> str:
+    existing_text = (existing or "").strip()
+    addition_text = (addition or "").strip()
+    if not addition_text:
+        return ""
+    if not existing_text:
+        return addition_text
+
+    existing_lower = existing_text.lower()
+    addition_lower = addition_text.lower()
+    if addition_lower in existing_lower:
+        return ""
+
+    def trim_overlap(text: str) -> str:
+        return text.lstrip(" \t\r\n;,:.-").strip()
+
+    if addition_lower.startswith(existing_lower):
+        return trim_overlap(addition_text[len(existing_text) :])
+
+    max_overlap = min(len(existing_text), len(addition_text))
+    for overlap in range(max_overlap, 0, -1):
+        if existing_lower[-overlap:] == addition_lower[:overlap]:
+            return trim_overlap(addition_text[overlap:])
+
+    return addition_text
+
+
 _BRACE_SEGMENT_RE = re.compile(r"\{[^{}]*\}")
+_TARGETED_SEGMENT_RE = re.compile(r"!\{[^{}]*\}!")
 
 
 def _split_braced_segments(text: str) -> list[dict[str, str | bool]]:
@@ -1110,6 +1233,22 @@ def _split_braced_segments(text: str) -> list[dict[str, str | bool]]:
         protected = bool(_BRACE_SEGMENT_RE.fullmatch(part))
         segments.append({"text": part, "protected": protected})
     return segments
+
+
+def _split_targeted_segments(text: str) -> list[dict[str, str | bool]]:
+    parts = re.split(r"(!\{[^{}]*\}!)", text)
+    segments: list[dict[str, str | bool]] = []
+    for part in parts:
+        if part == "":
+            continue
+        targeted = bool(_TARGETED_SEGMENT_RE.fullmatch(part))
+        segments.append({"text": part[2:-2] if targeted else part, "targeted": targeted})
+    return segments
+
+
+def _strip_draft_markers(text: str) -> str:
+    cleaned = re.sub(r"!\{([^{}]*)\}!", r"\1", text or "")
+    return cleaned.replace("{", "").replace("}", "")
 
 
 @require_POST
@@ -1966,7 +2105,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 prompt_lines = [
                     "Write a rough scene draft in prose (no bullet points, no JSON, no markdown headings).",
                     "Write in continuous prose with paragraphs; do not include section headers.",
-                    "Keep it grounded in the provided summary, POV, and location when available.",
+                    "Keep it grounded in the provided summary, POV, location, and selected character details when available.",
                     "Avoid meta commentary and avoid explaining what you are doing.",
                     "",
                     "Title: " + (scene.title or ""),
@@ -1974,6 +2113,14 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     "Location: " + (scene.location or ""),
                     "Summary: " + summary,
                 ]
+                character_lines = _get_selected_character_context(scene.project, scene.characters)
+                if character_lines:
+                    prompt_lines.append("")
+                    prompt_lines.extend(character_lines)
+                previous_scene_lines = _get_previous_scene_context(scene)
+                if previous_scene_lines:
+                    prompt_lines.append("")
+                    prompt_lines.extend(previous_scene_lines)
                 bible_lines = _get_story_bible_context(scene.project)
                 if bible_lines:
                     prompt_lines.append("")
@@ -2002,43 +2149,85 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     form.add_error("structure_json", "Add a draft first.")
                     return self.form_invalid(form)
 
-                segments = _split_braced_segments(raw_draft)
-                plain_segments = [seg["text"] for seg in segments if not seg["protected"]]
-                if not any(str(seg).strip() for seg in plain_segments):
-                    messages.warning(
-                        request,
-                        "Reshuffle ignored protected text; kept the existing draft. Try again.",
-                    )
-                    return HttpResponseRedirect(
-                        reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
-                    )
-                prompt_lines = [
-                    "Rewrite each segment in the JSON array into a fresh version with different phrasing.",
-                    "Rules:",
-                    "- Return STRICT JSON only in the form: {\"segments\": [...]}",
-                    "- Keep the same number of segments and the same order.",
-                    "- If a segment is only whitespace, return it unchanged.",
-                    "- Use prose (no bullet points, no JSON inside the strings, no markdown headings).",
-                    "- Avoid meta commentary and avoid explaining what you are doing.",
-                    "",
-                    "Segments (JSON array):",
-                    json.dumps(plain_segments, ensure_ascii=False),
-                ]
-                bible_lines = _get_story_bible_context(scene.project)
-                if bible_lines:
-                    prompt_lines.append("")
-                    prompt_lines.extend(bible_lines)
-                prompt = "\n".join(prompt_lines).strip()
+                targeted_segments = _split_targeted_segments(raw_draft)
+                targeted_texts = [seg["text"] for seg in targeted_segments if seg["targeted"]]
+                if targeted_texts:
+                    prompt_lines = [
+                        "Rewrite only the marked sections of the draft.",
+                        "Rules:",
+                        "- Return STRICT JSON only in the form: {\"segments\": [...]}",
+                        "- Return one rewritten string for each !{...}! section, in order.",
+                        "- Use the full draft as context.",
+                        "- Rewrite ONLY the marked !{...}! sections; all other text is protected and will remain unchanged.",
+                        "- Do not include !{...}! markers in the returned strings.",
+                        "- Use prose (no bullet points, no JSON inside the strings, no markdown headings).",
+                        "- Avoid meta commentary and avoid explaining what you are doing.",
+                        "",
+                        "Full draft with marked target sections:",
+                        raw_draft,
+                    ]
+                    bible_lines = _get_story_bible_context(scene.project)
+                    if bible_lines:
+                        prompt_lines.append("")
+                        prompt_lines.extend(bible_lines)
+                    prompt = "\n".join(prompt_lines).strip()
 
-                try:
-                    result = call_llm(
-                        prompt=prompt,
-                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                        params={"temperature": 0.8, "max_tokens": 900},
-                    )
-                    data = json.loads(_extract_json_object(result.text))
-                    updated = data.get("segments")
-                    if not isinstance(updated, list) or len(updated) != len(plain_segments):
+                    try:
+                        result = call_llm(
+                            prompt=prompt,
+                            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                            params={"temperature": 0.8, "max_tokens": 900},
+                        )
+                        data = json.loads(_extract_json_object(result.text))
+                        updated = data.get("segments")
+                        if not isinstance(updated, list) or len(updated) != len(targeted_texts):
+                            messages.warning(
+                                request,
+                                "Regenerate kept the existing draft. Try again.",
+                            )
+                            return HttpResponseRedirect(
+                                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                            )
+
+                        rebuilt = []
+                        highlight_ranges = []
+                        cursor = 0
+                        idx = 0
+                        for seg in targeted_segments:
+                            if not seg["targeted"]:
+                                segment_text = str(seg["text"])
+                                rebuilt.append(segment_text)
+                                cursor += len(segment_text)
+                                continue
+                            original = str(seg["text"])
+                            replacement = updated[idx] if idx < len(updated) else ""
+                            idx += 1
+                            if replacement is None:
+                                final_text = original
+                            else:
+                                replacement_text = str(replacement).replace("!{", "").replace("}!", "")
+                                final_text = replacement_text if replacement_text.strip() else original
+                            rebuilt.append(final_text)
+                            if final_text:
+                                highlight_ranges.append((cursor, cursor + len(final_text)))
+                            cursor += len(final_text)
+                        scene.structure_json = "".join(rebuilt)
+                        scene.save()
+                        messages.success(request, "Regenerated selected draft text.")
+                        redirect_url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                        if highlight_ranges:
+                            encoded_ranges = ",".join(f"{start}:{end}" for start, end in highlight_ranges)
+                            redirect_url = _add_query_params(redirect_url, hl=encoded_ranges)
+                        return HttpResponseRedirect(redirect_url)
+                    except Exception:
+                        messages.warning(
+                            request,
+                            "Regenerate kept the existing draft. Try again.",
+                        )
+                else:
+                    segments = _split_braced_segments(raw_draft)
+                    plain_segments = [seg["text"] for seg in segments if not seg["protected"]]
+                    if not any(str(seg).strip() for seg in plain_segments):
                         messages.warning(
                             request,
                             "Reshuffle ignored protected text; kept the existing draft. Try again.",
@@ -2046,32 +2235,66 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         return HttpResponseRedirect(
                             reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
                         )
+                    prompt_lines = [
+                        "Rewrite each segment in the JSON array into a fresh version with different phrasing.",
+                        "Rules:",
+                        "- Return STRICT JSON only in the form: {\"segments\": [...]}",
+                        "- Keep the same number of segments and the same order.",
+                        "- If a segment is only whitespace, return it unchanged.",
+                        "- Use prose (no bullet points, no JSON inside the strings, no markdown headings).",
+                        "- Avoid meta commentary and avoid explaining what you are doing.",
+                        "",
+                        "Segments (JSON array):",
+                        json.dumps(plain_segments, ensure_ascii=False),
+                    ]
+                    bible_lines = _get_story_bible_context(scene.project)
+                    if bible_lines:
+                        prompt_lines.append("")
+                        prompt_lines.extend(bible_lines)
+                    prompt = "\n".join(prompt_lines).strip()
 
-                    rebuilt = []
-                    idx = 0
-                    for seg in segments:
-                        if seg["protected"]:
-                            rebuilt.append(seg["text"])
-                            continue
-                        original = str(seg["text"])
-                        replacement = updated[idx] if idx < len(updated) else ""
-                        idx += 1
-                        if not original.strip():
-                            rebuilt.append(original)
-                            continue
-                        if replacement is None:
-                            rebuilt.append(original)
-                            continue
-                        replacement_text = str(replacement)
-                        rebuilt.append(replacement_text if replacement_text.strip() else original)
-                    scene.structure_json = "".join(rebuilt)
-                    scene.save()
-                    messages.success(request, "Reshuffled draft.")
-                except Exception:
-                    messages.warning(
-                        request,
-                        "Reshuffle ignored protected text; kept the existing draft. Try again.",
-                    )
+                    try:
+                        result = call_llm(
+                            prompt=prompt,
+                            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                            params={"temperature": 0.8, "max_tokens": 900},
+                        )
+                        data = json.loads(_extract_json_object(result.text))
+                        updated = data.get("segments")
+                        if not isinstance(updated, list) or len(updated) != len(plain_segments):
+                            messages.warning(
+                                request,
+                                "Reshuffle ignored protected text; kept the existing draft. Try again.",
+                            )
+                            return HttpResponseRedirect(
+                                reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+                            )
+
+                        rebuilt = []
+                        idx = 0
+                        for seg in segments:
+                            if seg["protected"]:
+                                rebuilt.append(seg["text"])
+                                continue
+                            original = str(seg["text"])
+                            replacement = updated[idx] if idx < len(updated) else ""
+                            idx += 1
+                            if not original.strip():
+                                rebuilt.append(original)
+                                continue
+                            if replacement is None:
+                                rebuilt.append(original)
+                                continue
+                            replacement_text = str(replacement)
+                            rebuilt.append(replacement_text if replacement_text.strip() else original)
+                        scene.structure_json = "".join(rebuilt)
+                        scene.save()
+                        messages.success(request, "Reshuffled draft.")
+                    except Exception:
+                        messages.warning(
+                            request,
+                            "Reshuffle ignored protected text; kept the existing draft. Try again.",
+                        )
             else:
                 raw_draft = (scene.structure_json or "").strip()
                 if not raw_draft:
@@ -2079,7 +2302,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     return self.form_invalid(form)
 
                 if action == "import-draft":
-                    cleaned = raw_draft.replace("{", "").replace("}", "")
+                    cleaned = _strip_draft_markers(raw_draft)
                     scene.rendered_text = cleaned + ("\n" if cleaned and not cleaned.endswith("\n") else "")
                     scene.save()
                     messages.success(request, "Imported draft into final text.")
@@ -2087,6 +2310,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
                     )
 
+                cleaned_draft = _strip_draft_markers(raw_draft)
                 prompt = "\n".join(
                     [
                         "Rewrite the draft into polished novel prose (no bullet points, no JSON, no markdown headings).",
@@ -2095,7 +2319,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         "Avoid meta commentary and avoid explaining what you are doing.",
                         "",
                         "Draft:",
-                        raw_draft,
+                        cleaned_draft,
                     ]
                 ).strip()
 
@@ -2112,7 +2336,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     scene.save()
                     messages.success(request, "Rendered novel prose from draft.")
                 except Exception:
-                    scene.rendered_text = raw_draft + ("\n" if not raw_draft.endswith("\n") else "")
+                    scene.rendered_text = cleaned_draft + ("\n" if not cleaned_draft.endswith("\n") else "")
                     scene.save()
                     messages.warning(
                         request,

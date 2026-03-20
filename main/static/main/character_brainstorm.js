@@ -136,6 +136,32 @@
     }
   };
 
+  const dedupeAppendedText = (existing, addition) => {
+    const existingText = String(existing || "").trim();
+    const additionText = String(addition || "").trim();
+    if (!additionText) return "";
+    if (!existingText) return additionText;
+
+    const existingLower = existingText.toLowerCase();
+    const additionLower = additionText.toLowerCase();
+    if (existingLower.includes(additionLower)) return "";
+
+    const trimOverlap = (text) => text.replace(/^[\s;,:.-]+/, "").trim();
+
+    if (additionLower.startsWith(existingLower)) {
+      return trimOverlap(additionText.slice(existingText.length));
+    }
+
+    const maxOverlap = Math.min(existingText.length, additionText.length);
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+      if (existingLower.slice(-overlap) === additionLower.slice(0, overlap)) {
+        return trimOverlap(additionText.slice(overlap));
+      }
+    }
+
+    return additionText;
+  };
+
   btn.addEventListener("click", async () => {
     const current = getCurrentValues();
     const rejected = getRejectedFields();
@@ -178,8 +204,9 @@
         continue;
       }
 
-      if (existing.includes(addition)) continue;
-      el.value = `${existing}\n\n${addition}`.trim();
+      const extra = dedupeAppendedText(existing, addition);
+      if (!extra) continue;
+      el.value = `${existing}\n\n${extra}`.trim();
       changed += 1;
     }
     return changed;

@@ -2,7 +2,7 @@ from django import forms
 import json
 
 from .location_hierarchy import build_location_label_map, collect_descendant_ids
-from .models import Character, Location, NovelProject, OutlineNode, StoryBible
+from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 
 
 class NovelProjectForm(forms.ModelForm):
@@ -106,6 +106,27 @@ class StoryBibleForm(forms.ModelForm):
         if not value:
             return {}
         return value
+
+
+class HomeUpdateForm(forms.ModelForm):
+    class Meta:
+        model = HomeUpdate
+        fields = [
+            "date",
+            "title",
+            "body",
+        ]
+        widgets = {
+            "date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "title": forms.TextInput(attrs={"class": "form-control"}),
+            "body": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 8,
+                    "placeholder": "Write the update memo for users.",
+                }
+            ),
+        }
 
 
 class OutlineChapterForm(forms.ModelForm):

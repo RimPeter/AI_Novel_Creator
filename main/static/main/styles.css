@@ -121,6 +121,10 @@ a:hover {
   background: rgba(127, 127, 127, 0.06);
 }
 
+.card + .card {
+  margin-top: 18px;
+}
+
 h1 {
   margin: 0 0 8px;
   font-size: 32px;
@@ -215,6 +219,54 @@ ul {
 
 .list-title {
   font-weight: 700;
+}
+
+.updates-list {
+  display: grid;
+  gap: 14px;
+}
+
+.update-note {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 245, 157, 0.12), rgba(127, 127, 127, 0.05)),
+    rgba(127, 127, 127, 0.04);
+}
+
+.update-date {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+}
+
+.update-title {
+  margin-bottom: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.update-body {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  background: rgba(15, 15, 18, 0.22);
+  white-space: pre-wrap;
+}
+
+@media (prefers-color-scheme: light) {
+  .update-note {
+    background:
+      linear-gradient(180deg, rgba(255, 244, 184, 0.55), rgba(255, 255, 255, 0.72)),
+      rgba(255, 255, 255, 0.92);
+  }
+
+  .update-body {
+    background: rgba(255, 255, 255, 0.88);
+  }
 }
 
 .location-list-item {

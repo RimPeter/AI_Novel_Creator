@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from .location_hierarchy import collect_descendant_ids
 
@@ -56,6 +57,18 @@ class StoryBible(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"StoryBible: {self.project.title}"
+
+
+class HomeUpdate(TimeStampedModel):
+    date = models.DateField(default=timezone.localdate)
+    title = models.CharField(max_length=255)
+    body = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.date}: {self.title}"
 
 
 class Character(TimeStampedModel):

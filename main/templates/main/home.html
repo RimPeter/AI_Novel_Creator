@@ -1,0 +1,39 @@
+{% extends "main/base.html" %}
+
+{% block title %}AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <h1>Welcome to AI Novel Creator</h1>
+    <p>Build projects, draft scenes, and track active tool updates from one place.</p>
+    <p>Start here:</p>
+    <ul>
+      <li><a href="{% url 'project-list' %}">View projects</a></li>
+      <li><a href="{% url 'project-create' %}">Create a new project</a></li>
+    </ul>
+  </section>
+
+  <section class="card updates-board">
+    <div class="header-row">
+      <h2 class="h2">Updates</h2>
+      {% if user.is_authenticated and user.is_superuser %}
+        <div class="actions">
+          <a class="btn btn-secondary btn-sm" href="{% url 'home-update-create' %}">Post Update</a>
+        </div>
+      {% endif %}
+    </div>
+    <p class="muted">Memo board for recent product changes.</p>
+
+    <div class="updates-list">
+      {% for update in updates %}
+        <article class="update-note">
+          <div class="update-date">{{ update.date|date:"Y-m-d" }}</div>
+          <div class="update-title">{{ update.title }}</div>
+          <div class="update-body">{{ update.body|linebreaksbr }}</div>
+        </article>
+      {% empty %}
+        <div class="muted">No updates posted yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import transaction
 from django.db.models import Max, Q, ProtectedError
 from django.http import Http404, HttpResponseRedirect, JsonResponse
@@ -14,9 +14,17 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 from django.views.decorators.http import require_POST
 
-from .forms import CharacterForm, LocationForm, NovelProjectForm, OutlineChapterForm, OutlineSceneForm, StoryBibleForm
+from .forms import (
+    CharacterForm,
+    HomeUpdateForm,
+    LocationForm,
+    NovelProjectForm,
+    OutlineChapterForm,
+    OutlineSceneForm,
+    StoryBibleForm,
+)
 from .location_hierarchy import build_location_rows, build_location_tree
-from .models import Character, Location, NovelProject, OutlineNode, StoryBible
+from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm, generate_image_data_url
@@ -244,7 +252,8 @@ def _renumber_outline_for_project(project: NovelProject) -> None:
 
 
 def home(request):
-    return render(request, "main/base.html")
+    updates = HomeUpdate.objects.order_by("-date", "-created_at")
+    return render(request, "main/home.html", {"updates": updates})
 
 
 @require_POST
@@ -1882,6 +1891,80 @@ class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
+
+
+class SuperuserRequiredMixin(UserPassesTestMixin):
+    raise_exception = True
+
+    def test_func(self):
+        return bool(self.request.user.is_authenticated and self.request.user.is_superuser)
+
+
+class HomeUpdateCreateView(LoginRequiredMixin, SuperuserRequiredMixin, CreateView):
+    model = HomeUpdate
+    form_class = HomeUpdateForm
+    template_name = "main/home_update_form.html"
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Update posted.")
+        return response
+
+    def get_success_url(self):
+        return reverse_lazy("home")
+
+
+@require_POST
+@login_required
+def regenerate_home_update(request):
+    if not request.user.is_superuser:
+        return JsonResponse({"ok": False, "error": "Forbidden."}, status=403)
+
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+
+    body = (request.POST.get("body") or "").strip()
+    if not body:
+        return JsonResponse({"ok": False, "error": "Add commit text to Body first."}, status=400)
+
+    current_title = (request.POST.get("title") or "").strip()
+    prompt_lines = [
+        "You are rewriting internal software update notes for end users.",
+        "Goal: turn the raw technical notes into a short, plain-language update title and body.",
+        "Rules:",
+        '- Return STRICT JSON only in the form: {"title": "...", "body": "..."}',
+        "- Explain the update in layman's terms.",
+        "- Remove commit-style wording, code jargon, and implementation details unless users need them.",
+        "- Make the title short and clear.",
+        "- Make the body concise, readable, and user-facing.",
+        "- Do not use bullet points unless the source clearly needs them.",
+        "",
+        "Existing title (may be blank): " + current_title,
+        "Raw update notes:",
+        body,
+    ]
+    prompt = "\n".join(prompt_lines).strip()
+
+    try:
+        result = call_llm(
+            prompt=prompt,
+            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            params={"temperature": 0.4, "max_tokens": 400},
+        )
+        data = json.loads(_extract_json_object(result.text))
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+        title = str(data.get("title") or "").strip()
+        rewritten_body = str(data.get("body") or "").strip()
+        if not title or not rewritten_body:
+            raise ValueError("Model response must include title and body.")
+        return JsonResponse({"ok": True, "title": title, "body": rewritten_body})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
 
 class OutlineChapterCreateView(LoginRequiredMixin, CreateView):

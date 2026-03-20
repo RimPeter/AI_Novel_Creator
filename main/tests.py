@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from .models import Character, NovelProject, OutlineNode
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
-from .models import Location
+from .models import HomeUpdate, Location
 
 
 class AuthenticatedTestCase(TestCase):
@@ -40,6 +40,105 @@ class LLMTests(TestCase):
         )
         messages = mocked.call_args.kwargs["messages"]
         self.assertEqual(messages[0], {"role": "system", "content": SYSTEM_PROMPT})
+
+
+class HomePageTests(TestCase):
+    def test_home_page_displays_updates_board(self):
+        HomeUpdate.objects.create(
+            date="2026-03-20",
+            title="Targeted scene regeneration",
+            body="Added !{...}! markers and post-regenerate highlight support.",
+        )
+
+        resp = self.client.get(reverse("home"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Updates")
+        self.assertContains(resp, "2026-03-20")
+        self.assertContains(resp, "Targeted scene regeneration")
+        self.assertContains(resp, "Added !{...}! markers and post-regenerate highlight support.")
+
+
+class HomeUpdateCreateViewTests(TestCase):
+    def setUp(self):
+        self.superuser = get_user_model().objects.create_superuser(
+            username="admin",
+            email="admin@example.com",
+            password="password123",
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            username="writer",
+            email="writer@example.com",
+            password="password123",
+        )
+
+    def test_superuser_can_open_create_page_and_post_update(self):
+        self.client.force_login(self.superuser)
+
+        url = reverse("home-update-create")
+        resp = self.client.post(
+            url,
+            data={
+                "date": "2026-03-20",
+                "title": "Home board update",
+                "body": "Posted from the dedicated superuser page.",
+            },
+        )
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(HomeUpdate.objects.filter(title="Home board update").exists())
+
+    def test_regular_user_cannot_open_create_page(self):
+        self.client.force_login(self.regular_user)
+
+        resp = self.client.get(reverse("home-update-create"))
+
+        self.assertEqual(resp.status_code, 403)
+
+    def test_superuser_can_regenerate_home_update_copy(self):
+        self.client.force_login(self.superuser)
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"title": "Scene drafting is easier", "body": "Scene drafting now uses clearer prompts and better context."}',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                reverse("home-update-regenerate"),
+                data={
+                    "title": "",
+                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "title": "Scene drafting is easier",
+                "body": "Scene drafting now uses clearer prompts and better context.",
+            },
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("turn the raw technical notes into a short, plain-language update title and body", prompt)
+        self.assertIn("feat: refine scene drafting prompt and previous-scene continuity", prompt)
+
+    def test_regular_user_cannot_regenerate_home_update_copy(self):
+        self.client.force_login(self.regular_user)
+
+        resp = self.client.post(
+            reverse("home-update-regenerate"),
+            data={"body": "technical commit text"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 403)
 
 
 class MoveSceneTests(AuthenticatedTestCase):

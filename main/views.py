@@ -132,6 +132,54 @@ def _truncate_prompt_text(text: str, limit: int = 2000) -> str:
     return value[: limit - 3].rstrip() + "..."
 
 
+_PORTRAIT_VISUAL_EXTRA_FIELDS = {
+    "appearance",
+    "build",
+    "clothing",
+    "eyes",
+    "eye color",
+    "face",
+    "facial features",
+    "features",
+    "hair",
+    "hair color",
+    "height",
+    "outfit",
+    "skin",
+    "style",
+}
+
+
+def _normalize_image_detail(text: str, limit: int = 220) -> str:
+    value = re.sub(r"\s+", " ", (text or "").strip())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3].rstrip() + "..."
+
+
+def _append_detail_line(lines: list[str], label: str, value: str, limit: int = 220) -> None:
+    text = _normalize_image_detail(value, limit=limit)
+    if text:
+        lines.append(f"{label}: {text}")
+
+
+def _get_portrait_visual_extra_lines(extra_fields) -> list[str]:
+    if not isinstance(extra_fields, dict):
+        return []
+
+    lines = []
+    for key, value in extra_fields.items():
+        key_text = _normalize_image_detail(str(key or ""), limit=60)
+        if not key_text:
+            continue
+        if key_text.lower() not in _PORTRAIT_VISUAL_EXTRA_FIELDS:
+            continue
+        value_text = _normalize_image_detail(str(value or ""), limit=140)
+        if value_text:
+            lines.append(f"{key_text.title()}: {value_text}")
+    return lines
+
+
 def _get_previous_scene_context(scene: OutlineNode) -> list[str]:
     if not scene.parent_id:
         return []
@@ -959,35 +1007,29 @@ def generate_character_portrait(request, slug, pk):
     if not name:
         return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
 
-    def add_line(label, value, lines):
-        text = (value or "").strip()
-        if text:
-            lines.append(f"{label}: {text}")
-
     prompt_lines = [
-        "Create a passport-style portrait photo of a fictional character.",
-        "Style: realistic ID photo, neutral expression, even lighting, plain light background.",
-        "Framing: centered, front-facing head and shoulders.",
-        "No text, no logos, no watermarks.",
+        "Create a photorealistic passport photo of a fictional person.",
+        "This must look like an official passport or ID photo, not concept art, not a cinematic portrait, and not an illustration.",
+        "Composition: exactly one person only, head and upper shoulders only, centered in frame, straight-on camera, looking directly at the lens.",
+        "Subject count: a single face only. Never show two people, twins, a duplicate face, a mirrored subject, a reflection, or a split composition.",
+        "Cropping: face fills most of the frame like a passport photo, with a small amount of space above the head and both shoulders visible.",
+        "Expression and pose: neutral expression, mouth closed, eyes open, upright posture, no dramatic pose.",
+        "Lighting and background: flat even studio lighting, plain white or light gray background, minimal shadows.",
+        "Styling constraints: simple everyday clothing only, no props, no hands in frame, no stylized makeup, no dramatic hair motion.",
+        "Image quality: sharp focus, natural skin texture, realistic proportions, official document photo aesthetic.",
+        "Ignore story context and personality traits. Use only stable visible physical characteristics.",
+        "No text, no logos, no watermarks, no borders.",
         "",
-        "Character details:",
+        "Subject details:",
     ]
-    add_line("Name", name, prompt_lines)
-    add_line("Role", get_text("role", character.role), prompt_lines)
+    _append_detail_line(prompt_lines, "Name", name, limit=80)
     age_value = get_age_value(character.age)
     if age_value is not None:
         prompt_lines.append(f"Age: {age_value}")
-    add_line("Gender", get_text("gender", character.gender), prompt_lines)
-    add_line("Appearance", get_text("appearance", character.appearance), prompt_lines)
-    add_line("Personality", get_text("personality", character.personality), prompt_lines)
-    add_line("Background", get_text("background", character.background), prompt_lines)
-    add_line("Goals", get_text("goals", character.goals), prompt_lines)
-    add_line("Voice notes", get_text("voice_notes", character.voice_notes), prompt_lines)
-    add_line("Description", get_text("description", character.description), prompt_lines)
-    extra_fields = character.extra_fields or {}
-    if isinstance(extra_fields, dict):
-        for key, value in extra_fields.items():
-            add_line(str(key).strip() or "Extra", str(value).strip(), prompt_lines)
+    _append_detail_line(prompt_lines, "Gender", get_text("gender", character.gender), limit=80)
+    _append_detail_line(prompt_lines, "Appearance", get_text("appearance", character.appearance))
+    _append_detail_line(prompt_lines, "Description", get_text("description", character.description))
+    prompt_lines.extend(_get_portrait_visual_extra_lines(character.extra_fields or {}))
 
     model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
     fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")

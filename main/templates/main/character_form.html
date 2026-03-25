@@ -4,120 +4,129 @@
 {% block title %}{% if object %}Edit{% else %}New{% endif %} character | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section
-    class="card"
-    data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}"
-    data-character-add-details-url="{% url 'character-add-details' slug=project.slug %}"
-    data-character-portrait-url="{% if object %}{% url 'character-portrait' slug=project.slug pk=object.id %}{% endif %}"
-  >
-    <div class="header-row">
-      <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Back</a>
-      </div>
-    </div>
-
-    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
-
-    {% if object %}
-      <div class="character-portrait">
-        <div class="portrait-frame">
-          <img
-            id="character-portrait-img"
-            class="{% if not object.portrait_data_url %}is-hidden{% endif %}"
-            src="{{ object.portrait_data_url }}"
-            alt="Portrait of {{ object.name }}"
-          />
-          <div
-            id="character-portrait-placeholder"
-            class="portrait-placeholder {% if object.portrait_data_url %}is-hidden{% endif %}"
-          >
-            No portrait yet.
-          </div>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Character studio</span>
+          <h1 class="page-title">{% if object %}Edit{% else %}Create{% endif %} character</h1>
         </div>
-        <div class="portrait-meta">
-          <div class="muted" id="character-portrait-status">
-            {% if object.portrait_data_url %}
-              Portrait saved for this character.
-            {% else %}
-              Generate a portrait based on the character details.
-            {% endif %}
-          </div>
-          <button class="btn btn-secondary" type="button" id="character-portrait-btn">Create Portrait Image</button>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+          <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
         </div>
       </div>
-    {% endif %}
+      <p class="page-lead">Define the role, voice, history, and visual cues that should stay stable across the novel.</p>
+      <div class="page-meta">
+        <span class="page-chip">{{ project.title }}</span>
+      </div>
+    </section>
 
-    <form method="post" class="form" data-dirty-guard="true">
-      {% csrf_token %}
-
-      {% if form.non_field_errors %}
-        <div class="form-errors">{{ form.non_field_errors }}</div>
+    <section
+      class="card page-panel"
+      data-character-brainstorm-url="{% url 'character-brainstorm' slug=project.slug %}"
+      data-character-add-details-url="{% url 'character-add-details' slug=project.slug %}"
+      data-character-portrait-url="{% if object %}{% url 'character-portrait' slug=project.slug pk=object.id %}{% endif %}"
+    >
+      {% if object %}
+        <div class="character-portrait">
+          <div class="portrait-frame">
+            <img
+              id="character-portrait-img"
+              class="{% if not object.portrait_data_url %}is-hidden{% endif %}"
+              src="{{ object.portrait_data_url }}"
+              alt="Portrait of {{ object.name }}"
+            />
+            <div
+              id="character-portrait-placeholder"
+              class="portrait-placeholder {% if object.portrait_data_url %}is-hidden{% endif %}"
+            >
+              No portrait yet.
+            </div>
+          </div>
+          <div class="portrait-meta">
+            <div class="muted" id="character-portrait-status">
+              {% if object.portrait_data_url %}
+                Portrait saved for this character.
+              {% else %}
+                Generate a portrait based on the character details.
+              {% endif %}
+            </div>
+            <button class="btn btn-secondary" type="button" id="character-portrait-btn">Create portrait image</button>
+          </div>
+        </div>
       {% endif %}
 
-      {% for field in form %}
-        <div class="form-row">
-          <div class="form-label-row">
-            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {% with reject_name="reject_"|add:field.name %}
-              <label class="reject-toggle">
-                <input type="checkbox" name="{{ reject_name }}" />
-                Reject
-                <span class="reject-tooltip" role="tooltip">
-                  Check to regenerate this field when Brainstorming.
-                </span>
-              </label>
-            {% endwith %}
+      <form method="post" class="form" data-dirty-guard="true">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <div class="form-label-row">
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {% with reject_name="reject_"|add:field.name %}
+                <label class="reject-toggle">
+                  <input type="checkbox" name="{{ reject_name }}" />
+                  Reject
+                  <span class="reject-tooltip" role="tooltip">
+                    Check to regenerate this field when brainstorming.
+                  </span>
+                </label>
+              {% endwith %}
+            </div>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
           </div>
-          {{ field }}
-          {% if field.help_text %}
-            <div class="muted">{{ field.help_text }}</div>
-          {% endif %}
-          {% for error in field.errors %}
-            <div class="field-error">{{ error }}</div>
-          {% endfor %}
-        </div>
-      {% endfor %}
+        {% endfor %}
 
-      <hr class="outline-sep" />
-      <div class="header-row">
-        <h2 class="h2">Extra fields</h2>
-        <div class="actions">
-          <button class="btn btn-secondary btn-sm" type="button" id="add-character-field">Add field</button>
+        <hr class="outline-sep" />
+        <div class="header-row">
+          <h2 class="h2">Extra fields</h2>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" type="button" id="add-character-field">Add field</button>
+          </div>
         </div>
-      </div>
-      <p class="muted">Add custom traits or notes as key/value pairs.</p>
+        <p class="muted">Add custom traits or notes as key/value pairs.</p>
 
-      <div id="character-extra-rows">
-        {% if extra_rows %}
-          {% for k, v in extra_rows %}
+        <div id="character-extra-rows">
+          {% if extra_rows %}
+            {% for k, v in extra_rows %}
+              <div class="object-row">
+                <input class="form-control" name="extra_key" type="text" value="{{ k }}" placeholder="Field name" />
+                <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value">{{ v }}</textarea>
+                <button class="btn btn-secondary btn-sm remove-extra-row" type="button">Remove</button>
+              </div>
+            {% endfor %}
+          {% else %}
             <div class="object-row">
-              <input class="form-control" name="extra_key" type="text" value="{{ k }}" placeholder="Field name" />
-              <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value">{{ v }}</textarea>
+              <input class="form-control" name="extra_key" type="text" placeholder="Field name" />
+              <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value"></textarea>
               <button class="btn btn-secondary btn-sm remove-extra-row" type="button">Remove</button>
             </div>
-          {% endfor %}
-        {% else %}
-          <div class="object-row">
-            <input class="form-control" name="extra_key" type="text" placeholder="Field name" />
-            <textarea class="form-control" name="extra_value" rows="2" placeholder="Field value"></textarea>
-            <button class="btn btn-secondary btn-sm remove-extra-row" type="button">Remove</button>
-          </div>
-        {% endif %}
-      </div>
+          {% endif %}
+        </div>
 
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        <button class="btn btn-secondary" type="button" id="character-brainstorm-btn">Brainstorm</button>
-        <button class="btn btn-secondary" type="button" id="character-add-details-btn">Add more details</button>
-        <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Cancel</a>
-        {% if object %}
-          <a class="btn btn-secondary" href="{% url 'character-delete' slug=project.slug pk=object.id %}">Delete</a>
-        {% endif %}
-      </div>
-    </form>
-  </section>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save</button>
+          <button class="btn btn-secondary" type="button" id="character-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="character-add-details-btn">Add more details</button>
+          <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Cancel</a>
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'character-delete' slug=project.slug pk=object.id %}">Delete</a>
+          {% endif %}
+        </div>
+      </form>
+    </section>
+  </div>
 
   <script src="{% static 'main/character_brainstorm.js' %}" defer></script>
   <script src="{% static 'main/character_portrait.js' %}" defer></script>

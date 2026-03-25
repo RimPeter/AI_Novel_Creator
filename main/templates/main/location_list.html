@@ -3,53 +3,65 @@
 {% block title %}Locations | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>Locations</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        <a class="btn btn-secondary" href="world-map/">World map</a>
-        <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">World map</span>
+          <h1 class="page-title">Locations</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+          <a class="btn btn-secondary" href="world-map/">World map</a>
+          <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
+        </div>
       </div>
-    </div>
-
-    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
-
-    <form method="get" class="form">
-      <div class="form-row">
-        <label class="form-label" for="q">Search</label>
-        <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or description" />
+      <p class="page-lead">Track the story world from root spaces down to the smallest nested settings.</p>
+      <div class="page-summary-grid">
+        <article class="page-summary-card">
+          <strong>{{ location_rows|length }}</strong>
+          <span>Locations</span>
+        </article>
       </div>
-      <div class="actions">
-        <button class="btn btn-secondary" type="submit">Search</button>
-        {% if q %}
-          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Clear</a>
-        {% endif %}
-      </div>
-    </form>
+    </section>
 
-    {% if location_rows %}
-      <ul class="list">
-        {% for row in location_rows %}
-          {% with loc=row.location %}
-          <li class="list-item location-list-item" style="padding-left: {{ row.indent_px|add:12 }}px;">
-            <div>
-              <div class="list-title">{{ loc.name }}</div>
-              <div class="muted">
-                {% if row.path and row.path != loc.name %}{{ row.path }}<br />{% endif %}
-                {% if loc.objects_map %}{{ loc.objects_map|length }} objects{% else %}0 objects{% endif %}
+    <section class="card page-panel">
+      <form method="get" class="form">
+        <div class="form-row">
+          <label class="form-label" for="q">Search</label>
+          <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or description" />
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" type="submit">Search</button>
+          {% if q %}
+            <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Clear</a>
+          {% endif %}
+        </div>
+      </form>
+
+      {% if location_rows %}
+        <ul class="list">
+          {% for row in location_rows %}
+            {% with loc=row.location %}
+            <li class="list-item location-list-item" style="padding-left: {{ row.indent_px|add:12 }}px;">
+              <div>
+                <div class="list-title">{{ loc.name }}</div>
+                <div class="muted">
+                  {% if row.path and row.path != loc.name %}{{ row.path }}<br />{% endif %}
+                  {% if loc.objects_map %}{{ loc.objects_map|length }} objects{% else %}0 objects{% endif %}
+                </div>
               </div>
-            </div>
-            <div class="actions">
-              <a class="btn btn-secondary btn-sm" href="{% url 'location-edit' slug=project.slug pk=loc.id %}">Edit</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'location-delete' slug=project.slug pk=loc.id %}">Delete</a>
-            </div>
-          </li>
-          {% endwith %}
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="muted">No locations yet.</p>
-    {% endif %}
-  </section>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{% url 'location-edit' slug=project.slug pk=loc.id %}">Edit</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'location-delete' slug=project.slug pk=loc.id %}">Delete</a>
+              </div>
+            </li>
+            {% endwith %}
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No locations yet.</p>
+      {% endif %}
+    </section>
+  </div>
 {% endblock %}

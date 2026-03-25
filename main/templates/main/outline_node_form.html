@@ -4,222 +4,219 @@
 {% block title %}Edit outline | AI Novel Creator{% endblock %}
 
 {% block content %}
-  <section
-    class="card"
-    {% if node_kind == "scene" %}
-      data-location-create-url="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
-      {% if object %}
-        data-scene-brainstorm-url="{% url 'scene-brainstorm' slug=project.slug pk=object.id %}"
-        data-scene-add-details-url="{% url 'scene-add-details' slug=project.slug pk=object.id %}"
-      {% endif %}
-    {% endif %}
-  >
-    <div class="header-row">
-      <h1>{% if object %}Edit{% else %}Add{% endif %} {{ node_kind }}</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Outline workshop</span>
+          <h1 class="page-title">{% if object %}Edit{% else %}Add{% endif %} {{ node_kind }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
       </div>
-    </div>
+      <p class="page-lead">
+        Project: <strong>{{ project.title }}</strong>
+        {% if parent_node %} / Parent: {{ parent_node.title|default:parent_node.get_node_type_display }}{% endif %}
+      </p>
+    </section>
 
-    <p class="muted">
-      Project: <strong>{{ project.title }}</strong>
-      {% if parent_node %} / Parent: {{ parent_node.title|default:parent_node.get_node_type_display }}{% endif %}
-    </p>
-
-    <form method="post" class="form">
-      {% csrf_token %}
-
-      {% if form.non_field_errors %}
-        <div class="form-errors">{{ form.non_field_errors }}</div>
+    <section
+      class="card page-panel"
+      {% if node_kind == "scene" %}
+        data-location-create-url="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
+        {% if object %}
+          data-scene-brainstorm-url="{% url 'scene-brainstorm' slug=project.slug pk=object.id %}"
+          data-scene-add-details-url="{% url 'scene-add-details' slug=project.slug pk=object.id %}"
+        {% endif %}
       {% endif %}
+    >
+      <form method="post" class="form">
+        {% csrf_token %}
 
-      {% for field in form %}
-        {% if field.name == "structure_json" or field.name == "rendered_text" %}
-          {% if node_kind == "scene" and object %}
-            <div class="form-row">
-              {% if field.name == "structure_json" %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          {% if field.name == "structure_json" or field.name == "rendered_text" %}
+            {% if node_kind == "scene" and object %}
+              <div class="form-row">
+                {% if field.name == "structure_json" %}
+                  <div class="form-label-row">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    <div class="actions">
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        type="submit"
+                        name="action"
+                        value="structurize"
+                        data-confirm="Will erase all text from draft!!"
+                      >
+                        Draft from Summary
+                      </button>
+                      <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
+                      <span class="tooltip-wrap">
+                        <button class="btn btn-secondary btn-sm" type="button" id="draft-target-btn">!{...}!</button>
+                        <span class="tooltip-bubble" role="tooltip">
+                          Mark only the selected text for Regenerate. The rest of the draft stays protected, but AI still sees the whole draft as context.
+                        </span>
+                      </span>
+                      <span class="tooltip-wrap">
+                        <button class="btn btn-secondary btn-sm" type="button" id="draft-unbrace-btn">Remove {}</button>
+                        <span class="tooltip-bubble" role="tooltip">
+                          Remove {} and !{...}! markers from the current selection. Click without a selection to remove all draft markers.
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="draft-editor" data-draft-editor data-regenerated-ranges="{{ request.GET.hl|default:'' }}">
+                    <div class="draft-highlight" aria-hidden="true"></div>
+                    <textarea
+                      class="form-control draft-input auto-grow"
+                      name="{{ field.html_name }}"
+                      id="{{ field.id_for_label }}"
+                      rows="14"
+                      data-autogrow="true"
+                      data-placeholder="{{ field.field.widget.attrs.placeholder|default:'' }}"
+                    >{{ field.value|default_if_none:'' }}</textarea>
+                  </div>
+                {% else %}
+                  <div class="form-label-row">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    <div class="actions">
+                      <button class="btn btn-secondary btn-sm" type="submit" name="action" value="import-draft">Import from Draft</button>
+                    </div>
+                  </div>
+                  {{ field }}
+                {% endif %}
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% else %}
+            {% if node_kind == "scene" and field.name == "characters" %}
+              <div class="form-row">
                 <div class="form-label-row">
                   <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                   <div class="actions">
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      type="submit"
-                      name="action"
-                      value="structurize"
-                      data-confirm="Will erase all text from draft!!"
-                    >
-                      Draft from Summary
-                    </button>
-                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
-                    <span class="tooltip-wrap">
-                      <button class="btn btn-secondary btn-sm" type="button" id="draft-target-btn">!{...}!</button>
-                      <span class="tooltip-bubble" role="tooltip">
-                        Mark only the selected text for Regenerate. The rest of the draft stays protected, but AI still sees the whole draft as context.
-                      </span>
-                    </span>
-                    <span class="tooltip-wrap">
-                      <button class="btn btn-secondary btn-sm" type="button" id="draft-unbrace-btn">Remove {}</button>
-                      <span class="tooltip-bubble" role="tooltip">
-                        Remove {} and !{...}! markers from the current selection. Click without a selection to remove all draft markers.
-                      </span>
-                    </span>
+                    <a class="btn btn-secondary btn-sm" href="{% url 'character-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}">New character</a>
                   </div>
                 </div>
-                <div class="draft-editor" data-draft-editor data-regenerated-ranges="{{ request.GET.hl|default:'' }}">
-                  <div class="draft-highlight" aria-hidden="true"></div>
-                  <textarea
-                    class="form-control draft-input auto-grow"
-                    name="{{ field.html_name }}"
-                    id="{{ field.id_for_label }}"
-                    rows="14"
-                    data-autogrow="true"
-                    data-placeholder="{{ field.field.widget.attrs.placeholder|default:'' }}"
-                  >{{ field.value|default_if_none:'' }}</textarea>
-                </div>
-              {% else %}
+                {% if character_list %}
+                  <details class="multi-select">
+                    <summary class="multi-select-summary form-control">
+                      {% if selected_character_ids %}
+                        {{ selected_character_ids|length }} selected
+                      {% else %}
+                        Select characters
+                      {% endif %}
+                    </summary>
+                    <div class="multi-select-list">
+                      <ul class="checkbox-list">
+                        {% for character in character_list %}
+                          {% with char_id=character.id|stringformat:"s" %}
+                            <li>
+                              <label class="character-option" data-portrait-url="{{ character.portrait_data_url|default_if_none:'' }}">
+                                <input
+                                  type="checkbox"
+                                  name="characters"
+                                  value="{{ char_id }}"
+                                  data-character-name="{{ character.name }}"
+                                  {% if char_id in selected_character_ids %}checked{% endif %}
+                                />
+                                {{ character.name }}
+                              </label>
+                            </li>
+                          {% endwith %}
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </details>
+                {% else %}
+                  <div class="muted">No characters yet. Add one first.</div>
+                {% endif %}
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% elif node_kind == "scene" and field.name == "pov" %}
+              <div class="form-row">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <select class="form-control pov-select" name="pov" id="{{ field.id_for_label }}">
+                  {% if selected_character_names %}
+                    <option value="">Select POV</option>
+                    {% for name in selected_character_names %}
+                      <option value="{{ name }}" {% if field.value == name %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                    {% if field.value and field.value not in selected_character_names %}
+                      <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
+                    {% endif %}
+                  {% else %}
+                    <option value="">Select characters first</option>
+                    {% if field.value %}
+                      <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
+                    {% endif %}
+                  {% endif %}
+                </select>
+                <div class="muted">POV options update based on selected characters.</div>
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% elif node_kind == "scene" and field.name == "location" %}
+              <div class="form-row">
                 <div class="form-label-row">
                   <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                   <div class="actions">
-                    <button class="btn btn-secondary btn-sm" type="submit" name="action" value="import-draft">Import from Draft</button>
+                    <a class="btn btn-secondary btn-sm" href="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}">New location</a>
                   </div>
                 </div>
                 {{ field }}
-              {% endif %}
-              {% if field.help_text %}
-                <div class="muted">{{ field.help_text }}</div>
-              {% endif %}
-              {% for error in field.errors %}
-                <div class="field-error">{{ error }}</div>
-              {% endfor %}
-            </div>
-          {% else %}
-            {# Only show structure/render fields when editing an existing scene. #}
-          {% endif %}
-        {% else %}
-          {% if node_kind == "scene" and field.name == "characters" %}
-            <div class="form-row">
-              <div class="form-label-row">
-                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                <div class="actions">
-                  <a
-                    class="btn btn-secondary btn-sm"
-                    href="{% url 'character-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
-                  >New character</a>
-                </div>
-              </div>
-              {% if character_list %}
-                <details class="multi-select">
-                  <summary class="multi-select-summary form-control">
-                    {% if selected_character_ids %}
-                      {{ selected_character_ids|length }} selected
-                    {% else %}
-                      Select characters
-                    {% endif %}
-                  </summary>
-                  <div class="multi-select-list">
-                    <ul class="checkbox-list">
-                      {% for character in character_list %}
-                        {% with char_id=character.id|stringformat:"s" %}
-                          <li>
-                            <label class="character-option" data-portrait-url="{{ character.portrait_data_url|default_if_none:'' }}">
-                              <input
-                                type="checkbox"
-                                name="characters"
-                                value="{{ char_id }}"
-                                data-character-name="{{ character.name }}"
-                                {% if char_id in selected_character_ids %}checked{% endif %}
-                              />
-                              {{ character.name }}
-                            </label>
-                          </li>
-                        {% endwith %}
-                      {% endfor %}
-                    </ul>
-                  </div>
-                </details>
-                {% comment %} <div class="muted">Tick all characters who appear in this scene.</div> {% endcomment %}
-              {% else %}
-                <div class="muted">No characters yet. Add one first.</div>
-              {% endif %}
-              {% if field.help_text %}
-                <div class="muted">{{ field.help_text }}</div>
-              {% endif %}
-              {% for error in field.errors %}
-                <div class="field-error">{{ error }}</div>
-              {% endfor %}
-            </div>
-          {% elif node_kind == "scene" and field.name == "pov" %}
-            <div class="form-row">
-              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              <select class="form-control pov-select" name="pov" id="{{ field.id_for_label }}">
-                {% if selected_character_names %}
-                  <option value="">Select POV</option>
-                  {% for name in selected_character_names %}
-                    <option value="{{ name }}" {% if field.value == name %}selected{% endif %}>{{ name }}</option>
-                  {% endfor %}
-                  {% if field.value and field.value not in selected_character_names %}
-                    <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
-                  {% endif %}
-                {% else %}
-                  <option value="">Select characters first</option>
-                  {% if field.value %}
-                    <option value="{{ field.value }}" selected>Current: {{ field.value }}</option>
-                  {% endif %}
+                <div class="muted">Pick an existing location or choose "Create new location..." to add one.</div>
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
                 {% endif %}
-              </select>
-              <div class="muted">POV options update based on selected characters.</div>
-              {% if field.help_text %}
-                <div class="muted">{{ field.help_text }}</div>
-              {% endif %}
-              {% for error in field.errors %}
-                <div class="field-error">{{ error }}</div>
-              {% endfor %}
-            </div>
-          {% elif node_kind == "scene" and field.name == "location" %}
-            <div class="form-row">
-              <div class="form-label-row">
-                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                <div class="actions">
-                  <a
-                    class="btn btn-secondary btn-sm"
-                    href="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
-                  >New location</a>
-                </div>
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
               </div>
-              {{ field }}
-              <div class="muted">Pick an existing location or choose "Create new location..." to add one.</div>
-              {% if field.help_text %}
-                <div class="muted">{{ field.help_text }}</div>
-              {% endif %}
-              {% for error in field.errors %}
-                <div class="field-error">{{ error }}</div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="form-row">
-              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              {{ field }}
-              {% if field.help_text %}
-                <div class="muted">{{ field.help_text }}</div>
-              {% endif %}
-              {% for error in field.errors %}
-                <div class="field-error">{{ error }}</div>
-              {% endfor %}
-            </div>
+            {% else %}
+              <div class="form-row">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
           {% endif %}
-        {% endif %}
-      {% endfor %}
+        {% endfor %}
 
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        {% if object and node_kind == "scene" %}
-          <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
-          <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
-        {% endif %}
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
-      </div>
-    </form>
-  </section>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save</button>
+          {% if object and node_kind == "scene" %}
+            <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
+            <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
+          {% endif %}
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
 
   {% if node_kind == "scene" %}
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>

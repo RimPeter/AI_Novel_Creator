@@ -3,19 +3,27 @@
 {% block title %}Full novel | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>Full novel</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Manuscript view</span>
+          <h1 class="page-title">Full novel</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
       </div>
-    </div>
+      <p class="page-lead">Read the current stitched manuscript in one uninterrupted pass.</p>
+    </section>
 
-    {% if full_text %}
-      <div class="muted">All final scenes stitched together.</div>
-      <p class="pre">{{ full_text }}</p>
-    {% else %}
-      <p class="muted">No final text yet. Render scenes first.</p>
-    {% endif %}
-  </section>
+    <section class="card page-panel">
+      {% if full_text %}
+        <div class="muted">All final scenes stitched together.</div>
+        <p class="page-prose pre">{{ full_text }}</p>
+      {% else %}
+        <p class="muted">No final text yet. Render scenes first.</p>
+      {% endif %}
+    </section>
+  </div>
 {% endblock %}

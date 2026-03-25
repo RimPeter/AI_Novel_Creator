@@ -4,128 +4,135 @@
 {% block title %}{% if object %}Edit{% else %}New{% endif %} location | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section
-    class="card"
-    data-location-brainstorm-url="{% url 'location-brainstorm' slug=project.slug %}"
-    data-location-add-details-url="{% url 'location-add-details' slug=project.slug %}"
-    data-location-extract-objects-url="{% url 'location-extract-objects' slug=project.slug %}"
-    data-location-image-url="{% if object %}{% url 'location-image' slug=project.slug pk=object.id %}{% endif %}"
-  >
-      <div class="header-row">
-        <h1>{% if object %}Edit{% else %}New{% endif %} location</h1>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">World builder</span>
+          <h1 class="page-title">{% if object %}Edit{% else %}Create{% endif %} location</h1>
+        </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        {% if next_url %}
-          <a class="btn btn-secondary" href="{{ next_url }}">Back</a>
-        {% else %}
-          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Back</a>
-        {% endif %}
+          {% if next_url %}
+            <a class="btn btn-secondary" href="{{ next_url }}">Back</a>
+          {% else %}
+            <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
+          {% endif %}
         </div>
       </div>
+      <p class="page-lead">Shape the physical spaces, nested geography, and concrete details that scenes can inherit.</p>
+    </section>
 
-    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
-    <p class="muted">Each project has a top-level root location, created as "World" by default. You can rename it, but it cannot be nested.</p>
+    <section
+      class="card page-panel"
+      data-location-brainstorm-url="{% url 'location-brainstorm' slug=project.slug %}"
+      data-location-add-details-url="{% url 'location-add-details' slug=project.slug %}"
+      data-location-extract-objects-url="{% url 'location-extract-objects' slug=project.slug %}"
+      data-location-image-url="{% if object %}{% url 'location-image' slug=project.slug pk=object.id %}{% endif %}"
+    >
+      <p class="muted">Each project has a top-level root location created as "World" by default. You can rename it, but it cannot be nested.</p>
 
-    {% if object %}
-      <div class="location-image">
-        <div class="location-banner-frame">
-          <img
-            id="location-image-img"
-            class="{% if not object.image_data_url %}is-hidden{% endif %}"
-            src="{{ object.image_data_url }}"
-            alt="Image of {{ object.name }}"
-          />
-          <div
-            id="location-image-placeholder"
-            class="portrait-placeholder {% if object.image_data_url %}is-hidden{% endif %}"
-          >
-            No image yet.
+      {% if object %}
+        <div class="location-image">
+          <div class="location-banner-frame">
+            <img
+              id="location-image-img"
+              class="{% if not object.image_data_url %}is-hidden{% endif %}"
+              src="{{ object.image_data_url }}"
+              alt="Image of {{ object.name }}"
+            />
+            <div
+              id="location-image-placeholder"
+              class="portrait-placeholder {% if object.image_data_url %}is-hidden{% endif %}"
+            >
+              No image yet.
+            </div>
+          </div>
+          <div class="portrait-meta">
+            <div class="muted" id="location-image-status">
+              {% if object.image_data_url %}
+                Image saved for this location.
+              {% else %}
+                Generate an image based on the location details.
+              {% endif %}
+            </div>
+            <button class="btn btn-secondary" type="button" id="location-image-btn">Create portrait image</button>
           </div>
         </div>
-        <div class="portrait-meta">
-          <div class="muted" id="location-image-status">
-            {% if object.image_data_url %}
-              Image saved for this location.
-            {% else %}
-              Generate an image based on the location details.
-            {% endif %}
-          </div>
-          <button class="btn btn-secondary" type="button" id="location-image-btn">Create Portrait Image</button>
-        </div>
-      </div>
-    {% endif %}
-
-    <form method="post" class="form" id="location-form" data-dirty-guard="true">
-      {% csrf_token %}
-
-      {% if form.non_field_errors %}
-        <div class="form-errors">{{ form.non_field_errors }}</div>
       {% endif %}
 
-      {% for field in form %}
-        <div class="form-row">
-          {% if field.name == "description" %}
-            <div class="form-label-row">
-              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              <div class="actions">
-                <button class="btn btn-secondary btn-sm" type="button" id="location-brainstorm-btn">Brainstorm</button>
-                <button class="btn btn-secondary btn-sm" type="button" id="location-add-details-btn">Add more details</button>
+      <form method="post" class="form" id="location-form" data-dirty-guard="true">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            {% if field.name == "description" %}
+              <div class="form-label-row">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                <div class="actions">
+                  <button class="btn btn-secondary btn-sm" type="button" id="location-brainstorm-btn">Brainstorm</button>
+                  <button class="btn btn-secondary btn-sm" type="button" id="location-add-details-btn">Add more details</button>
+                </div>
               </div>
-            </div>
+            {% else %}
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {% endif %}
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <hr class="outline-sep" />
+        <div class="header-row">
+          <h2 class="h2">Objects</h2>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" type="button" id="add-object-row">Add object</button>
+            <button class="btn btn-secondary btn-sm" type="button" id="location-extract-objects-btn">Extract details</button>
+          </div>
+        </div>
+        <p class="muted">Add key/value pairs for important objects and environmental details.</p>
+
+        <div id="object-rows">
+          {% if object_rows %}
+            {% for k, v in object_rows %}
+              <div class="object-row">
+                <input class="form-control" name="object_key" type="text" value="{{ k }}" placeholder="Object (key)" />
+                <textarea class="form-control" name="object_value" rows="2" placeholder="Attributes (value)">{{ v }}</textarea>
+                <button class="btn btn-secondary btn-sm remove-object-row" type="button">Remove</button>
+              </div>
+            {% endfor %}
           {% else %}
-            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {% endif %}
-          {{ field }}
-          {% if field.help_text %}
-            <div class="muted">{{ field.help_text }}</div>
-          {% endif %}
-          {% for error in field.errors %}
-            <div class="field-error">{{ error }}</div>
-          {% endfor %}
-        </div>
-      {% endfor %}
-
-      <hr class="outline-sep" />
-      <div class="header-row">
-        <h2 class="h2">Objects</h2>
-        <div class="actions">
-          <button class="btn btn-secondary btn-sm" type="button" id="add-object-row">Add object</button>
-          <button class="btn btn-secondary btn-sm" type="button" id="location-extract-objects-btn">Extract details</button>
-        </div>
-      </div>
-      <p class="muted">Add key/value pairs (object name → attributes).</p>
-
-      <div id="object-rows">
-        {% if object_rows %}
-          {% for k, v in object_rows %}
             <div class="object-row">
-              <input class="form-control" name="object_key" type="text" value="{{ k }}" placeholder="Object (key)" />
-              <textarea class="form-control" name="object_value" rows="2" placeholder="Attributes (value)">{{ v }}</textarea>
+              <input class="form-control" name="object_key" type="text" placeholder="Object (key)" />
+              <textarea class="form-control" name="object_value" rows="2" placeholder="Attributes (value)"></textarea>
               <button class="btn btn-secondary btn-sm remove-object-row" type="button">Remove</button>
             </div>
-          {% endfor %}
-        {% else %}
-          <div class="object-row">
-            <input class="form-control" name="object_key" type="text" placeholder="Object (key)" />
-            <textarea class="form-control" name="object_value" rows="2" placeholder="Attributes (value)"></textarea>
-            <button class="btn btn-secondary btn-sm remove-object-row" type="button">Remove</button>
-          </div>
-        {% endif %}
-      </div>
+          {% endif %}
+        </div>
 
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        {% if next_url %}
-          <a class="btn btn-secondary" href="{{ next_url }}">Cancel</a>
-        {% else %}
-          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Cancel</a>
-        {% endif %}
-        {% if object %}
-          <a class="btn btn-secondary" href="{% url 'location-delete' slug=project.slug pk=object.id %}">Delete</a>
-        {% endif %}
-      </div>
-    </form>
-  </section>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save</button>
+          {% if next_url %}
+            <a class="btn btn-secondary" href="{{ next_url }}">Cancel</a>
+          {% else %}
+            <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Cancel</a>
+          {% endif %}
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'location-delete' slug=project.slug pk=object.id %}">Delete</a>
+          {% endif %}
+        </div>
+      </form>
+    </section>
+  </div>
 
   <script src="{% static 'main/location_objects.js' %}" defer></script>
   <script src="{% static 'main/location_description_ai.js' %}" defer></script>

@@ -3,21 +3,27 @@
 {% block title %}Delete location | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>Delete location</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Back</a>
+  <div class="page-shell">
+    <section class="card page-hero page-confirm">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Danger zone</span>
+          <h1 class="page-title">Delete location</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+          <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
+        </div>
       </div>
-    </div>
+      <p class="page-lead">Delete <strong>{{ object.name }}</strong> from <strong>{{ project.title }}</strong>?</p>
+    </section>
 
-    <p>Delete <strong>{{ object.name }}</strong> from <strong>{{ project.title }}</strong>?</p>
-
-    <form method="post" class="actions">
-      {% csrf_token %}
-      <button class="btn btn-primary" type="submit">Delete</button>
-      <a class="btn btn-secondary" href="{% url 'location-edit' slug=project.slug pk=object.id %}">Cancel</a>
-    </form>
-  </section>
+    <section class="card page-panel">
+      <form method="post" class="actions">
+        {% csrf_token %}
+        <button class="btn btn-primary" type="submit">Delete location</button>
+        <a class="btn btn-secondary" href="{% url 'location-edit' slug=project.slug pk=object.id %}">Cancel</a>
+      </form>
+    </section>
+  </div>
 {% endblock %}

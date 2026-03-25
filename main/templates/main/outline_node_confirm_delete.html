@@ -3,26 +3,29 @@
 {% block title %}Delete outline item | AI Novel Creator{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>Delete {{ node_kind }}</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+  <div class="page-shell">
+    <section class="card page-hero page-confirm">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Danger zone</span>
+          <h1 class="page-title">Delete {{ node_kind }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
       </div>
-    </div>
+      <p class="page-lead">
+        Delete <strong>{{ object.title|default:object.get_node_type_display }}</strong>?
+        {% if node_kind == "chapter" %}This also deletes its scenes.{% endif %}
+      </p>
+    </section>
 
-    <p>
-      Delete <strong>{{ object.title|default:object.get_node_type_display }}</strong>?
-      {% if node_kind == "chapter" %}
-        This also deletes its scenes.
-      {% endif %}
-    </p>
-
-    <form method="post" class="actions">
-      {% csrf_token %}
-      <button class="btn btn-primary" type="submit">Delete</button>
-      <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
-    </form>
-  </section>
+    <section class="card page-panel">
+      <form method="post" class="actions">
+        {% csrf_token %}
+        <button class="btn btn-primary" type="submit">Delete {{ node_kind }}</button>
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
+      </form>
+    </section>
+  </div>
 {% endblock %}
-

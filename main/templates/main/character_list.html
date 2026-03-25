@@ -4,55 +4,75 @@
 {% block title %}Characters | {{ project.title }}{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>Characters</h1>
-      <div class="actions">
-        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        <a class="btn btn-primary" href="{% url 'character-create' slug=project.slug %}">New character</a>
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Cast board</span>
+          <h1 class="page-title">Characters</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+          <a class="btn btn-primary" href="{% url 'character-create' slug=project.slug %}">New character</a>
+        </div>
       </div>
-    </div>
-
-    <p class="muted">Project: <strong>{{ project.title }}</strong></p>
-
-    <form method="get" class="form">
-      <div class="form-row">
-        <label class="form-label" for="q">Search</label>
-        <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or role" />
+      <p class="page-lead">Track the voices, relationships, and visual anchors that shape the story from scene to scene.</p>
+      <div class="page-summary-grid">
+        <article class="page-summary-card">
+          <strong>{{ characters|length }}</strong>
+          <span>Characters</span>
+        </article>
       </div>
-      <div class="actions">
-        <button class="btn btn-secondary" type="submit">Search</button>
-        {% if q %}
-          <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Clear</a>
-        {% endif %}
-      </div>
-    </form>
+    </section>
 
-    {% if characters %}
-      <ul class="list">
-        {% for c in characters %}
-          <li
-            class="list-item character-card{% if c.portrait_data_url %} character-card-has-portrait{% endif %}"
-            {% if c.portrait_data_url %}data-portrait-url="{{ c.portrait_data_url }}"{% endif %}
-          >
-            <div>
-              <div class="list-title">{{ c.name }}</div>
-              <div class="muted">
-                {{ c.role|default:"-" }}
-                {% if c.age %} · {{ c.age }}{% endif %}
-                {% if c.gender %} · {{ c.gender }}{% endif %}
+    <section class="card page-panel">
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">Directory</span>
+          <h2 class="page-panel-title">{{ project.title }}</h2>
+        </div>
+      </div>
+
+      <form method="get" class="form">
+        <div class="form-row">
+          <label class="form-label" for="q">Search</label>
+          <input id="q" name="q" type="text" value="{{ q }}" class="form-control" placeholder="Search by name or role" />
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" type="submit">Search</button>
+          {% if q %}
+            <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Clear</a>
+          {% endif %}
+        </div>
+      </form>
+
+      {% if characters %}
+        <ul class="list">
+          {% for c in characters %}
+            <li
+              class="list-item character-card{% if c.portrait_data_url %} character-card-has-portrait{% endif %}"
+              {% if c.portrait_data_url %}data-portrait-url="{{ c.portrait_data_url }}"{% endif %}
+            >
+              <div>
+                <div class="list-title">{{ c.name }}</div>
+                <div class="muted">
+                  {{ c.role|default:"-" }}
+                  {% if c.age %} - {{ c.age }}{% endif %}
+                  {% if c.gender %} - {{ c.gender }}{% endif %}
+                </div>
               </div>
-            </div>
-            <div class="actions">
-              <a class="btn btn-secondary btn-sm" href="{% url 'character-edit' slug=project.slug pk=c.id %}">Edit</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'character-delete' slug=project.slug pk=c.id %}">Delete</a>
-            </div>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="muted">No characters yet.</p>
-    {% endif %}
-  </section>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{% url 'character-edit' slug=project.slug pk=c.id %}">Edit</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'character-delete' slug=project.slug pk=c.id %}">Delete</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No characters yet.</p>
+      {% endif %}
+    </section>
+  </div>
+
   <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>
 {% endblock %}

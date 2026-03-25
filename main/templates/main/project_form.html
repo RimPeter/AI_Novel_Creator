@@ -6,53 +6,68 @@
 {% endblock %}
 
 {% block content %}
-  <section
-    class="card"
-    {% if object %}
-      data-project-brainstorm-url="{% url 'project-brainstorm' slug=object.slug %}"
-      data-project-add-details-url="{% url 'project-add-details' slug=object.slug %}"
-    {% endif %}
-  >
-    <div class="header-row">
-      <h1>{% if object %}Edit project{% else %}New project{% endif %}</h1>
-      <div class="actions">
-        {% if object %}
-          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
-        {% endif %}
-      </div>
-    </div>
-
-    <form method="post" class="form">
-      {% csrf_token %}
-
-      {% if form.non_field_errors %}
-        <div class="form-errors">{{ form.non_field_errors }}</div>
-      {% endif %}
-
-      {% for field in form %}
-        <div class="form-row">
-          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% if field.help_text %}
-            <div class="muted">{{ field.help_text }}</div>
-          {% endif %}
-          {% for error in field.errors %}
-            <div class="field-error">{{ error }}</div>
-          {% endfor %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Project setup</span>
+          <h1 class="page-title">{% if object %}Edit project{% else %}Create a new project{% endif %}</h1>
         </div>
-      {% endfor %}
-
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        {% if object %}
-          <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
-          <button class="btn btn-secondary" type="button" id="project-add-details-btn">Add more details</button>
-          <a class="btn btn-secondary" href="{% url 'project-delete' slug=object.slug %}">Delete</a>
-        {% endif %}
-        <a class="btn btn-secondary" href="{% url 'project-list' %}">Cancel</a>
+        <div class="actions">
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
+          {% endif %}
+        </div>
       </div>
-    </form>
-  </section>
+      <p class="page-lead">Define the premise, voice, and target scope that every later draft and outline decision should inherit.</p>
+    </section>
+
+    <section
+      class="card page-panel"
+      {% if object %}
+        data-project-brainstorm-url="{% url 'project-brainstorm' slug=object.slug %}"
+        data-project-add-details-url="{% url 'project-add-details' slug=object.slug %}"
+      {% endif %}
+    >
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">Project editor</span>
+          <h2 class="page-panel-title">Core setup</h2>
+        </div>
+      </div>
+
+      <form method="post" class="form">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save</button>
+          {% if object %}
+            <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
+            <button class="btn btn-secondary" type="button" id="project-add-details-btn">Add more details</button>
+            <a class="btn btn-secondary" href="{% url 'project-delete' slug=object.slug %}">Delete</a>
+          {% endif %}
+          <a class="btn btn-secondary" href="{% url 'project-list' %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
 
   {% if object %}
     <script src="{% static 'main/project_brainstorm.js' %}" defer></script>

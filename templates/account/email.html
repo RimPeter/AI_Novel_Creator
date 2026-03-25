@@ -1,0 +1,128 @@
+{% extends "allauth/layouts/manage.html" %}
+{% load static allauth i18n %}
+
+{% block head_title %}
+  {% trans "Email Addresses" %}
+{% endblock head_title %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">{% trans "Account center" %}</span>
+          <h1 class="page-title">{% trans "Email addresses" %}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'home' %}">{% trans "Home" %}</a>
+          <a class="btn btn-secondary" href="{% url 'project-list' %}">{% trans "Projects" %}</a>
+        </div>
+      </div>
+      <p class="page-lead">
+        {% trans "Manage the addresses connected to your account, choose the primary login address, and resend verification when needed." %}
+      </p>
+    </section>
+
+    <section class="card page-panel">
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">{% trans "Current addresses" %}</span>
+          <h2 class="page-panel-title">{% trans "Email list" %}</h2>
+        </div>
+      </div>
+
+      {% if emailaddresses %}
+        <p class="page-panel-copy muted">
+          {% trans "The following email addresses are associated with your account:" %}
+        </p>
+        {% url 'account_email' as email_url %}
+        <form method="post" action="{{ email_url }}" class="form">
+          {% csrf_token %}
+
+          <ul class="list account-email-list">
+            {% for radio in emailaddress_radios %}
+              {% with emailaddress=radio.emailaddress %}
+                <li class="list-item account-email-item">
+                  <label class="account-email-choice" for="{{ radio.id }}">
+                    <input
+                      type="radio"
+                      name="email"
+                      id="{{ radio.id }}"
+                      value="{{ emailaddress.email }}"
+                      {% if radio.checked %}checked{% endif %}
+                    />
+                    <span class="account-email-copy">
+                      <span class="list-title">{{ emailaddress.email }}</span>
+                      <span class="account-email-badges">
+                        {% if emailaddress.verified %}
+                          <span class="account-email-badge account-email-badge-success">{% trans "Verified" %}</span>
+                        {% else %}
+                          <span class="account-email-badge account-email-badge-warning">{% trans "Unverified" %}</span>
+                        {% endif %}
+                        {% if emailaddress.primary %}
+                          <span class="account-email-badge">{% trans "Primary" %}</span>
+                        {% endif %}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              {% endwith %}
+            {% endfor %}
+          </ul>
+
+          <div class="actions">
+            <button class="btn btn-primary" type="submit" name="action_primary">{% trans "Make Primary" %}</button>
+            <button class="btn btn-secondary" type="submit" name="action_send">{% trans "Re-send Verification" %}</button>
+            <button class="btn btn-secondary" type="submit" name="action_remove">{% trans "Remove" %}</button>
+          </div>
+        </form>
+      {% else %}
+        <p class="muted">{% trans "No email addresses are configured for this account yet." %}</p>
+      {% endif %}
+    </section>
+
+    {% if can_add_email %}
+      {% url 'account_email' as action_url %}
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">{% trans "Add address" %}</span>
+            <h2 class="page-panel-title">{% trans "Add email address" %}</h2>
+          </div>
+        </div>
+
+        <form method="post" action="{{ action_url }}" class="form">
+          {% csrf_token %}
+          {% for hidden in form.hidden_fields %}
+            {{ hidden }}
+          {% endfor %}
+
+          {% for field in form.visible_fields %}
+            <div class="form-row">
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+
+          <div class="actions">
+            <button class="btn btn-primary" type="submit" name="action_add">{% trans "Add Email" %}</button>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+  </div>
+{% endblock content %}
+
+{% block extra_body %}
+  <script src="{% static 'account/js/account.js' %}"></script>
+  <script src="{% static 'account/js/onload.js' %}"></script>
+  <script data-allauth-onload="allauth.account.forms.manageEmailForm" type="application/json">{
+    "i18n": {"confirmDelete": "{% trans 'Do you really want to remove the selected email address?' %}"}
+  }</script>
+{% endblock extra_body %}

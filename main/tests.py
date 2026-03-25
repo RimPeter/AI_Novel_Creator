@@ -190,50 +190,31 @@ class HomeUpdateCreateViewTests(TestCase):
     def test_superuser_can_open_create_page_and_post_update(self):
         self.client.force_login(self.superuser)
 
-        url = reverse("home-update-create")
-        resp = self.client.post(
-            url,
-            data={
-                "date": "2026-03-20",
-                "body": "posted from the dedicated superuser page.",
-            },
-        )
-
-        self.assertEqual(resp.status_code, 302)
-        update = HomeUpdate.objects.get(body="posted from the dedicated superuser page.")
-        self.assertEqual(update.title, "Posted from the dedicated superuser page")
-
-    def test_superuser_post_update_uses_short_feature_style_title(self):
-        self.client.force_login(self.superuser)
-
-        body = (
-            "We have introduced a new feature that allows each user to select their preferred text "
-            "generation model directly from the token usage page. You will now see your chosen model "
-            "displayed prominently in the navigation bar, making it easy to identify."
-        )
-
         resp = self.client.post(
             reverse("home-update-create"),
             data={
-                "date": "2026-03-21",
-                "body": body,
+                "title": "Added AI model selector",
+                "date": "2026-03-20",
+                "body": "Users can now switch between text generation models from the token usage page.",
             },
         )
 
         self.assertEqual(resp.status_code, 302)
-        update = HomeUpdate.objects.get(body=body)
-        self.assertEqual(update.title, "Added AI model selector")
+        update = HomeUpdate.objects.get(title="Added AI model selector")
+        self.assertEqual(update.body, "Users can now switch between text generation models from the token usage page.")
 
-    def test_superuser_create_page_hides_title_input(self):
+    def test_superuser_create_page_shows_title_date_and_body_text_fields(self):
         self.client.force_login(self.superuser)
 
         resp = self.client.get(reverse("home-update-create"))
 
         self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, 'name="title"', html=False)
-        self.assertContains(resp, "The update title is generated automatically from the body text.")
-        self.assertContains(resp, "Generated title")
-        self.assertContains(resp, "Title will be generated from the body text.")
+        self.assertContains(resp, 'name="title"', html=False)
+        self.assertContains(resp, 'name="date"', html=False)
+        self.assertContains(resp, 'name="body"', html=False)
+        self.assertContains(resp, "Generate with AI")
+        self.assertContains(resp, "AI can generate this from the body text")
+        self.assertContains(resp, "Paste raw git or technical change notes here, then use Generate with AI.")
 
     def test_regular_user_cannot_open_create_page(self):
         self.client.force_login(self.regular_user)
@@ -242,20 +223,20 @@ class HomeUpdateCreateViewTests(TestCase):
 
         self.assertEqual(resp.status_code, 403)
 
-    def test_superuser_can_regenerate_home_update_copy(self):
+    def test_superuser_can_generate_title_and_body_from_git_text(self):
         self.client.force_login(self.superuser)
 
         with patch(
             "main.views.call_llm",
             return_value=LLMResult(
-                text="Scene drafting now uses clearer prompts and better context.",
+                text='{"title":"Improved update composer","body":"The update composer now turns pasted git notes into a cleaner user-facing summary and short title."}',
                 usage={"ok": True},
             ),
         ) as mock_call:
             resp = self.client.post(
                 reverse("home-update-regenerate"),
                 data={
-                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                    "body": "rework update composer to turn git text into user friendly explanation and summarized title",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -266,30 +247,30 @@ class HomeUpdateCreateViewTests(TestCase):
             resp.json(),
             {
                 "ok": True,
-                "title": "Scene drafting now uses clearer prompts and better context",
-                "body": "Scene drafting now uses clearer prompts and better context.",
+                "title": "Improved update composer",
+                "body": "The update composer now turns pasted git notes into a cleaner user-facing summary and short title.",
             },
         )
         prompt = mock_call.call_args.kwargs["prompt"]
-        self.assertIn("turn the raw technical notes into a short, plain-language update body", prompt)
-        self.assertIn("feat: refine scene drafting prompt and previous-scene continuity", prompt)
-        self.assertIn("Return only the rewritten body text. Do not return JSON.", prompt)
+        self.assertIn("turn raw git or technical change notes into a short user-facing update", prompt)
+        self.assertIn("rework update composer to turn git text into user friendly explanation and summarized title", prompt)
+        self.assertIn('Return STRICT JSON only in the form: {"title":"...","body":"..."}', prompt)
         self.assertIn("Never answer with placeholder words", prompt)
 
-    def test_superuser_regenerate_home_update_accepts_alternate_gpt5_keys(self):
+    def test_superuser_generate_home_update_accepts_body_only_model_response(self):
         self.client.force_login(self.superuser)
 
         with patch(
             "main.views.call_llm",
             return_value=LLMResult(
-                text="Scene drafting now uses clearer prompts and better context.",
+                text="Users can now switch between text generation models from the token usage page, and the active model is shown in the navbar for quick reference.",
                 usage={"ok": True},
             ),
         ):
             resp = self.client.post(
                 reverse("home-update-regenerate"),
                 data={
-                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                    "body": "add model selector to token usage page and show active model in navbar",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -300,19 +281,49 @@ class HomeUpdateCreateViewTests(TestCase):
             resp.json(),
             {
                 "ok": True,
-                "title": "Scene drafting now uses clearer prompts and better context",
-                "body": "Scene drafting now uses clearer prompts and better context.",
+                "title": "Added AI model selector",
+                "body": "Users can now switch between text generation models from the token usage page, and the active model is shown in the navbar for quick reference.",
             },
         )
 
-    def test_superuser_regenerate_home_update_falls_back_to_original_body_when_model_fails(self):
+    def test_superuser_generate_home_update_falls_back_when_model_output_is_unusable(self):
+        self.client.force_login(self.superuser)
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"title":"Rework the Post Update composer to auto-generate and preview titles from the body","body":"Rework the Post Update composer to auto-generate and preview titles from the body."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("home-update-regenerate"),
+                data={
+                    "body": "rework the Post Update composer to auto-generate and preview titles from the body",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "title": "Reworked Post Update composer",
+                "body": "Reworked Post Update composer to improve clarity and day-to-day usability.",
+                "warning": "Model returned unusable output; used fallback generation.",
+            },
+        )
+
+    def test_superuser_generate_home_update_falls_back_when_model_fails(self):
         self.client.force_login(self.superuser)
 
         with patch("main.views.call_llm", side_effect=ValueError("Model response was empty.")):
             resp = self.client.post(
                 reverse("home-update-regenerate"),
                 data={
-                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                    "body": "fix dashboard overflow",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -323,39 +334,9 @@ class HomeUpdateCreateViewTests(TestCase):
             resp.json(),
             {
                 "ok": True,
-                "title": "Refine scene drafting prompt and previous-scene continuity",
-                "body": "Refine scene drafting prompt and previous-scene continuity.",
+                "title": "Fixed dashboard overflow",
+                "body": "Fixed issues around dashboard overflow so the workflow behaves more reliably.",
                 "warning": "Model response was empty.",
-            },
-        )
-
-    def test_superuser_regenerate_home_update_rejects_low_signal_model_output(self):
-        self.client.force_login(self.superuser)
-
-        with patch(
-            "main.views.call_llm",
-            return_value=LLMResult(
-                text='Create commit description for recent/(since last commit) actions, don\'t use \\n. Render as. Git add . Git commit -m "/main description/" -m "/description/. /description/". Git push.',
-                usage={"ok": True},
-            ),
-        ):
-            resp = self.client.post(
-                reverse("home-update-regenerate"),
-                data={
-                    "body": "create commit description for recent actions and render git add, commit, and push commands",
-                },
-                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-                HTTP_ACCEPT="application/json",
-            )
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(
-            resp.json(),
-            {
-                "ok": True,
-                "title": "Added Git commit command helper",
-                "body": "Added a helper that formats recent changes into a ready-to-run Git commit command.",
-                "warning": "Model returned unusable output; used fallback rewrite.",
             },
         )
 

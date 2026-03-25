@@ -118,25 +118,35 @@ class StoryBibleForm(forms.ModelForm):
 
 
 class HomeUpdateForm(forms.ModelForm):
-    body = forms.CharField(
-        required=True,
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 8,
-                "placeholder": "Write the update memo for users.",
-            }
-        ),
-    )
-
     class Meta:
         model = HomeUpdate
         fields = [
+            "title",
             "date",
             "body",
         ]
+        labels = {
+            "body": "Body text",
+        }
+        help_texts = {
+            "title": "AI can generate this from the body text, and you can edit it before posting.",
+            "body": "Paste raw git or technical change notes here, then use Generate with AI.",
+        }
         widgets = {
+            "title": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Short user-facing update title",
+                }
+            ),
             "date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "body": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 10,
+                    "placeholder": "Paste raw git text or technical notes here.",
+                }
+            ),
         }
 
 

@@ -1489,7 +1489,34 @@ def _coerce_text_value(value) -> str:
     return str(value).strip()
 
 
-def _extract_home_update_fields(raw: str) -> tuple[str, str]:
+def _clean_generated_home_update_title(value) -> str:
+    title = _coerce_text_value(value).strip().strip('"').strip("'")
+    title = re.sub(r"^\*+\s*|\s*\*+$", "", title)
+    title = re.sub(r"^#+\s*", "", title)
+    title = re.sub(r"\s+", " ", title).strip(" .:-")
+    if not title:
+        return ""
+    if len(title) > 80:
+        shortened = title[:77].rsplit(" ", 1)[0].strip()
+        title = (shortened or title[:77]).rstrip(" ,;:-") + "..."
+    return title
+
+
+def _clean_generated_home_update_body(value) -> str:
+    text = _coerce_text_value(value).strip().strip('"').strip("'")
+    if not text:
+        return ""
+
+    text = re.sub(r"^```(?:json|text)?\s*|\s*```$", "", text, flags=re.I)
+    paragraphs = []
+    for paragraph in re.split(r"\n\s*\n", text.replace("\r\n", "\n").replace("\r", "\n")):
+        cleaned = re.sub(r"\s+", " ", paragraph).strip()
+        if cleaned:
+            paragraphs.append(cleaned)
+    return "\n\n".join(paragraphs).strip()
+
+
+def _extract_home_update_generation(raw: str) -> tuple[str, str]:
     text = (raw or "").strip()
     if not text:
         raise ValueError("Model response was empty.")
@@ -1510,130 +1537,150 @@ def _extract_home_update_fields(raw: str) -> tuple[str, str]:
     body_keys = ("body", "description", "summary", "content", "copy", "update")
 
     for data in candidate_dicts:
-        title = next((_coerce_text_value(data.get(key)) for key in title_keys if _coerce_text_value(data.get(key))), "")
-        body = next((_coerce_text_value(data.get(key)) for key in body_keys if _coerce_text_value(data.get(key))), "")
+        title = next(
+            (_clean_generated_home_update_title(data.get(key)) for key in title_keys if _clean_generated_home_update_title(data.get(key))),
+            "",
+        )
+        body = next(
+            (_clean_generated_home_update_body(data.get(key)) for key in body_keys if _clean_generated_home_update_body(data.get(key))),
+            "",
+        )
         if title and body:
             return title, body
 
     title_match = re.search(r"(?im)^\s*(?:title|headline)\s*:\s*(.+?)\s*$", text)
     body_match = re.search(r"(?ims)^\s*(?:body|summary|description|content)\s*:\s*(.+)$", text)
     if title_match and body_match:
-        title = title_match.group(1).strip()
-        body = body_match.group(1).strip()
+        title = _clean_generated_home_update_title(title_match.group(1))
+        body = _clean_generated_home_update_body(body_match.group(1))
+        if title and body:
+            return title, body
+
+    markdown_title_match = re.search(r"(?im)^\s*(?:\*\*|__)?(?:title|headline)(?:\*\*|__)?\s*:\s*(.+?)\s*$", text)
+    markdown_body_match = re.search(
+        r"(?ims)^\s*(?:\*\*|__)?(?:body|summary|description|content)(?:\*\*|__)?\s*:\s*(.+)$",
+        text,
+    )
+    if markdown_title_match and markdown_body_match:
+        title = _clean_generated_home_update_title(markdown_title_match.group(1))
+        body = _clean_generated_home_update_body(markdown_body_match.group(1))
         if title and body:
             return title, body
 
     lines = [line.strip(" -*\t") for line in text.splitlines() if line.strip()]
     if len(lines) >= 2:
-        title = lines[0].replace("Title:", "").replace("Headline:", "").strip()
-        body = "\n".join(lines[1:]).strip()
+        title = _clean_generated_home_update_title(lines[0].replace("Title:", "").replace("Headline:", "").strip())
+        body = _clean_generated_home_update_body("\n".join(lines[1:]))
         if title and body:
+            return title, body
+
+    body = _clean_generated_home_update_body(text)
+    if body and not _looks_like_low_signal_home_update_text(body):
+        title = _summarize_home_update_title(body)
+        if title:
             return title, body
 
     raise ValueError("Model response must include title and body.")
 
 
-def _generate_home_update_title(body: str) -> str:
-    text = (body or "").strip()
-    if not text:
-        return "Product update"
-
-    normalized_text = re.sub(r"\s+", " ", text).strip().lower()
-    if (
-        "text generation model" in normalized_text
-        or "ai model" in normalized_text
-        or ("select" in normalized_text and "model" in normalized_text and "token usage" in normalized_text)
-    ):
-        return "Added AI model selector"
-    if "git commit" in normalized_text and ("helper" in normalized_text or "command" in normalized_text):
-        return "Added Git commit command helper"
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    first_line = lines[0] if lines else text
-    first_line = re.sub(
-        r"(?i)^\s*we have introduced a new feature that allows (?:each )?user(?:s)? to\s+",
-        "Added ",
-        first_line,
-    )
-    first_line = re.sub(
-        r"(?i)^\s*this update (?:adds|introduces)\s+",
-        "Added ",
-        first_line,
-    )
-    first_line = re.sub(r"^\s*[-*#]+\s*", "", first_line)
-    first_line = re.sub(r"^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*", "", first_line, flags=re.I)
-    first_line = re.sub(r"\s+", " ", first_line).strip(" .:-")
-    if not first_line:
-        return "Product update"
-
-    sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", first_line)
-    title = sentence_match.group(1).strip() if sentence_match else first_line
-    title = title.rstrip(".!?").strip()
-    if len(title) > 72:
-        shortened = title[:69].rsplit(" ", 1)[0].strip()
-        title = (shortened or title[:69]).rstrip(" ,;:-") + "..."
-    if title:
-        title = title[0].upper() + title[1:]
-    return title or "Product update"
+def _normalize_home_update_compare_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).strip(" .!?").lower()
 
 
-def _rewrite_home_update_body_fallback(body: str) -> str:
-    text = (body or "").strip()
-    if not text:
-        return ""
-
-    normalized_text = re.sub(r"\s+", " ", text).strip().lower()
-    if "commit description" in normalized_text and ("git commit" in normalized_text or "git add" in normalized_text):
-        return "Added a helper that formats recent changes into a ready-to-run Git commit command."
-
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = []
+def _extract_home_update_action_subject(text: str) -> tuple[str, str]:
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    first_line = ""
     for raw_line in normalized.split("\n"):
         line = raw_line.strip()
-        if not line:
-            continue
-        line = re.sub(r"^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*", "", line, flags=re.I)
-        line = re.sub(r"(?i)\bdon't use \\n\b", "", line)
-        line = re.sub(r"(?i)\brender as\s*:?", "", line)
-        line = re.sub(r"(?i)^git (add|commit|push).*$", "", line)
-        line = re.sub(r'"/[^"]*/"', "", line)
-        line = re.sub(r"/[^/\s][^/]*/", "", line)
-        line = re.sub(r"[_]+", " ", line)
-        line = re.sub(r"\s+", " ", line).strip(" -;,:")
-        if not line:
-            continue
-        line = line[0].upper() + line[1:] if len(line) > 1 else line.upper()
-        if line[-1] not in ".!?":
-            line += "."
-        lines.append(line)
+        if line:
+            first_line = line
+            break
 
-    rewritten = " ".join(lines).strip()
-    return rewritten or (text[0].upper() + text[1:] if len(text) > 1 else text.upper())
+    if not first_line:
+        return "", ""
+
+    first_line = re.sub(r"^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*", "", first_line, flags=re.I)
+    first_line = re.sub(r"^\s*[-*#]+\s*", "", first_line)
+    first_line = re.sub(r"\s+", " ", first_line).strip(" .,:;/-")
+
+    match = re.match(
+        r"(?i)^(add|create|introduce|improve|refine|rework|fix|update|polish|simplify|streamline|remove|rename|highlight|make)\s+(?:the\s+)?(.+?)(?:\s+to\b|,\s*|\s+with\b|\s+for\b|\s+so\b|\s+and\b|[.!?]|$)",
+        first_line,
+    )
+    if not match:
+        return "", ""
+
+    verb = match.group(1).lower()
+    subject = match.group(2).strip(" ,;:-")
+    subject = re.sub(r"['\"`]+", "", subject)
+    subject = re.sub(r"\b(html|css|js|django|gpt-?5|gpt-?4o|o3|o4-mini)\b", "", subject, flags=re.I)
+    subject = re.sub(r"\s+", " ", subject).strip(" ,;:-")
+    return verb, subject
 
 
-def _is_low_signal_home_update_body(text: str) -> bool:
-    value = (text or "").strip()
-    if not value:
+def _summarize_home_update_title(text: str) -> str:
+    normalized = _normalize_home_update_compare_text(text)
+    if not normalized:
+        return "Product update"
+
+    if "model" in normalized and any(keyword in normalized for keyword in ("select", "selector", "switch", "choose", "preferred")):
+        return "Added AI model selector"
+    if "archive" in normalized and "project" in normalized:
+        return "Added project archive"
+    if "dashboard" in normalized and any(keyword in normalized for keyword in ("design", "layout", "graphic", "hero")):
+        return "Redesigned dashboard"
+    if "git commit" in normalized or ("commit description" in normalized and "git add" in normalized):
+        return "Added commit helper"
+
+    verb, subject = _extract_home_update_action_subject(text)
+    if subject:
+        verb_map = {
+            "add": "Added",
+            "create": "Added",
+            "introduce": "Added",
+            "improve": "Improved",
+            "refine": "Refined",
+            "rework": "Reworked",
+            "fix": "Fixed",
+            "update": "Updated",
+            "polish": "Polished",
+            "simplify": "Simplified",
+            "streamline": "Streamlined",
+            "remove": "Removed",
+            "rename": "Renamed",
+            "highlight": "Highlighted",
+            "make": "Updated",
+        }
+        if len(subject) > 42:
+            shortened = subject[:39].rsplit(" ", 1)[0].strip()
+            subject = (shortened or subject[:39]).rstrip(" ,;:-") + "..."
+        return f"{verb_map.get(verb, 'Updated')} {subject}"
+
+    first_sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", (text or "").strip())
+    first_sentence = first_sentence_match.group(1) if first_sentence_match else (text or "")
+    first_sentence = _clean_generated_home_update_title(first_sentence)
+    if first_sentence:
+        return first_sentence
+    return "Product update"
+
+
+def _looks_like_low_signal_home_update_text(text: str) -> bool:
+    normalized = _normalize_home_update_compare_text(text)
+    if not normalized:
         return True
-
-    normalized = re.sub(r"\s+", " ", value).strip().lower().strip(".!?")
     if normalized in {"text", "body", "copy", "content", "update", "summary", "description"}:
         return True
+    words = [part for part in normalized.split(" ") if part]
+    return len(words) <= 2 and len(normalized) <= 18
 
-    words = [part for part in re.split(r"\s+", normalized) if part]
-    if len(words) <= 2 and len(normalized) <= 16:
+
+def _looks_like_raw_home_update_output(source: str, title: str, body: str) -> bool:
+    combined = _normalize_home_update_compare_text(f"{title} {body}")
+    source_text = _normalize_home_update_compare_text(source)
+    if not combined:
         return True
 
-    return False
-
-
-def _looks_like_raw_home_update_instruction_output(source: str, candidate: str) -> bool:
-    source_text = re.sub(r"\s+", " ", (source or "").strip()).lower()
-    candidate_text = re.sub(r"\s+", " ", (candidate or "").strip()).lower()
-    if not source_text or not candidate_text:
-        return False
-
-    raw_markers = [
+    raw_markers = (
         "render as",
         "git add",
         "git commit",
@@ -1641,17 +1688,58 @@ def _looks_like_raw_home_update_instruction_output(source: str, candidate: str) 
         "/main description/",
         "/description/",
         "don't use \\n",
-    ]
-    if any(marker in candidate_text for marker in raw_markers):
+    )
+    if any(marker in combined for marker in raw_markers):
         return True
 
-    source_words = {word for word in re.findall(r"[a-z0-9]+", source_text) if len(word) > 2}
-    candidate_words = {word for word in re.findall(r"[a-z0-9]+", candidate_text) if len(word) > 2}
-    if not source_words or not candidate_words:
-        return False
+    first_sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", (body or "").strip())
+    first_sentence = first_sentence_match.group(1) if first_sentence_match else (body or "").strip()
+    normalized_title = _normalize_home_update_compare_text(title)
+    normalized_first_sentence = _normalize_home_update_compare_text(first_sentence)
+    if normalized_title == normalized_first_sentence:
+        return True
+    if normalized_first_sentence.startswith(normalized_title) and len(normalized_title) >= 28:
+        return True
 
-    overlap_ratio = len(source_words & candidate_words) / max(1, len(candidate_words))
-    return overlap_ratio >= 0.72
+    if any(marker in source_text for marker in raw_markers):
+        source_words = {word for word in re.findall(r"[a-z0-9]+", source_text) if len(word) > 2}
+        output_words = {word for word in re.findall(r"[a-z0-9]+", combined) if len(word) > 2}
+        if source_words and output_words:
+            overlap_ratio = len(source_words & output_words) / max(1, len(output_words))
+            if overlap_ratio >= 0.78:
+                return True
+
+    return _looks_like_low_signal_home_update_text(title) or _looks_like_low_signal_home_update_text(body)
+
+
+def _build_home_update_fallback(text: str) -> tuple[str, str]:
+    raw_text = (text or "").strip()
+    if not raw_text:
+        return "Product update", ""
+
+    title = _summarize_home_update_title(raw_text)
+    verb, subject = _extract_home_update_action_subject(raw_text)
+    subject_text = subject or "the latest workflow changes"
+
+    body_map = {
+        "add": f"Added {subject_text} to make the workflow clearer and easier to use.",
+        "create": f"Added {subject_text} to make the workflow clearer and easier to use.",
+        "introduce": f"Added {subject_text} to make the workflow clearer and easier to use.",
+        "improve": f"Improved {subject_text} to make the experience smoother for users.",
+        "refine": f"Refined {subject_text} to make the experience smoother for users.",
+        "rework": f"Reworked {subject_text} to improve clarity and day-to-day usability.",
+        "fix": f"Fixed issues around {subject_text} so the workflow behaves more reliably.",
+        "update": f"Updated {subject_text} to improve the overall experience.",
+        "polish": f"Polished {subject_text} to make it feel cleaner and more consistent.",
+        "simplify": f"Simplified {subject_text} to reduce friction for users.",
+        "streamline": f"Streamlined {subject_text} to speed up the workflow.",
+        "remove": f"Removed outdated controls around {subject_text} to simplify the interface.",
+        "rename": f"Renamed {subject_text} to make the interface easier to understand.",
+        "highlight": f"Highlighted {subject_text} so important status is easier to spot.",
+        "make": f"Updated {subject_text} to improve the overall experience.",
+    }
+    body = body_map.get(verb, "Updated the app based on the latest internal changes to improve the user experience.")
+    return title, body
 
 
 def _dedupe_appended_text(existing: str, addition: str) -> str:
@@ -2378,7 +2466,8 @@ class HomeUpdateCreateView(LoginRequiredMixin, SuperuserRequiredMixin, CreateVie
     template_name = "main/home_update_form.html"
 
     def form_valid(self, form):
-        form.instance.title = _generate_home_update_title(form.cleaned_data.get("body") or "")
+        form.instance.title = (form.cleaned_data.get("title") or "").strip()
+        form.instance.body = (form.cleaned_data.get("body") or "").strip()
         response = super().form_valid(form)
         messages.success(self.request, "Update posted.")
         return response
@@ -2401,21 +2490,21 @@ def regenerate_home_update(request):
 
     body = (request.POST.get("body") or "").strip()
     if not body:
-        return JsonResponse({"ok": False, "error": "Add commit text to Body first."}, status=400)
+        return JsonResponse({"ok": False, "error": "Paste raw git text into Body text first."}, status=400)
 
     prompt_lines = [
-        "You are rewriting internal software update notes for end users.",
-        "Goal: turn the raw technical notes into a short, plain-language update body.",
+        "You are writing release notes for end users.",
+        "Goal: turn raw git or technical change notes into a short user-facing update.",
         "Rules:",
-        "- Return only the rewritten body text. Do not return JSON.",
-        "- Write at least one full sentence.",
-        "- Explain the update in layman's terms.",
-        "- Remove commit-style wording, code jargon, and implementation details unless users need them.",
-        "- Make the body concise, readable, and user-facing.",
-        "- Do not use bullet points unless the source clearly needs them.",
+        '- Return STRICT JSON only in the form: {"title":"...","body":"..."}',
+        "- Title: 2 to 6 words, short product-style summary, no trailing period, no quotes.",
+        "- Body: 1 to 3 concise sentences in plain language for users.",
+        "- Explain the user-visible improvement or benefit.",
+        "- Remove git commands, commit formatting, file names, and implementation details unless users need them.",
+        "- Do not use bullet points or markdown.",
         '- Never answer with placeholder words like "text", "body", "copy", or "content".',
         "",
-        "Raw update notes:",
+        "Raw developer notes:",
         body,
     ]
     prompt = "\n".join(prompt_lines).strip()
@@ -2424,25 +2513,22 @@ def regenerate_home_update(request):
         result = call_llm(
             prompt=prompt,
             model_name=get_user_text_model(request.user),
-            params={"temperature": 0.4, "max_tokens": 400},
+            params={"temperature": 0.6, "max_tokens": 400},
         )
-        rewritten_body = (result.text or "").strip()
-        if _is_low_signal_home_update_body(rewritten_body) or _looks_like_raw_home_update_instruction_output(body, rewritten_body):
-            fallback_body = _rewrite_home_update_body_fallback(body)
-            fallback_title = _generate_home_update_title(fallback_body)
+        title, rewritten_body = _extract_home_update_generation(result.text)
+        if _looks_like_raw_home_update_output(body, title, rewritten_body):
+            fallback_title, fallback_body = _build_home_update_fallback(body)
             return JsonResponse(
                 {
                     "ok": True,
                     "title": fallback_title,
                     "body": fallback_body,
-                    "warning": "Model returned unusable output; used fallback rewrite.",
+                    "warning": "Model returned unusable output; used fallback generation.",
                 }
             )
-        title = _generate_home_update_title(rewritten_body)
         return JsonResponse({"ok": True, "title": title, "body": rewritten_body})
     except Exception as e:
-        fallback_body = _rewrite_home_update_body_fallback(body)
-        fallback_title = _generate_home_update_title(fallback_body)
+        fallback_title, fallback_body = _build_home_update_fallback(body)
         return JsonResponse({"ok": True, "title": fallback_title, "body": fallback_body, "warning": str(e)})
 
 

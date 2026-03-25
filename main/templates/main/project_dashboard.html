@@ -32,6 +32,12 @@
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
         <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
         <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+        <form method="post" action="{% url 'project-archive' slug=project.slug %}">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'project-list' %}">
+          <button class="btn btn-secondary" type="submit">Archive</button>
+        </form>
+        <a class="btn btn-secondary" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
         <a class="btn btn-secondary" href="{% url 'project-list' %}">All projects</a>
       </div>
     </div>

@@ -85,18 +85,8 @@
               {% endif %}
             </p>
 
-            <div class="project-card-actions">
-              <a class="btn btn-secondary btn-sm" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'project-detail' slug=project.slug %}">Details</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'character-list' slug=project.slug %}">Characters</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'location-list' slug=project.slug %}">Locations</a>
-              <a class="btn btn-secondary btn-sm" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
-              <form method="post" action="{% url 'project-archive' slug=project.slug %}">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <button class="btn btn-secondary btn-sm" type="submit">Archive</button>
-              </form>
-              <a class="btn btn-secondary btn-sm" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
+            <div class="project-card-actions project-card-actions-primary">
+              <a class="btn btn-secondary project-card-dashboard-link" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
             </div>
           </div>
         </details>

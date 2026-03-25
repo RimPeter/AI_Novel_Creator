@@ -1743,6 +1743,11 @@ textarea.auto-grow {
   margin-top: 24px;
 }
 
+.dashboard-actions form {
+  display: flex;
+  margin: 0;
+}
+
 .dashboard-progress-card {
   align-self: stretch;
   padding: 22px;
@@ -2450,6 +2455,19 @@ textarea.auto-grow {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: auto;
+}
+
+.project-card-actions-primary {
+  display: block;
+}
+
+.project-card-dashboard-link {
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 100%;
+  min-height: 54px;
+  border-radius: 18px;
+  font-size: 16px;
 }
 
 .project-card-actions form {

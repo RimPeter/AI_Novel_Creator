@@ -11,6 +11,7 @@
         <p class="muted">Nested box view of every location in the project hierarchy.</p>
       </div>
       <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
         <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
         <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
       </div>

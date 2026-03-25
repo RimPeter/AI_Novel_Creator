@@ -7,6 +7,7 @@
     <div class="header-row">
       <h1>Delete project</h1>
       <div class="actions">
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
         <a class="btn btn-secondary" href="{% url 'project-detail' slug=object.slug %}">Back</a>
       </div>
     </div>
@@ -20,4 +21,3 @@
     </form>
   </section>
 {% endblock %}
-

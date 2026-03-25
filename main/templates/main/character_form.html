@@ -13,9 +13,7 @@
     <div class="header-row">
       <h1>{% if object %}Edit{% else %}New{% endif %} character</h1>
       <div class="actions">
-        {% if object %}
-          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-        {% endif %}
+        <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Back</a>
       </div>
     </div>

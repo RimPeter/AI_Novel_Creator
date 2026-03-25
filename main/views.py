@@ -1917,6 +1917,14 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             if text:
                 current_word_count += len(str(text).split())
         ctx["current_word_count"] = current_word_count
+        ctx["act_count"] = len(acts)
+        ctx["chapter_count"] = sum(len(item["chapters"]) for item in outline_tree)
+        ctx["scene_count"] = sum(len(chapter_item["scenes"]) for act_item in outline_tree for chapter_item in act_item["chapters"])
+        ctx["character_count"] = project.characters.count()
+        ctx["location_count"] = project.locations.filter(is_root=False).count()
+        ctx["run_count"] = project.runs.count()
+        target_word_count = project.target_word_count or 0
+        ctx["progress_percent"] = min(100, round((current_word_count / target_word_count) * 100)) if target_word_count else 0
         return ctx
 
     def post(self, request, *args, **kwargs):

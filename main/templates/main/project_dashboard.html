@@ -4,10 +4,29 @@
 {% block title %}{{ project.title }} Dashboard | AI Novel Creator{% endblock %}
 
 {% block content %}
-  <section class="card">
-    <div class="header-row">
-      <h1>{{ project.title }}</h1>
-      <div class="actions">
+  <section class="card dashboard-hero">
+    <div class="dashboard-hero-copy">
+      <div class="dashboard-kicker">Story command deck</div>
+      <h1 class="dashboard-title">{{ project.title }}</h1>
+      <p class="dashboard-lead">
+        {% if project.seed_idea %}
+          {{ project.seed_idea|truncatechars:220 }}
+        {% else %}
+          Shape the premise, track the cast, and keep the outline moving from one control room.
+        {% endif %}
+      </p>
+
+      <div class="dashboard-meta">
+        <span class="dashboard-pill">/{{ project.slug }}/</span>
+        {% if project.genre %}
+          <span class="dashboard-pill">{{ project.genre }}</span>
+        {% endif %}
+        {% if project.tone %}
+          <span class="dashboard-pill">{{ project.tone }}</span>
+        {% endif %}
+      </div>
+
+      <div class="actions dashboard-actions">
         <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a>
         <a class="btn btn-secondary" href="{% url 'full-novel' slug=project.slug %}">Full novel</a>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
@@ -17,112 +36,136 @@
       </div>
     </div>
 
-    <dl class="dl">
-      <div class="dl-row">
-        <dt>Slug</dt>
-        <dd>{{ project.slug }}</dd>
+    <div class="dashboard-progress-card">
+      <div class="dashboard-progress-label">Draft progress</div>
+      <div class="dashboard-progress-value">{{ progress_percent }}%</div>
+      <div class="dashboard-progress-track" aria-hidden="true">
+        <span class="dashboard-progress-fill" style="width: {{ progress_percent }}%;"></span>
       </div>
-      <div class="dl-row">
-        <dt>Genre</dt>
-        <dd>{{ project.genre|default:"-" }}</dd>
-      </div>
-      <div class="dl-row">
-        <dt>Tone</dt>
-        <dd>{{ project.tone|default:"-" }}</dd>
-      </div>
-      <div class="dl-row">
-        <dt>Target word count</dt>
-        <dd>{{ project.target_word_count }}</dd>
-      </div>
-      <div class="dl-row">
-        <dt>Current word count</dt>
-        <dd>{{ current_word_count }}</dd>
-      </div>
-    </dl>
+      <div class="dashboard-progress-note">{{ current_word_count }} of {{ project.target_word_count }} words drafted</div>
 
-    {% comment %} <h2 class="h2">Actions</h2>
-    <form method="post" class="actions">
-      {% csrf_token %}
-      <button class="btn btn-primary" type="submit" name="action" value="generate_bible">Generate bible</button>
-      <button class="btn btn-secondary" type="submit" name="action" value="generate_all_scenes">Generate all scenes</button>
-    </form> {% endcomment %}
-
-    <h2 class="h2">Quick stats</h2>
-    <ul>
-      <li>{{ project.characters.count }} characters</li>
-      <li>{{ project.outline_nodes.count }} outline nodes</li>
-      <li>{{ project.runs.count }} generation runs</li>
-    </ul>
+      <dl class="dashboard-mini-facts">
+        <div>
+          <dt>Acts</dt>
+          <dd>{{ act_count }}</dd>
+        </div>
+        <div>
+          <dt>Chapters</dt>
+          <dd>{{ chapter_count }}</dd>
+        </div>
+        <div>
+          <dt>Scenes</dt>
+          <dd>{{ scene_count }}</dd>
+        </div>
+      </dl>
+    </div>
   </section>
 
-  <section class="card">
-    <details class="collapsible">
-      <summary class="collapsible-summary">
-        <span class="collapsible-title">Story bible</span>
-        <span class="actions">
+  <section class="dashboard-stats" aria-label="Project stats">
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Current words</span>
+      <strong>{{ current_word_count }}</strong>
+      <span class="dashboard-stat-note">Across drafted scene text</span>
+    </article>
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Target words</span>
+      <strong>{{ project.target_word_count }}</strong>
+      <span class="dashboard-stat-note">Draft destination</span>
+    </article>
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Characters</span>
+      <strong>{{ character_count }}</strong>
+      <span class="dashboard-stat-note">Named story voices</span>
+    </article>
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Locations</span>
+      <strong>{{ location_count }}</strong>
+      <span class="dashboard-stat-note">World spaces in play</span>
+    </article>
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Outline nodes</span>
+      <strong>{{ project.outline_nodes.count }}</strong>
+      <span class="dashboard-stat-note">Acts, chapters, and scenes</span>
+    </article>
+    <article class="dashboard-stat">
+      <span class="dashboard-stat-label">Generation runs</span>
+      <strong>{{ run_count }}</strong>
+      <span class="dashboard-stat-note">Recent automation history</span>
+    </article>
+  </section>
+
+  <section class="dashboard-content-grid">
+    <section class="card dashboard-panel dashboard-bible-panel">
+      <div class="dashboard-panel-head">
+        <div>
+          <div class="dashboard-panel-kicker">Reference core</div>
+          <h2 class="dashboard-panel-title">Story bible</h2>
+        </div>
+        <div class="actions">
           <a class="btn btn-secondary btn-sm" href="{% url 'bible-edit' slug=project.slug %}">Edit bible</a>
-          {% if bible %}
-            <span class="muted">Updated {{ bible.updated_at }}</span>
-          {% endif %}
-        </span>
-      </summary>
+        </div>
+      </div>
 
       {% if bible and bible.summary_md %}
-        <p class="pre">{{ bible.summary_md }}</p>
+        <p class="dashboard-bible-copy pre">{{ bible.summary_md|truncatechars:900 }}</p>
+        <div class="dashboard-panel-foot">
+          <span class="muted">Updated {{ bible.updated_at|date:"M j, Y" }}</span>
+        </div>
       {% else %}
-        <p class="muted">No story bible yet. Click "Generate bible".</p>
+        <p class="dashboard-empty-copy">
+          No story bible yet. Add the summary, facts, and constraints so the outline and drafts have a stable canon to follow.
+        </p>
       {% endif %}
-    </details>
-  </section>
+    </section>
 
-  {% comment %} <section class="card">
-    <details class="collapsible">
-      <summary class="collapsible-summary">
-        <span class="collapsible-title">Recent runs</span>
-        <span class="muted">{% if recent_runs %}{{ recent_runs|length }}{% else %}0{% endif %}</span>
-      </summary>
+    <section class="card dashboard-panel dashboard-runs-panel">
+      <div class="dashboard-panel-head">
+        <div>
+          <div class="dashboard-panel-kicker">Activity pulse</div>
+          <h2 class="dashboard-panel-title">Recent runs</h2>
+        </div>
+      </div>
 
       {% if recent_runs %}
-        <ul class="list">
-          {% for run in recent_runs %}
-            <li class="list-item">
+        <ul class="dashboard-run-list">
+          {% for run in recent_runs|slice:":6" %}
+            <li class="dashboard-run-item">
               <div>
-                <div class="list-title">{{ run.run_type }} - {{ run.status }}</div>
-                <div class="muted">{{ run.created_at }}</div>
+                <div class="dashboard-run-type">{{ run.run_type }}</div>
+                <div class="muted">{{ run.created_at|date:"M j, Y H:i" }}</div>
               </div>
-              {% if run.output_text %}
-                <span class="muted">output</span>
-              {% elif run.error %}
-                <span class="muted">error</span>
-              {% else %}
-                <span class="muted">-</span>
-              {% endif %}
+              <span class="dashboard-run-status dashboard-run-status-{{ run.status|lower }}">{{ run.status }}</span>
             </li>
           {% endfor %}
         </ul>
       {% else %}
-        <p class="muted">No runs yet.</p>
+        <p class="dashboard-empty-copy">
+          No generation runs yet. When you start drafting or bible generation, the latest run activity will show up here.
+        </p>
       {% endif %}
-    </details>
-  </section> {% endcomment %}
+    </section>
+  </section>
 
   <section
-    class="card"
+    class="card dashboard-outline"
     data-scene-move-url="{% url 'scene-move' slug=project.slug %}"
     data-scene-rename-url="{% url 'scene-rename' slug=project.slug %}"
   >
-    <div class="header-row">
-      <h1>Outline</h1>
+    <div class="dashboard-outline-head">
+      <div>
+        <div class="dashboard-panel-kicker">Structure board</div>
+        <h2 class="dashboard-panel-title">Outline</h2>
+        <p class="dashboard-outline-note">Drag scenes between chapters to rebalance pacing and sequence.</p>
+      </div>
       <a class="btn btn-secondary" href="{% url 'project-edit' slug=project.slug %}">Edit project</a>
     </div>
-    <p class="muted">Tip: drag scenes between chapters.</p>
 
     {% if outline_tree %}
-      <ul>
+      <ul class="dashboard-outline-tree">
         {% for item in outline_tree %}
-          <li>
-            <details class="collapsible">
-              <summary class="collapsible-summary">
+          <li class="dashboard-act">
+            <details class="collapsible dashboard-act-details">
+              <summary class="collapsible-summary dashboard-act-summary">
                 <span class="collapsible-title">{{ item.act.title|default:"(Untitled act)" }}</span>
                 <span class="actions">
                   <span class="muted">{% if item.chapters %}{{ item.chapters|length }} chapters{% else %}0 chapters{% endif %}</span>
@@ -131,23 +174,23 @@
               </summary>
 
               {% if item.chapters %}
-                <ul>
+                <ul class="dashboard-chapter-list">
                   {% for chapter_item in item.chapters %}
-                    <li>
-                      <hr class="outline-sep" />
-                      <div class="outline-row">
-                        <span>{{ chapter_item.chapter.title|default:"(Untitled chapter)" }}</span>
+                    <li class="dashboard-chapter-card">
+                      <div class="outline-row dashboard-chapter-row">
+                        <span class="dashboard-chapter-title">{{ chapter_item.chapter.title|default:"(Untitled chapter)" }}</span>
                         <div class="actions">
                           <a class="btn btn-secondary btn-sm" href="{% url 'scene-add' slug=project.slug chapter_id=chapter_item.chapter.id %}">Add scene</a>
                           <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-edit' slug=project.slug pk=chapter_item.chapter.id %}">Edit</a>
                           <a class="btn btn-secondary btn-sm" href="{% url 'outline-node-delete' slug=project.slug pk=chapter_item.chapter.id %}">Delete</a>
                         </div>
                       </div>
+
                       {% if chapter_item.scenes %}
-                        <ul class="scene-list" data-chapter-id="{{ chapter_item.chapter.id }}">
+                        <ul class="scene-list dashboard-scene-list" data-chapter-id="{{ chapter_item.chapter.id }}">
                           {% for scene in chapter_item.scenes %}
-                            <li class="scene-item" data-scene-id="{{ scene.id }}" data-chapter-id="{{ chapter_item.chapter.id }}">
-                              <div class="outline-row">
+                            <li class="scene-item dashboard-scene-item" data-scene-id="{{ scene.id }}" data-chapter-id="{{ chapter_item.chapter.id }}">
+                              <div class="outline-row dashboard-scene-row">
                                 <span class="scene-left">
                                   <span class="scene-drag" draggable="true" title="Drag to move">Drag</span>
                                   <input
@@ -161,7 +204,7 @@
                                     <span class="muted">
                                       {% if scene.pov %}POV: {{ scene.pov }}{% endif %}
                                       {% if scene.pov and scene.location %} / {% endif %}
-                                      
+                                      {% if scene.location %}Location: {{ scene.location }}{% endif %}
                                     </span>
                                   {% endif %}
                                 </span>
@@ -174,9 +217,9 @@
                           {% endfor %}
                         </ul>
                       {% else %}
-                        <ul class="scene-list scene-list-empty" data-chapter-id="{{ chapter_item.chapter.id }}">
+                        <ul class="scene-list scene-list-empty dashboard-scene-list" data-chapter-id="{{ chapter_item.chapter.id }}">
                           <li class="scene-dropzone" data-chapter-id="{{ chapter_item.chapter.id }}">
-                            No scenes yet — drop a scene here
+                            No scenes yet - drop a scene here
                           </li>
                         </ul>
                       {% endif %}
@@ -184,14 +227,14 @@
                   {% endfor %}
                 </ul>
               {% else %}
-                <div class="muted">No chapters yet.</div>
+                <div class="dashboard-empty-copy">No chapters yet.</div>
               {% endif %}
             </details>
           </li>
         {% endfor %}
       </ul>
     {% else %}
-      <p class="muted">No outline nodes yet.</p>
+      <p class="dashboard-empty-copy">No outline nodes yet.</p>
     {% endif %}
   </section>
 

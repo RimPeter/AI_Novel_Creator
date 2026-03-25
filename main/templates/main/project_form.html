@@ -15,7 +15,11 @@
   >
     <div class="header-row">
       <h1>{% if object %}Edit project{% else %}New project{% endif %}</h1>
-      <a class="btn btn-secondary" href="{% url 'project-list' %}">Back</a>
+      <div class="actions">
+        {% if object %}
+          <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=object.slug %}">Dashboard</a>
+        {% endif %}
+      </div>
     </div>
 
     <form method="post" class="form">

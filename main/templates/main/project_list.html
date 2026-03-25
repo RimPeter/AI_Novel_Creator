@@ -12,6 +12,7 @@
       </p>
       <div class="actions projects-hero-actions">
         <a class="btn btn-primary" href="{% url 'project-create' %}">New project</a>
+        <a class="btn btn-secondary" href="{% url 'project-archive-list' %}">Archive</a>
       </div>
     </div>
 
@@ -90,6 +91,11 @@
               <a class="btn btn-secondary btn-sm" href="{% url 'character-list' slug=project.slug %}">Characters</a>
               <a class="btn btn-secondary btn-sm" href="{% url 'location-list' slug=project.slug %}">Locations</a>
               <a class="btn btn-secondary btn-sm" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+              <form method="post" action="{% url 'project-archive' slug=project.slug %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="btn btn-secondary btn-sm" type="submit">Archive</button>
+              </form>
               <a class="btn btn-secondary btn-sm" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
             </div>
           </div>

@@ -30,6 +30,7 @@ class NovelProject(TimeStampedModel):
     )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=120, unique=True)
+    is_archived = models.BooleanField(default=False, db_index=True)
 
     seed_idea = models.TextField(blank=True, default="")
 

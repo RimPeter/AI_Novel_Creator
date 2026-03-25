@@ -11,6 +11,7 @@
     <div class="navbar-links" id="primary-navigation">
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'project-list' %}">Projects</a>
+      <a href="{% url 'project-archive-list' %}">Archive</a>
       <a href="{% url 'project-create' %}">New Project</a>
       {% if user.is_authenticated and user.is_superuser %}
         <a href="{% url 'home-update-create' %}">Post Update</a>

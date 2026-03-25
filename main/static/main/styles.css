@@ -1618,6 +1618,15 @@ textarea.auto-grow {
   margin-top: auto;
 }
 
+.project-card-actions form {
+  display: flex;
+  margin: 0;
+}
+
+.project-card-actions form .btn {
+  width: 100%;
+}
+
 .projects-empty {
   margin-top: 24px;
   padding: 34px;
@@ -2023,6 +2032,10 @@ textarea.auto-grow {
   }
 
   .project-card-actions .btn {
+    flex: 1 1 calc(50% - 10px);
+  }
+
+  .project-card-actions form {
     flex: 1 1 calc(50% - 10px);
   }
 

@@ -12,6 +12,7 @@ from django.db.models import Count, Max, Q, ProtectedError, Sum
 from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 from django.views.decorators.http import require_POST
@@ -34,6 +35,30 @@ from .llm import call_llm, generate_image_data_url
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
     return get_object_or_404(NovelProject, slug=slug)
+
+
+def _get_project_redirect_url(request, fallback_url: str) -> str:
+    next_url = (request.POST.get("next") or request.GET.get("next") or "").strip()
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return fallback_url
+
+
+def _get_annotated_projects_queryset():
+    return NovelProject.objects.annotate(
+        character_count=Count("characters", distinct=True),
+        outline_count=Count("outline_nodes", distinct=True),
+        scene_count=Count(
+            "outline_nodes",
+            filter=Q(outline_nodes__node_type=OutlineNode.NodeType.SCENE),
+            distinct=True,
+        ),
+        run_count=Count("runs", distinct=True),
+    )
 
 
 def _get_scene_for_user(request, slug: str, pk) -> OutlineNode:
@@ -1075,21 +1100,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
     ordering = ["title"]
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .annotate(
-                character_count=Count("characters", distinct=True),
-                outline_count=Count("outline_nodes", distinct=True),
-                scene_count=Count(
-                    "outline_nodes",
-                    filter=Q(outline_nodes__node_type=OutlineNode.NodeType.SCENE),
-                    distinct=True,
-                ),
-                run_count=Count("runs", distinct=True),
-            )
-            .order_by(*self.ordering)
-        )
+        return _get_annotated_projects_queryset().filter(is_archived=False).order_by(*self.ordering)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1099,7 +1110,46 @@ class ProjectListView(LoginRequiredMixin, ListView):
         ctx["recently_updated_count"] = projects.filter(
             updated_at__gte=timezone.now() - timedelta(days=7)
         ).count()
+        ctx["archived_count"] = NovelProject.objects.filter(is_archived=True).count()
         return ctx
+
+
+class ProjectArchiveListView(LoginRequiredMixin, ListView):
+    model = NovelProject
+    template_name = "main/archive.html"
+    context_object_name = "projects"
+    ordering = ["title"]
+
+    def get_queryset(self):
+        return _get_annotated_projects_queryset().filter(is_archived=True).order_by(*self.ordering)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        projects = ctx["projects"]
+        ctx["project_count"] = projects.count()
+        return ctx
+
+
+@require_POST
+@login_required
+def archive_project(request, slug):
+    project = _get_project_for_user(request, slug)
+    if not project.is_archived:
+        project.is_archived = True
+        project.save(update_fields=["is_archived", "updated_at"])
+        messages.success(request, "Project archived.")
+    return HttpResponseRedirect(_get_project_redirect_url(request, reverse("project-archive-list")))
+
+
+@require_POST
+@login_required
+def restore_project(request, slug):
+    project = _get_project_for_user(request, slug)
+    if project.is_archived:
+        project.is_archived = False
+        project.save(update_fields=["is_archived", "updated_at"])
+        messages.success(request, "Project restored.")
+    return HttpResponseRedirect(_get_project_redirect_url(request, reverse("project-list")))
 
 
 class ProjectDetailView(LoginRequiredMixin, DetailView):

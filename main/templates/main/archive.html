@@ -1,0 +1,104 @@
+{% extends "main/base.html" %}
+
+{% block title %}Archive | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card projects-hero">
+    <div class="projects-hero-copy">
+      <div class="projects-kicker">Stored projects</div>
+      <h1>Archive</h1>
+      <p class="projects-hero-lead">
+        Move finished or paused novels out of the active board without deleting their characters, outline, or draft history.
+      </p>
+      <div class="actions projects-hero-actions">
+        <a class="btn btn-primary" href="{% url 'project-list' %}">Active projects</a>
+        <a class="btn btn-secondary" href="{% url 'project-create' %}">New project</a>
+      </div>
+    </div>
+
+    <div class="projects-hero-stats" aria-label="Archive overview">
+      <article class="projects-stat">
+        <span class="projects-stat-label">Archived</span>
+        <strong>{{ project_count }}</strong>
+      </article>
+    </div>
+  </section>
+
+  {% if projects %}
+    <section class="projects-grid" aria-label="Archived projects">
+      {% for project in projects %}
+        <details class="project-card project-card-collapsible">
+          <summary class="project-card-summary-toggle">
+            <div class="project-card-head">
+              <div>
+                <div class="project-card-date">Updated {{ project.updated_at|date:"M j, Y" }}</div>
+                <h2 class="project-card-title">{{ project.title }}</h2>
+                <div class="project-card-slug">/{{ project.slug }}/</div>
+              </div>
+              <span class="project-card-open" aria-hidden="true"></span>
+            </div>
+
+            <div class="project-card-metrics" aria-label="Project stats">
+              <div class="project-metric">
+                <strong>{{ project.character_count }}</strong>
+                <span>Characters</span>
+              </div>
+              <div class="project-metric">
+                <strong>{{ project.outline_count }}</strong>
+                <span>Outline nodes</span>
+              </div>
+              <div class="project-metric">
+                <strong>{{ project.scene_count }}</strong>
+                <span>Scenes</span>
+              </div>
+              <div class="project-metric">
+                <strong>{{ project.run_count }}</strong>
+                <span>Runs</span>
+              </div>
+            </div>
+          </summary>
+
+          <div class="project-card-body">
+            <div class="project-card-tags">
+              {% if project.genre %}
+                <span class="project-tag">{{ project.genre }}</span>
+              {% endif %}
+              {% if project.tone %}
+                <span class="project-tag">{{ project.tone }}</span>
+              {% endif %}
+              <span class="project-tag project-tag-strong">{{ project.target_word_count }} target words</span>
+            </div>
+
+            <p class="project-card-summary">
+              {% if project.seed_idea %}
+                {{ project.seed_idea|truncatechars:180 }}
+              {% else %}
+                No seed idea yet. Add a premise, voice, or central conflict so the project has a sharper starting point.
+              {% endif %}
+            </p>
+
+            <div class="project-card-actions">
+              <a class="btn btn-secondary btn-sm" href="{% url 'project-detail' slug=project.slug %}">Details</a>
+              <a class="btn btn-secondary btn-sm" href="{% url 'project-edit' slug=project.slug %}">Edit</a>
+              <form method="post" action="{% url 'project-restore' slug=project.slug %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="btn btn-secondary btn-sm" type="submit">Restore</button>
+              </form>
+              <a class="btn btn-secondary btn-sm" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="card projects-empty">
+      <div class="projects-kicker">Archive is empty</div>
+      <h2 class="projects-empty-title">No archived projects yet.</h2>
+      <p class="projects-empty-copy">
+        Archive completed or paused projects from the main board when you want a cleaner active workspace.
+      </p>
+      <a class="btn btn-primary" href="{% url 'project-list' %}">Back to projects</a>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -733,6 +733,58 @@ class ProjectSharedAccessTests(AuthenticatedTestCase):
         self.assertContains(resp, "Shared Project")
 
 
+class ProjectArchiveTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.active_project = NovelProject.objects.create(
+            title="Active Project",
+            slug="active-project",
+            target_word_count=1000,
+            owner=self.user,
+        )
+        self.archived_project = NovelProject.objects.create(
+            title="Archived Project",
+            slug="archived-project",
+            target_word_count=2000,
+            owner=self.user,
+            is_archived=True,
+        )
+
+    def test_project_list_excludes_archived_projects(self):
+        resp = self.client.get(reverse("project-list"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Active Project")
+        self.assertNotContains(resp, "Archived Project")
+        self.assertContains(resp, "Archive")
+
+    def test_archive_page_shows_only_archived_projects(self):
+        resp = self.client.get(reverse("project-archive-list"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Archived Project")
+        self.assertNotContains(resp, "Active Project")
+        self.assertContains(resp, "Restore")
+
+    def test_archive_project_marks_project_as_archived(self):
+        resp = self.client.post(
+            reverse("project-archive", kwargs={"slug": self.active_project.slug}),
+            data={"next": reverse("project-list")},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], reverse("project-list"))
+        self.active_project.refresh_from_db()
+        self.assertTrue(self.active_project.is_archived)
+
+    def test_restore_project_marks_project_as_active(self):
+        resp = self.client.post(
+            reverse("project-restore", kwargs={"slug": self.archived_project.slug}),
+            data={"next": reverse("project-archive-list")},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], reverse("project-archive-list"))
+        self.archived_project.refresh_from_db()
+        self.assertFalse(self.archived_project.is_archived)
+
+
 class LocationViewsTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()

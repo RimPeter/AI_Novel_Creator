@@ -1434,6 +1434,7 @@ textarea.auto-grow {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   gap: 18px;
+  align-items: start;
 }
 
 .project-card {
@@ -1530,6 +1531,21 @@ textarea.auto-grow {
 
 .project-card[open] .project-card-open::after {
   content: "Collapse";
+}
+
+.project-card:not([open]) .project-card-date,
+.project-card:not([open]) .project-card-slug,
+.project-card:not([open]) .project-card-open,
+.project-card:not([open]) .project-card-metrics {
+  display: none;
+}
+
+.project-card:not([open]) .project-card-summary-toggle {
+  gap: 0;
+}
+
+.project-card:not([open]) .project-card-head {
+  display: block;
 }
 
 .project-card-body {

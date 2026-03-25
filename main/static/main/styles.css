@@ -314,6 +314,17 @@ ul {
   background: rgba(127, 127, 127, 0.05);
 }
 
+.character-card-has-portrait {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.character-card-has-portrait:hover {
+  transform: translateY(-2px);
+  border-color: rgba(90, 140, 255, 0.34);
+  background: rgba(90, 140, 255, 0.08);
+}
+
 .list-title {
   font-weight: 700;
 }

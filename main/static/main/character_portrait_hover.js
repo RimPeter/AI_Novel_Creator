@@ -1,9 +1,9 @@
 (() => {
-  const list = document.querySelector(".multi-select-list");
-  if (!list) return;
-
-  const labels = list.querySelectorAll(".character-option[data-portrait-url]");
-  if (!labels.length) return;
+  const targets = [
+    ...document.querySelectorAll(".multi-select-list .character-option[data-portrait-url]"),
+    ...document.querySelectorAll(".character-card[data-portrait-url]"),
+  ];
+  if (!targets.length) return;
 
   const tooltip = document.createElement("div");
   tooltip.className = "portrait-tooltip";
@@ -43,20 +43,20 @@
     tooltip.style.top = `${top}px`;
   };
 
-  labels.forEach((label) => {
-    const url = label.dataset.portraitUrl;
+  targets.forEach((target) => {
+    const url = target.dataset.portraitUrl;
     if (!url) return;
 
-    label.addEventListener("mouseenter", (event) => {
+    target.addEventListener("mouseenter", (event) => {
       if (!showTooltip(url)) return;
       positionTooltip(event.clientX, event.clientY);
     });
 
-    label.addEventListener("mousemove", (event) => {
+    target.addEventListener("mousemove", (event) => {
       if (!tooltip.classList.contains("is-visible")) return;
       positionTooltip(event.clientX, event.clientY);
     });
 
-    label.addEventListener("mouseleave", hideTooltip);
+    target.addEventListener("mouseleave", hideTooltip);
   });
 })();

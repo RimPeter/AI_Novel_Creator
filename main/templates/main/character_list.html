@@ -1,4 +1,5 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}Characters | {{ project.title }}{% endblock %}
 
@@ -30,7 +31,10 @@
     {% if characters %}
       <ul class="list">
         {% for c in characters %}
-          <li class="list-item">
+          <li
+            class="list-item character-card{% if c.portrait_data_url %} character-card-has-portrait{% endif %}"
+            {% if c.portrait_data_url %}data-portrait-url="{{ c.portrait_data_url }}"{% endif %}
+          >
             <div>
               <div class="list-title">{{ c.name }}</div>
               <div class="muted">
@@ -50,4 +54,5 @@
       <p class="muted">No characters yet.</p>
     {% endif %}
   </section>
+  <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>
 {% endblock %}

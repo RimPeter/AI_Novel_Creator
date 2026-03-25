@@ -1,0 +1,115 @@
+{% extends "main/base.html" %}
+
+{% block title %}Token Usage | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Usage report</span>
+          <h1 class="page-title">Token usage</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'project-list' %}">Projects</a>
+        </div>
+      </div>
+      <p class="page-lead">Review tracked token consumption by day and by project across all recorded generation runs.</p>
+      <section class="token-usage-model-panel" aria-label="Text model selection">
+        <div class="token-usage-model-copy">
+          <span class="page-panel-kicker">Generation model</span>
+          <h2 class="page-panel-title">Text model for future generations</h2>
+          <p class="token-usage-model-note muted">
+            Current selection: <strong>{{ selected_text_model }}</strong>. The default fallback is {{ default_text_model }}.
+          </p>
+        </div>
+        <form method="post" class="token-usage-model-form">
+          {% csrf_token %}
+          <label class="sr-only" for="text-model-name">Text model</label>
+          <div class="token-usage-model-controls">
+            <select id="text-model-name" name="text_model_name">
+              {% for option in available_text_models %}
+                <option value="{{ option.value }}"{% if option.value == selected_text_model %} selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-primary" type="submit">Save model</button>
+          </div>
+        </form>
+      </section>
+      <div class="page-summary-grid" aria-label="Token overview">
+        <article class="page-summary-card">
+          <strong>{{ overall_total_tokens }}</strong>
+          <span>Total tokens</span>
+        </article>
+        <article class="page-summary-card">
+          <strong>{{ tracked_run_count }}</strong>
+          <span>Tracked runs</span>
+        </article>
+        <article class="page-summary-card">
+          <strong>{{ tracked_day_count }}</strong>
+          <span>Tracked days</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-grid-2">
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Daily list</span>
+            <h2 class="page-panel-title">Per day and generation action</h2>
+          </div>
+        </div>
+        <p class="page-panel-copy muted">Each row groups tracked tokens by date and by the generation button in use.</p>
+
+        {% if daily_rows %}
+          <ul class="list token-usage-list">
+            {% for row in daily_rows %}
+              <li class="list-item token-usage-item">
+                <div class="token-usage-copy">
+                  <div class="list-title">{{ row.date|date:"Y-m-d" }}</div>
+                  <div class="muted">Generation button in use: {{ row.action_label }}</div>
+                </div>
+                <div class="token-usage-meta">
+                  <strong class="token-usage-total">{{ row.total_tokens }}</strong>
+                  <span class="muted">tokens across {{ row.run_count }} run{{ row.run_count|pluralize }}</span>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No tracked token usage yet. Only runs with token counts are included here.</p>
+        {% endif %}
+      </section>
+
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Per project</span>
+            <h2 class="page-panel-title">Token usage by project</h2>
+          </div>
+        </div>
+        <p class="page-panel-copy muted">Projects are ordered by total tracked token consumption.</p>
+
+        {% if project_rows %}
+          <ul class="list token-usage-list">
+            {% for row in project_rows %}
+              <li class="list-item token-usage-item">
+                <div class="token-usage-copy">
+                  <div class="list-title">{{ row.project.title }}</div>
+                  <div class="muted">/{{ row.project.slug }}/</div>
+                </div>
+                <div class="token-usage-meta">
+                  <strong class="token-usage-total">{{ row.total_tokens }}</strong>
+                  <span class="muted">tokens across {{ row.run_count }} run{{ row.run_count|pluralize }}</span>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No tracked token usage yet. Only runs with token counts are included here.</p>
+        {% endif %}
+      </section>
+    </section>
+  </div>
+{% endblock %}

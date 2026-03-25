@@ -329,3 +329,15 @@ class GenerationRun(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.run_type} {self.status} ({self.project.title})"
+
+
+class UserTextModelPreference(TimeStampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="text_model_preference",
+    )
+    text_model_name = models.CharField(max_length=120, blank=True, default="")
+
+    def __str__(self) -> str:
+        return f"Text model preference for {self.user}"

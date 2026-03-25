@@ -1,13 +1,15 @@
 import json
+from datetime import datetime
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from unittest.mock import patch
 from urllib.parse import quote
 
-from .models import Character, NovelProject, OutlineNode
+from .models import Character, GenerationRun, NovelProject, OutlineNode, UserTextModelPreference
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import HomeUpdate, Location
 
@@ -783,6 +785,145 @@ class ProjectArchiveTests(AuthenticatedTestCase):
         self.assertEqual(resp["Location"], reverse("project-archive-list"))
         self.archived_project.refresh_from_db()
         self.assertFalse(self.archived_project.is_archived)
+
+
+class TokenUsageViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.project_a = NovelProject.objects.create(
+            title="Project A",
+            slug="project-a",
+            target_word_count=1000,
+            owner=self.user,
+        )
+        self.project_b = NovelProject.objects.create(
+            title="Project B",
+            slug="project-b",
+            target_word_count=1000,
+            owner=self.user,
+        )
+
+    def _create_run(self, *, project, run_type, created_at, usage):
+        run = GenerationRun.objects.create(
+            project=project,
+            run_type=run_type,
+            status=GenerationRun.Status.SUCCEEDED,
+            usage=usage,
+        )
+        GenerationRun.objects.filter(pk=run.pk).update(created_at=created_at, updated_at=created_at)
+        return GenerationRun.objects.get(pk=run.pk)
+
+    def test_token_usage_view_groups_daily_totals_and_project_totals(self):
+        self._create_run(
+            project=self.project_a,
+            run_type=GenerationRun.RunType.BIBLE,
+            created_at=timezone.make_aware(datetime(2026, 3, 24, 9, 0)),
+            usage={"total_tokens": 120},
+        )
+        self._create_run(
+            project=self.project_a,
+            run_type=GenerationRun.RunType.SCENE,
+            created_at=timezone.make_aware(datetime(2026, 3, 24, 10, 0)),
+            usage={"prompt_tokens": 30, "completion_tokens": 45},
+        )
+        self._create_run(
+            project=self.project_b,
+            run_type=GenerationRun.RunType.BIBLE,
+            created_at=timezone.make_aware(datetime(2026, 3, 25, 11, 30)),
+            usage={"total_tokens": 200},
+        )
+        self._create_run(
+            project=self.project_b,
+            run_type=GenerationRun.RunType.OUTLINE,
+            created_at=timezone.make_aware(datetime(2026, 3, 25, 13, 15)),
+            usage={"generator": "local-template"},
+        )
+
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Token usage")
+        self.assertContains(resp, "395")
+        self.assertContains(resp, "Generate Bible")
+        self.assertContains(resp, "Generate All Scenes")
+        self.assertContains(resp, "Project A")
+        self.assertContains(resp, "Project B")
+        self.assertContains(resp, "195")
+        self.assertContains(resp, "200")
+
+    def test_project_brainstorm_records_token_usage_for_report(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Speculative mystery"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-brainstorm", kwargs={"slug": self.project_a.slug}),
+                data={
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        usage_resp = self.client.get(reverse("token-usage"))
+        self.assertEqual(usage_resp.status_code, 200)
+        self.assertContains(usage_resp, "Project Brainstorm")
+        self.assertContains(usage_resp, "55")
+        self.assertContains(usage_resp, "Project A")
+
+    def test_token_usage_page_saves_per_user_text_model_selection(self):
+        resp = self.client.post(
+            reverse("token-usage"),
+            data={"text_model_name": "gpt-5-mini"},
+            follow=True,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        preference = UserTextModelPreference.objects.get(user=self.user)
+        self.assertEqual(preference.text_model_name, "gpt-5-mini")
+        self.assertContains(resp, "Current selection:")
+        self.assertContains(resp, "gpt-5-mini")
+
+    def test_project_brainstorm_uses_selected_user_text_model(self):
+        UserTextModelPreference.objects.create(user=self.user, text_model_name="gpt-5-mini")
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Speculative mystery"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                reverse("project-brainstorm", kwargs={"slug": self.project_a.slug}),
+                data={
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_call.call_args.kwargs["model_name"], "gpt-5-mini")
+
+    def test_navbar_shows_active_text_model_badge(self):
+        UserTextModelPreference.objects.create(user=self.user, text_model_name="gpt-5-mini")
+
+        resp = self.client.get(reverse("project-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Model")
+        self.assertContains(resp, "gpt-5-mini")
 
 
 class LocationViewsTests(AuthenticatedTestCase):

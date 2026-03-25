@@ -1,5 +1,6 @@
 import json
 import re
+from collections import defaultdict
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -14,7 +15,7 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
-from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from django.views.decorators.http import require_POST
 
 from .forms import (
@@ -27,7 +28,8 @@ from .forms import (
     StoryBibleForm,
 )
 from .location_hierarchy import build_location_rows, build_location_tree
-from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
+from .models import Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
+from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm, generate_image_data_url
@@ -207,6 +209,71 @@ def _get_portrait_visual_extra_lines(extra_fields) -> list[str]:
     return lines
 
 
+def _get_usage_int(usage: dict, key: str) -> int:
+    raw = (usage or {}).get(key)
+    if raw in (None, ""):
+        return 0
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _get_run_total_tokens(run: GenerationRun) -> int:
+    usage = run.usage or {}
+    total_tokens = _get_usage_int(usage, "total_tokens")
+    if total_tokens:
+        return total_tokens
+
+    prompt_tokens = _get_usage_int(usage, "prompt_tokens")
+    completion_tokens = _get_usage_int(usage, "completion_tokens")
+    return prompt_tokens + completion_tokens
+
+
+def _get_run_action_label(run: GenerationRun) -> str:
+    custom_label = str((run.usage or {}).get("action_label") or "").strip()
+    if custom_label:
+        return custom_label
+    return {
+        GenerationRun.RunType.BIBLE: "Generate Bible",
+        GenerationRun.RunType.OUTLINE: "Generate Outline",
+        GenerationRun.RunType.SCENE: "Generate All Scenes",
+    }.get(run.run_type, run.get_run_type_display())
+
+
+def _call_tracked_llm(
+    *,
+    project: NovelProject,
+    action_label: str,
+    prompt: str,
+    model_name: str,
+    params: dict,
+    run_type: str = GenerationRun.RunType.SCENE,
+    outline_node: OutlineNode | None = None,
+):
+    result = call_llm(
+        prompt=prompt,
+        model_name=model_name,
+        params=params,
+    )
+
+    usage = dict(result.usage or {})
+    usage["action_label"] = action_label
+
+    GenerationRun.objects.create(
+        project=project,
+        outline_node=outline_node,
+        run_type=run_type,
+        status=GenerationRun.Status.SUCCEEDED,
+        prompt=prompt,
+        model_name=model_name,
+        params=params,
+        output_text=(result.text or "").strip(),
+        usage=usage,
+    )
+    return result
+
+
 def _get_previous_scene_context(scene: OutlineNode) -> list[str]:
     if not scene.parent_id:
         return []
@@ -382,10 +449,15 @@ def brainstorm_project(request, slug):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 500}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Project Brainstorm",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 500},
+            model_name=model_name,
+            params=params,
+            run_type=GenerationRun.RunType.BIBLE,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -450,10 +522,15 @@ def add_project_details(request, slug):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 500}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Project Add Details",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 500},
+            model_name=model_name,
+            params=params,
+            run_type=GenerationRun.RunType.BIBLE,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -531,10 +608,15 @@ def brainstorm_scene(request, slug, pk):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 500}
+        result = _call_tracked_llm(
+            project=scene.project,
+            action_label="Scene Brainstorm",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 500},
+            model_name=model_name,
+            params=params,
+            outline_node=scene,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -601,10 +683,15 @@ def add_scene_details(request, slug, pk):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 500}
+        result = _call_tracked_llm(
+            project=scene.project,
+            action_label="Scene Add Details",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 500},
+            model_name=model_name,
+            params=params,
+            outline_node=scene,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -878,10 +965,14 @@ def brainstorm_character(request, slug):
     prompt = "\n".join(prompt_lines)
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 500}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Character Brainstorm",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 500},
+            model_name=model_name,
+            params=params,
         )
         raw = (result.text or "").strip()
         suggestions = json.loads(raw) if raw else {}
@@ -965,10 +1056,14 @@ def add_character_details(request, slug):
     prompt = "\n".join(prompt_lines)
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 650}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Character Add Details",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 650},
+            model_name=model_name,
+            params=params,
         )
         raw = (result.text or "").strip()
         suggestions = json.loads(raw) if raw else {}
@@ -1127,6 +1222,69 @@ class ProjectArchiveListView(LoginRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         projects = ctx["projects"]
         ctx["project_count"] = projects.count()
+        return ctx
+
+
+class TokenUsageView(LoginRequiredMixin, TemplateView):
+    template_name = "main/token_usage.html"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            selected_model = save_user_text_model(request.user, request.POST.get("text_model_name") or "")
+        except ValueError as e:
+            messages.error(request, str(e))
+        else:
+            messages.success(request, f"Text model updated to {selected_model}.")
+        return HttpResponseRedirect(reverse("token-usage"))
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+
+        runs = list(GenerationRun.objects.select_related("project").order_by("-created_at"))
+        daily_totals = defaultdict(lambda: {"date": None, "action_label": "", "total_tokens": 0, "run_count": 0})
+        project_totals = defaultdict(lambda: {"project": None, "total_tokens": 0, "run_count": 0})
+
+        tracked_run_count = 0
+        overall_total_tokens = 0
+
+        for run in runs:
+            token_total = _get_run_total_tokens(run)
+            if token_total <= 0:
+                continue
+
+            tracked_run_count += 1
+            overall_total_tokens += token_total
+            action_label = _get_run_action_label(run)
+            run_date = timezone.localtime(run.created_at).date()
+
+            daily_key = (run_date, action_label)
+            daily_entry = daily_totals[daily_key]
+            daily_entry["date"] = run_date
+            daily_entry["action_label"] = action_label
+            daily_entry["total_tokens"] += token_total
+            daily_entry["run_count"] += 1
+
+            project_entry = project_totals[run.project_id]
+            project_entry["project"] = run.project
+            project_entry["total_tokens"] += token_total
+            project_entry["run_count"] += 1
+
+        ctx["daily_rows"] = sorted(
+            daily_totals.values(),
+            key=lambda row: (row["date"], row["action_label"]),
+            reverse=True,
+        )
+        ctx["project_rows"] = sorted(
+            project_totals.values(),
+            key=lambda row: (row["total_tokens"], row["project"].title.lower() if row["project"] else ""),
+            reverse=True,
+        )
+        ctx["overall_total_tokens"] = overall_total_tokens
+        ctx["tracked_run_count"] = tracked_run_count
+        ctx["tracked_day_count"] = len({row["date"] for row in daily_totals.values()})
+        ctx["available_text_models"] = get_available_text_models()
+        ctx["selected_text_model"] = get_user_text_model(self.request.user)
+        ctx["default_text_model"] = get_default_text_model()
         return ctx
 
 
@@ -1420,10 +1578,14 @@ def brainstorm_location_description(request, slug):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 450}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Location Brainstorm",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 450},
+            model_name=model_name,
+            params=params,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -1481,10 +1643,14 @@ def add_location_details(request, slug):
     prompt = "\n".join(prompt_lines).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 450}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Location Add Details",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.7, "max_tokens": 450},
+            model_name=model_name,
+            params=params,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -1542,10 +1708,14 @@ def extract_location_objects(request, slug):
     ).strip()
 
     try:
-        result = call_llm(
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.4, "max_tokens": 550}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Location Extract Objects",
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-            params={"temperature": 0.4, "max_tokens": 550},
+            model_name=model_name,
+            params=params,
         )
         data = json.loads(_extract_json_object(result.text))
         if not isinstance(data, dict):
@@ -2077,7 +2247,7 @@ def regenerate_home_update(request):
     try:
         result = call_llm(
             prompt=prompt,
-            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+            model_name=get_user_text_model(request.user),
             params={"temperature": 0.4, "max_tokens": 400},
         )
         data = json.loads(_extract_json_object(result.text))
@@ -2337,10 +2507,15 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 prompt = "\n".join(prompt_lines).strip()
 
                 try:
-                    result = call_llm(
+                    model_name = get_user_text_model(request.user)
+                    params = {"temperature": 0.7, "max_tokens": 900}
+                    result = _call_tracked_llm(
+                        project=scene.project,
+                        action_label="Scene Draft from Summary",
                         prompt=prompt,
-                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                        params={"temperature": 0.7, "max_tokens": 900},
+                        model_name=model_name,
+                        params=params,
+                        outline_node=scene,
                     )
                     scene.structure_json = (result.text or "").strip()
                     scene.save()
@@ -2382,10 +2557,15 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     prompt = "\n".join(prompt_lines).strip()
 
                     try:
-                        result = call_llm(
+                        model_name = get_user_text_model(request.user)
+                        params = {"temperature": 0.8, "max_tokens": 900}
+                        result = _call_tracked_llm(
+                            project=scene.project,
+                            action_label="Scene Regenerate",
                             prompt=prompt,
-                            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                            params={"temperature": 0.8, "max_tokens": 900},
+                            model_name=model_name,
+                            params=params,
+                            outline_node=scene,
                         )
                         data = json.loads(_extract_json_object(result.text))
                         updated = data.get("segments")
@@ -2463,10 +2643,15 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     prompt = "\n".join(prompt_lines).strip()
 
                     try:
-                        result = call_llm(
+                        model_name = get_user_text_model(request.user)
+                        params = {"temperature": 0.8, "max_tokens": 900}
+                        result = _call_tracked_llm(
+                            project=scene.project,
+                            action_label="Scene Reshuffle",
                             prompt=prompt,
-                            model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                            params={"temperature": 0.8, "max_tokens": 900},
+                            model_name=model_name,
+                            params=params,
+                            outline_node=scene,
                         )
                         data = json.loads(_extract_json_object(result.text))
                         updated = data.get("segments")
@@ -2533,13 +2718,18 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 ).strip()
 
                 try:
-                    result = call_llm(
+                    model_name = get_user_text_model(request.user)
+                    params = {
+                        "temperature": 0.7,
+                        "max_tokens": 1200,
+                    }
+                    result = _call_tracked_llm(
+                        project=scene.project,
+                        action_label="Scene Render Prose",
                         prompt=prompt,
-                        model_name=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                        params={
-                            "temperature": 0.7,
-                            "max_tokens": 1200,
-                        },
+                        model_name=model_name,
+                        params=params,
+                        outline_node=scene,
                     )
                     scene.rendered_text = (result.text or "").strip() + "\n"
                     scene.save()

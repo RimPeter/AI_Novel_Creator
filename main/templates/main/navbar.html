@@ -12,12 +12,17 @@
       <a href="{% url 'home' %}">Home</a>
       <a href="{% url 'project-list' %}">Projects</a>
       <a href="{% url 'project-archive-list' %}">Archive</a>
+      <a href="{% url 'token-usage' %}">Token Usage</a>
       <a href="{% url 'project-create' %}">New Project</a>
       {% if user.is_authenticated and user.is_superuser %}
         <a href="{% url 'home-update-create' %}">Post Update</a>
       {% endif %}
       <a href="{% url 'admin:index' %}">Admin</a>
       {% if user.is_authenticated %}
+        <a class="nav-model-badge" href="{% url 'token-usage' %}" title="Active text generation model">
+          <span class="nav-model-label">Model</span>
+          <strong>{{ navbar_text_model }}</strong>
+        </a>
         <a href="{% url 'account_email' %}">Account</a>
         <a href="{% url 'account_logout' %}">Sign out</a>
       {% else %}

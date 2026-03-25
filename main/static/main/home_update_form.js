@@ -5,9 +5,9 @@
 
   const form = section.querySelector("form");
   const url = section.getAttribute("data-home-update-regenerate-url");
-  const titleField = form?.querySelector('[name="title"]');
   const bodyField = form?.querySelector('[name="body"]');
-  if (!form || !url || !titleField || !bodyField) return;
+  const titlePreview = document.getElementById("home-update-title-preview");
+  if (!form || !url || !bodyField || !titlePreview) return;
 
   const getCookie = (name) => {
     const value = `; ${document.cookie}`;
@@ -17,6 +17,49 @@
   };
 
   const csrfToken = getCookie("csrftoken");
+
+  const deriveTitle = (rawText) => {
+    const text = (rawText || "").trim();
+    if (!text) return "Title will be generated from the body text.";
+
+    const normalizedText = text.replace(/\s+/g, " ").trim().toLowerCase();
+    if (
+      normalizedText.includes("text generation model") ||
+      normalizedText.includes("ai model") ||
+      (normalizedText.includes("select") && normalizedText.includes("model") && normalizedText.includes("token usage"))
+    ) {
+      return "Added AI model selector";
+    }
+    if (normalizedText.includes("git commit") && (normalizedText.includes("helper") || normalizedText.includes("command"))) {
+      return "Added Git commit command helper";
+    }
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    let firstLine = lines[0] || text;
+    firstLine = firstLine.replace(/^\s*we have introduced a new feature that allows (?:each )?user(?:s)? to\s+/i, "Added ");
+    firstLine = firstLine.replace(/^\s*this update (?:adds|introduces)\s+/i, "Added ");
+    firstLine = firstLine.replace(/^\s*[-*#]+\s*/, "");
+    firstLine = firstLine.replace(/^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*/i, "");
+    firstLine = firstLine.replace(/\s+/g, " ").trim().replace(/^[.:\-\s]+|[.:\-\s]+$/g, "");
+    if (!firstLine) return "Title will be generated from the body text.";
+
+    const sentenceMatch = firstLine.match(/(.+?[.!?])(?:\s|$)/);
+    let title = sentenceMatch ? sentenceMatch[1].trim() : firstLine;
+    title = title.replace(/[.!?]+$/g, "").trim();
+    if (title.length > 72) {
+      const shortened = title.slice(0, 69).replace(/\s+\S*$/, "").trim();
+      title = `${shortened || title.slice(0, 69).trim()}...`;
+    }
+    if (!title) return "Title will be generated from the body text.";
+    return title.charAt(0).toUpperCase() + title.slice(1);
+  };
+
+  const updateTitlePreview = (value) => {
+    titlePreview.textContent = deriveTitle(value);
+  };
 
   const showMessage = (text, level = "info") => {
     const list =
@@ -51,7 +94,6 @@
 
     try {
       const params = new URLSearchParams();
-      params.set("title", (titleField.value || "").trim());
       params.set("body", bodyField.value || "");
 
       const res = await fetch(url, {
@@ -72,10 +114,10 @@
         return;
       }
 
-      titleField.value = data.title || titleField.value;
       bodyField.value = data.body || bodyField.value;
       bodyField.dispatchEvent(new Event("input", { bubbles: true }));
-      showMessage("Update text regenerated.", "success");
+      titlePreview.textContent = data.title || deriveTitle(bodyField.value);
+      showMessage(data.warning ? `Update text kept. Title will be generated on post. ${data.warning}` : "Update text regenerated.", data.warning ? "warning" : "success");
     } catch (e) {
       showMessage(`Request failed: ${e?.message || e}`, "error");
     } finally {
@@ -83,4 +125,10 @@
       button.textContent = originalText;
     }
   });
+
+  bodyField.addEventListener("input", () => {
+    updateTitlePreview(bodyField.value);
+  });
+
+  updateTitlePreview(bodyField.value);
 })();

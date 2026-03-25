@@ -889,6 +889,24 @@ ul {
   letter-spacing: -0.04em;
 }
 
+.home-update-title-card {
+  margin: 18px 0 6px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(127, 127, 127, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(255, 188, 117, 0.14), transparent 28%),
+    rgba(127, 127, 127, 0.05);
+}
+
+.home-update-title-value {
+  margin: 8px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(24px, 3vw, 32px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

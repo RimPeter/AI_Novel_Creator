@@ -40,8 +40,121 @@ class LLMTests(TestCase):
             result.usage,
             {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
         )
-        messages = mocked.call_args.kwargs["messages"]
+        kwargs = mocked.call_args.kwargs
+        messages = kwargs["messages"]
         self.assertEqual(messages[0], {"role": "system", "content": SYSTEM_PROMPT})
+        self.assertEqual(kwargs["max_completion_tokens"], 42)
+        self.assertNotIn("max_tokens", kwargs)
+
+    def test_call_llm_accepts_explicit_max_completion_tokens(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Plain text."))],
+            usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+            call_llm(
+                prompt="Test prompt",
+                model_name="test-model",
+                params={"temperature": 0.2, "max_tokens": 42, "max_completion_tokens": 64},
+            )
+
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["max_completion_tokens"], 64)
+        self.assertNotIn("max_tokens", kwargs)
+
+    def test_call_llm_omits_temperature_for_gpt5_family_models(self):
+        fake_response = SimpleNamespace(
+            output_text="Plain text.",
+            usage=SimpleNamespace(input_tokens=9, output_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response) as mocked:
+            result = call_llm(
+                prompt="Test prompt",
+                model_name="gpt-5-mini",
+                params={"temperature": 0.4, "max_tokens": 64},
+            )
+
+        kwargs = mocked.call_args.kwargs
+        self.assertNotIn("temperature", kwargs)
+        self.assertEqual(kwargs["max_output_tokens"], 64)
+        self.assertEqual(kwargs["instructions"], SYSTEM_PROMPT)
+        self.assertEqual(kwargs["input"], "Test prompt")
+        self.assertEqual(result.text, "Plain text.")
+        self.assertEqual(result.usage, {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13})
+
+    def test_call_llm_keeps_temperature_for_4x_models(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Plain text."))],
+            usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+            call_llm(
+                prompt="Test prompt",
+                model_name="gpt-4.1-mini",
+                params={"temperature": 0.4, "max_tokens": 64},
+            )
+
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["temperature"], 0.4)
+
+    def test_call_llm_reads_responses_api_content_parts_when_output_text_missing(self):
+        fake_response = SimpleNamespace(
+            output_text="",
+            output=[SimpleNamespace(content=[SimpleNamespace(text="Part one.")])],
+            usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response):
+            result = call_llm(
+                prompt="Test prompt",
+                model_name="o4-mini",
+                params={"max_tokens": 64},
+            )
+
+        self.assertEqual(result.text, "Part one.")
+
+    def test_call_llm_reads_responses_api_text_value_objects(self):
+        fake_response = SimpleNamespace(
+            output_text=None,
+            output=[SimpleNamespace(content=[SimpleNamespace(text=SimpleNamespace(value="Nested text."))])],
+            usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response):
+            result = call_llm(
+                prompt="Test prompt",
+                model_name="gpt-5-mini",
+                params={"max_tokens": 64},
+            )
+
+        self.assertEqual(result.text, "Nested text.")
+
+    def test_call_llm_falls_back_to_chat_completions_when_responses_text_is_empty(self):
+        responses_response = SimpleNamespace(
+            output_text="",
+            output=[],
+            usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
+        )
+        chat_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Fallback text."))],
+            usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=responses_response) as responses_mock:
+            with patch("main.llm.client.chat.completions.create", return_value=chat_response) as chat_mock:
+                result = call_llm(
+                    prompt="Test prompt",
+                    model_name="gpt-5-mini",
+                    params={"max_tokens": 64},
+                )
+
+        self.assertEqual(responses_mock.call_count, 1)
+        self.assertEqual(chat_mock.call_count, 1)
+        self.assertEqual(result.text, "Fallback text.")
+        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
 
 
 class HomePageTests(TestCase):
@@ -82,13 +195,45 @@ class HomeUpdateCreateViewTests(TestCase):
             url,
             data={
                 "date": "2026-03-20",
-                "title": "Home board update",
-                "body": "Posted from the dedicated superuser page.",
+                "body": "posted from the dedicated superuser page.",
             },
         )
 
         self.assertEqual(resp.status_code, 302)
-        self.assertTrue(HomeUpdate.objects.filter(title="Home board update").exists())
+        update = HomeUpdate.objects.get(body="posted from the dedicated superuser page.")
+        self.assertEqual(update.title, "Posted from the dedicated superuser page")
+
+    def test_superuser_post_update_uses_short_feature_style_title(self):
+        self.client.force_login(self.superuser)
+
+        body = (
+            "We have introduced a new feature that allows each user to select their preferred text "
+            "generation model directly from the token usage page. You will now see your chosen model "
+            "displayed prominently in the navigation bar, making it easy to identify."
+        )
+
+        resp = self.client.post(
+            reverse("home-update-create"),
+            data={
+                "date": "2026-03-21",
+                "body": body,
+            },
+        )
+
+        self.assertEqual(resp.status_code, 302)
+        update = HomeUpdate.objects.get(body=body)
+        self.assertEqual(update.title, "Added AI model selector")
+
+    def test_superuser_create_page_hides_title_input(self):
+        self.client.force_login(self.superuser)
+
+        resp = self.client.get(reverse("home-update-create"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'name="title"', html=False)
+        self.assertContains(resp, "The update title is generated automatically from the body text.")
+        self.assertContains(resp, "Generated title")
+        self.assertContains(resp, "Title will be generated from the body text.")
 
     def test_regular_user_cannot_open_create_page(self):
         self.client.force_login(self.regular_user)
@@ -103,14 +248,13 @@ class HomeUpdateCreateViewTests(TestCase):
         with patch(
             "main.views.call_llm",
             return_value=LLMResult(
-                text='{"title": "Scene drafting is easier", "body": "Scene drafting now uses clearer prompts and better context."}',
+                text="Scene drafting now uses clearer prompts and better context.",
                 usage={"ok": True},
             ),
         ) as mock_call:
             resp = self.client.post(
                 reverse("home-update-regenerate"),
                 data={
-                    "title": "",
                     "body": "feat: refine scene drafting prompt and previous-scene continuity",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -122,13 +266,98 @@ class HomeUpdateCreateViewTests(TestCase):
             resp.json(),
             {
                 "ok": True,
-                "title": "Scene drafting is easier",
+                "title": "Scene drafting now uses clearer prompts and better context",
                 "body": "Scene drafting now uses clearer prompts and better context.",
             },
         )
         prompt = mock_call.call_args.kwargs["prompt"]
-        self.assertIn("turn the raw technical notes into a short, plain-language update title and body", prompt)
+        self.assertIn("turn the raw technical notes into a short, plain-language update body", prompt)
         self.assertIn("feat: refine scene drafting prompt and previous-scene continuity", prompt)
+        self.assertIn("Return only the rewritten body text. Do not return JSON.", prompt)
+        self.assertIn("Never answer with placeholder words", prompt)
+
+    def test_superuser_regenerate_home_update_accepts_alternate_gpt5_keys(self):
+        self.client.force_login(self.superuser)
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text="Scene drafting now uses clearer prompts and better context.",
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("home-update-regenerate"),
+                data={
+                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "title": "Scene drafting now uses clearer prompts and better context",
+                "body": "Scene drafting now uses clearer prompts and better context.",
+            },
+        )
+
+    def test_superuser_regenerate_home_update_falls_back_to_original_body_when_model_fails(self):
+        self.client.force_login(self.superuser)
+
+        with patch("main.views.call_llm", side_effect=ValueError("Model response was empty.")):
+            resp = self.client.post(
+                reverse("home-update-regenerate"),
+                data={
+                    "body": "feat: refine scene drafting prompt and previous-scene continuity",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "title": "Refine scene drafting prompt and previous-scene continuity",
+                "body": "Refine scene drafting prompt and previous-scene continuity.",
+                "warning": "Model response was empty.",
+            },
+        )
+
+    def test_superuser_regenerate_home_update_rejects_low_signal_model_output(self):
+        self.client.force_login(self.superuser)
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='Create commit description for recent/(since last commit) actions, don\'t use \\n. Render as. Git add . Git commit -m "/main description/" -m "/description/. /description/". Git push.',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("home-update-regenerate"),
+                data={
+                    "body": "create commit description for recent actions and render git add, commit, and push commands",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {
+                "ok": True,
+                "title": "Added Git commit command helper",
+                "body": "Added a helper that formats recent changes into a ready-to-run Git commit command.",
+                "warning": "Model returned unusable output; used fallback rewrite.",
+            },
+        )
 
     def test_regular_user_cannot_regenerate_home_update_copy(self):
         self.client.force_login(self.regular_user)

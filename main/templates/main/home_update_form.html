@@ -15,7 +15,7 @@
           <a class="btn btn-secondary" href="{% url 'home' %}">Home</a>
         </div>
       </div>
-      <p class="page-lead">Write a concise memo for users when workflows, tools, or output quality change.</p>
+      <p class="page-lead">Write a concise memo for users when workflows, tools, or output quality change. The update title is generated automatically from the body text.</p>
     </section>
 
     <section class="card page-panel" data-home-update-regenerate-url="{% url 'home-update-regenerate' %}">
@@ -25,6 +25,10 @@
           <h2 class="page-panel-title">Update content</h2>
         </div>
       </div>
+      <section class="home-update-title-card" aria-label="Generated title preview">
+        <span class="page-panel-kicker">Generated title</span>
+        <p class="home-update-title-value" id="home-update-title-preview">Title will be generated from the body text.</p>
+      </section>
 
       <form method="post" class="form">
         {% csrf_token %}

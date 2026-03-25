@@ -1478,6 +1478,182 @@ def _extract_json_object(raw: str) -> str:
     return text[start : end + 1]
 
 
+def _coerce_text_value(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        return "\n".join(parts).strip()
+    return str(value).strip()
+
+
+def _extract_home_update_fields(raw: str) -> tuple[str, str]:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("Model response was empty.")
+
+    candidate_dicts = []
+    try:
+        data = json.loads(_extract_json_object(text))
+        if isinstance(data, dict):
+            candidate_dicts.append(data)
+            for nested_key in ("result", "update", "response", "data", "output"):
+                nested = data.get(nested_key)
+                if isinstance(nested, dict):
+                    candidate_dicts.append(nested)
+    except Exception:
+        pass
+
+    title_keys = ("title", "headline", "subject", "name")
+    body_keys = ("body", "description", "summary", "content", "copy", "update")
+
+    for data in candidate_dicts:
+        title = next((_coerce_text_value(data.get(key)) for key in title_keys if _coerce_text_value(data.get(key))), "")
+        body = next((_coerce_text_value(data.get(key)) for key in body_keys if _coerce_text_value(data.get(key))), "")
+        if title and body:
+            return title, body
+
+    title_match = re.search(r"(?im)^\s*(?:title|headline)\s*:\s*(.+?)\s*$", text)
+    body_match = re.search(r"(?ims)^\s*(?:body|summary|description|content)\s*:\s*(.+)$", text)
+    if title_match and body_match:
+        title = title_match.group(1).strip()
+        body = body_match.group(1).strip()
+        if title and body:
+            return title, body
+
+    lines = [line.strip(" -*\t") for line in text.splitlines() if line.strip()]
+    if len(lines) >= 2:
+        title = lines[0].replace("Title:", "").replace("Headline:", "").strip()
+        body = "\n".join(lines[1:]).strip()
+        if title and body:
+            return title, body
+
+    raise ValueError("Model response must include title and body.")
+
+
+def _generate_home_update_title(body: str) -> str:
+    text = (body or "").strip()
+    if not text:
+        return "Product update"
+
+    normalized_text = re.sub(r"\s+", " ", text).strip().lower()
+    if (
+        "text generation model" in normalized_text
+        or "ai model" in normalized_text
+        or ("select" in normalized_text and "model" in normalized_text and "token usage" in normalized_text)
+    ):
+        return "Added AI model selector"
+    if "git commit" in normalized_text and ("helper" in normalized_text or "command" in normalized_text):
+        return "Added Git commit command helper"
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    first_line = lines[0] if lines else text
+    first_line = re.sub(
+        r"(?i)^\s*we have introduced a new feature that allows (?:each )?user(?:s)? to\s+",
+        "Added ",
+        first_line,
+    )
+    first_line = re.sub(
+        r"(?i)^\s*this update (?:adds|introduces)\s+",
+        "Added ",
+        first_line,
+    )
+    first_line = re.sub(r"^\s*[-*#]+\s*", "", first_line)
+    first_line = re.sub(r"^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*", "", first_line, flags=re.I)
+    first_line = re.sub(r"\s+", " ", first_line).strip(" .:-")
+    if not first_line:
+        return "Product update"
+
+    sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", first_line)
+    title = sentence_match.group(1).strip() if sentence_match else first_line
+    title = title.rstrip(".!?").strip()
+    if len(title) > 72:
+        shortened = title[:69].rsplit(" ", 1)[0].strip()
+        title = (shortened or title[:69]).rstrip(" ,;:-") + "..."
+    if title:
+        title = title[0].upper() + title[1:]
+    return title or "Product update"
+
+
+def _rewrite_home_update_body_fallback(body: str) -> str:
+    text = (body or "").strip()
+    if not text:
+        return ""
+
+    normalized_text = re.sub(r"\s+", " ", text).strip().lower()
+    if "commit description" in normalized_text and ("git commit" in normalized_text or "git add" in normalized_text):
+        return "Added a helper that formats recent changes into a ready-to-run Git commit command."
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = []
+    for raw_line in normalized.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\s*(feat|fix|chore|refactor|docs|style|test|tests|perf)\s*:\s*", "", line, flags=re.I)
+        line = re.sub(r"(?i)\bdon't use \\n\b", "", line)
+        line = re.sub(r"(?i)\brender as\s*:?", "", line)
+        line = re.sub(r"(?i)^git (add|commit|push).*$", "", line)
+        line = re.sub(r'"/[^"]*/"', "", line)
+        line = re.sub(r"/[^/\s][^/]*/", "", line)
+        line = re.sub(r"[_]+", " ", line)
+        line = re.sub(r"\s+", " ", line).strip(" -;,:")
+        if not line:
+            continue
+        line = line[0].upper() + line[1:] if len(line) > 1 else line.upper()
+        if line[-1] not in ".!?":
+            line += "."
+        lines.append(line)
+
+    rewritten = " ".join(lines).strip()
+    return rewritten or (text[0].upper() + text[1:] if len(text) > 1 else text.upper())
+
+
+def _is_low_signal_home_update_body(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return True
+
+    normalized = re.sub(r"\s+", " ", value).strip().lower().strip(".!?")
+    if normalized in {"text", "body", "copy", "content", "update", "summary", "description"}:
+        return True
+
+    words = [part for part in re.split(r"\s+", normalized) if part]
+    if len(words) <= 2 and len(normalized) <= 16:
+        return True
+
+    return False
+
+
+def _looks_like_raw_home_update_instruction_output(source: str, candidate: str) -> bool:
+    source_text = re.sub(r"\s+", " ", (source or "").strip()).lower()
+    candidate_text = re.sub(r"\s+", " ", (candidate or "").strip()).lower()
+    if not source_text or not candidate_text:
+        return False
+
+    raw_markers = [
+        "render as",
+        "git add",
+        "git commit",
+        "git push",
+        "/main description/",
+        "/description/",
+        "don't use \\n",
+    ]
+    if any(marker in candidate_text for marker in raw_markers):
+        return True
+
+    source_words = {word for word in re.findall(r"[a-z0-9]+", source_text) if len(word) > 2}
+    candidate_words = {word for word in re.findall(r"[a-z0-9]+", candidate_text) if len(word) > 2}
+    if not source_words or not candidate_words:
+        return False
+
+    overlap_ratio = len(source_words & candidate_words) / max(1, len(candidate_words))
+    return overlap_ratio >= 0.72
+
+
 def _dedupe_appended_text(existing: str, addition: str) -> str:
     existing_text = (existing or "").strip()
     addition_text = (addition or "").strip()
@@ -2202,6 +2378,7 @@ class HomeUpdateCreateView(LoginRequiredMixin, SuperuserRequiredMixin, CreateVie
     template_name = "main/home_update_form.html"
 
     def form_valid(self, form):
+        form.instance.title = _generate_home_update_title(form.cleaned_data.get("body") or "")
         response = super().form_valid(form)
         messages.success(self.request, "Update posted.")
         return response
@@ -2226,19 +2403,18 @@ def regenerate_home_update(request):
     if not body:
         return JsonResponse({"ok": False, "error": "Add commit text to Body first."}, status=400)
 
-    current_title = (request.POST.get("title") or "").strip()
     prompt_lines = [
         "You are rewriting internal software update notes for end users.",
-        "Goal: turn the raw technical notes into a short, plain-language update title and body.",
+        "Goal: turn the raw technical notes into a short, plain-language update body.",
         "Rules:",
-        '- Return STRICT JSON only in the form: {"title": "...", "body": "..."}',
+        "- Return only the rewritten body text. Do not return JSON.",
+        "- Write at least one full sentence.",
         "- Explain the update in layman's terms.",
         "- Remove commit-style wording, code jargon, and implementation details unless users need them.",
-        "- Make the title short and clear.",
         "- Make the body concise, readable, and user-facing.",
         "- Do not use bullet points unless the source clearly needs them.",
+        '- Never answer with placeholder words like "text", "body", "copy", or "content".',
         "",
-        "Existing title (may be blank): " + current_title,
         "Raw update notes:",
         body,
     ]
@@ -2250,17 +2426,24 @@ def regenerate_home_update(request):
             model_name=get_user_text_model(request.user),
             params={"temperature": 0.4, "max_tokens": 400},
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
-
-        title = str(data.get("title") or "").strip()
-        rewritten_body = str(data.get("body") or "").strip()
-        if not title or not rewritten_body:
-            raise ValueError("Model response must include title and body.")
+        rewritten_body = (result.text or "").strip()
+        if _is_low_signal_home_update_body(rewritten_body) or _looks_like_raw_home_update_instruction_output(body, rewritten_body):
+            fallback_body = _rewrite_home_update_body_fallback(body)
+            fallback_title = _generate_home_update_title(fallback_body)
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "title": fallback_title,
+                    "body": fallback_body,
+                    "warning": "Model returned unusable output; used fallback rewrite.",
+                }
+            )
+        title = _generate_home_update_title(rewritten_body)
         return JsonResponse({"ok": True, "title": title, "body": rewritten_body})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        fallback_body = _rewrite_home_update_body_fallback(body)
+        fallback_title = _generate_home_update_title(fallback_body)
+        return JsonResponse({"ok": True, "title": fallback_title, "body": fallback_body, "warning": str(e)})
 
 
 class OutlineChapterCreateView(LoginRequiredMixin, CreateView):

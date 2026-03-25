@@ -118,23 +118,25 @@ class StoryBibleForm(forms.ModelForm):
 
 
 class HomeUpdateForm(forms.ModelForm):
+    body = forms.CharField(
+        required=True,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 8,
+                "placeholder": "Write the update memo for users.",
+            }
+        ),
+    )
+
     class Meta:
         model = HomeUpdate
         fields = [
             "date",
-            "title",
             "body",
         ]
         widgets = {
             "date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
-            "title": forms.TextInput(attrs={"class": "form-control"}),
-            "body": forms.Textarea(
-                attrs={
-                    "class": "form-control",
-                    "rows": 8,
-                    "placeholder": "Write the update memo for users.",
-                }
-            ),
         }
 
 

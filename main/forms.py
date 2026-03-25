@@ -20,7 +20,13 @@ class NovelProjectForm(forms.ModelForm):
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "slug": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. dune-clone"}),
-            "seed_idea": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "seed_idea": forms.Textarea(
+                attrs={
+                    "class": "form-control auto-grow",
+                    "rows": 6,
+                    "data-autogrow": "true",
+                }
+            ),
             "genre": forms.TextInput(attrs={"class": "form-control"}),
             "tone": forms.TextInput(attrs={"class": "form-control"}),
             "style_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
@@ -61,6 +67,9 @@ class StoryBibleForm(forms.ModelForm):
         ]
         help_texts = {
             "summary_md": "Prose summary and reference notes for the project.",
+        }
+        labels = {
+            "summary_md": "Summary",
         }
         widgets = {
             "summary_md": forms.Textarea(

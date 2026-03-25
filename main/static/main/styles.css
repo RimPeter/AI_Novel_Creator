@@ -1858,9 +1858,7 @@ textarea.auto-grow {
 }
 
 .dashboard-content-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
-  gap: 18px;
+  display: block;
   margin-top: 22px;
 }
 
@@ -1891,6 +1889,56 @@ textarea.auto-grow {
 .dashboard-bible-copy {
   margin: 0;
   line-height: 1.75;
+}
+
+.dashboard-bible-summary {
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-bible-summary-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.dashboard-bible-summary .dashboard-panel-title {
+  margin: 0;
+}
+
+.dashboard-bible-summary-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.dashboard-bible-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 140, 255, 0.34);
+  background: rgba(90, 140, 255, 0.14);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-bible-toggle::after {
+  content: "Collapse";
+}
+
+.dashboard-bible-panel:not([open]) .dashboard-bible-toggle::after {
+  content: "Expand";
+}
+
+.dashboard-bible-body {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
 }
 
 .dashboard-panel-foot {

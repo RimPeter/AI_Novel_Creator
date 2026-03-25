@@ -95,55 +95,34 @@
   </section>
 
   <section class="dashboard-content-grid">
-    <section class="card dashboard-panel dashboard-bible-panel">
-      <div class="dashboard-panel-head">
-        <div>
+    <details class="card dashboard-panel dashboard-bible-panel">
+      <summary class="collapsible-summary dashboard-bible-summary">
+        <div class="dashboard-bible-summary-copy">
           <div class="dashboard-panel-kicker">Reference core</div>
           <h2 class="dashboard-panel-title">Story bible</h2>
         </div>
+        <div class="dashboard-bible-summary-meta">
+          {% if bible %}
+            <span class="muted">Updated {{ bible.updated_at|date:"M j, Y" }}</span>
+          {% endif %}
+          <span class="dashboard-bible-toggle" aria-hidden="true"></span>
+        </div>
+      </summary>
+
+      <div class="dashboard-bible-body">
         <div class="actions">
           <a class="btn btn-secondary btn-sm" href="{% url 'bible-edit' slug=project.slug %}">Edit bible</a>
         </div>
+
+        {% if bible and bible.summary_md %}
+          <p class="dashboard-bible-copy pre">{{ bible.summary_md }}</p>
+        {% else %}
+          <p class="dashboard-empty-copy">
+            No story bible yet. Add the summary, facts, and constraints so the outline and drafts have a stable canon to follow.
+          </p>
+        {% endif %}
       </div>
-
-      {% if bible and bible.summary_md %}
-        <p class="dashboard-bible-copy pre">{{ bible.summary_md|truncatechars:900 }}</p>
-        <div class="dashboard-panel-foot">
-          <span class="muted">Updated {{ bible.updated_at|date:"M j, Y" }}</span>
-        </div>
-      {% else %}
-        <p class="dashboard-empty-copy">
-          No story bible yet. Add the summary, facts, and constraints so the outline and drafts have a stable canon to follow.
-        </p>
-      {% endif %}
-    </section>
-
-    <section class="card dashboard-panel dashboard-runs-panel">
-      <div class="dashboard-panel-head">
-        <div>
-          <div class="dashboard-panel-kicker">Activity pulse</div>
-          <h2 class="dashboard-panel-title">Recent runs</h2>
-        </div>
-      </div>
-
-      {% if recent_runs %}
-        <ul class="dashboard-run-list">
-          {% for run in recent_runs|slice:":6" %}
-            <li class="dashboard-run-item">
-              <div>
-                <div class="dashboard-run-type">{{ run.run_type }}</div>
-                <div class="muted">{{ run.created_at|date:"M j, Y H:i" }}</div>
-              </div>
-              <span class="dashboard-run-status dashboard-run-status-{{ run.status|lower }}">{{ run.status }}</span>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="dashboard-empty-copy">
-          No generation runs yet. When you start drafting or bible generation, the latest run activity will show up here.
-        </p>
-      {% endif %}
-    </section>
+    </details>
   </section>
 
   <section

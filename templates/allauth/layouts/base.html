@@ -9,9 +9,9 @@
     <link rel="stylesheet" href="{% static 'main/styles.css' %}" />
     {% block extra_head %}{% endblock extra_head %}
   </head>
-  <body>
+  <body class="{% block body_class %}{% endblock body_class %}">
     {% include "main/navbar.html" %}
-    <main class="wrap">
+    <main class="wrap {% block main_class %}{% endblock main_class %}">
       {% if messages %}
         <ul class="messages">
           {% for message in messages %}

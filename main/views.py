@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.contrib import messages
@@ -7,10 +8,11 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import transaction
-from django.db.models import Max, Q, ProtectedError
+from django.db.models import Count, Max, Q, ProtectedError, Sum
 from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 from django.views.decorators.http import require_POST
 
@@ -1073,7 +1075,31 @@ class ProjectListView(LoginRequiredMixin, ListView):
     ordering = ["title"]
 
     def get_queryset(self):
-        return super().get_queryset().order_by(*self.ordering)
+        return (
+            super()
+            .get_queryset()
+            .annotate(
+                character_count=Count("characters", distinct=True),
+                outline_count=Count("outline_nodes", distinct=True),
+                scene_count=Count(
+                    "outline_nodes",
+                    filter=Q(outline_nodes__node_type=OutlineNode.NodeType.SCENE),
+                    distinct=True,
+                ),
+                run_count=Count("runs", distinct=True),
+            )
+            .order_by(*self.ordering)
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        projects = ctx["projects"]
+        ctx["project_count"] = projects.count()
+        ctx["total_target_word_count"] = projects.aggregate(total=Sum("target_word_count"))["total"] or 0
+        ctx["recently_updated_count"] = projects.filter(
+            updated_at__gte=timezone.now() - timedelta(days=7)
+        ).count()
+        return ctx
 
 
 class ProjectDetailView(LoginRequiredMixin, DetailView):

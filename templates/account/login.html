@@ -1,0 +1,130 @@
+{% extends "account/base_entrance.html" %}
+{% load i18n %}
+{% load allauth account socialaccount %}
+
+{% block head_title %}
+  {% trans "Sign In" %}
+{% endblock head_title %}
+
+{% block body_class %}auth-body{% endblock body_class %}
+{% block main_class %}auth-main{% endblock main_class %}
+
+{% block body %}
+  {% get_providers as socialaccount_providers %}
+  <section class="auth-shell">
+    <aside class="auth-story">
+      <div class="auth-story-copy">
+        <div class="auth-kicker">{% trans "AI Novel Creator" %}</div>
+        <h1>{% trans "Step back into your story world." %}</h1>
+        <p class="auth-lead">
+          {% trans "Draft chapters, track characters, and keep your world bible coherent from one workspace." %}
+        </p>
+      </div>
+
+      <div class="auth-story-grid" aria-hidden="true">
+        <article class="auth-story-card auth-story-card-feature">
+          <span class="auth-story-label">{% trans "Workbench" %}</span>
+          <strong>{% trans "Projects, outlines, and scenes stay aligned." %}</strong>
+          <p>{% trans "Jump straight back into the current draft without hunting through scattered notes." %}</p>
+        </article>
+        <article class="auth-story-card">
+          <span class="auth-story-label">{% trans "World Bible" %}</span>
+          <strong>{% trans "Characters and locations keep their continuity." %}</strong>
+        </article>
+        <article class="auth-story-card">
+          <span class="auth-story-label">{% trans "Recent Flow" %}</span>
+          <strong>{% trans "Resume the exact project you left open." %}</strong>
+        </article>
+      </div>
+    </aside>
+
+    <section class="auth-panel">
+      <div class="auth-panel-inner">
+        <div class="auth-header">
+          <div class="auth-kicker">{% trans "Sign in" %}</div>
+          <h2>{% trans "Welcome back" %}</h2>
+          {% if not SOCIALACCOUNT_ONLY %}
+            <p class="muted auth-subtitle">
+              {% blocktranslate %}Use your username or email to continue. New here? <a href="{{ signup_url }}">Create an account</a>.{% endblocktranslate %}
+            </p>
+          {% endif %}
+        </div>
+
+        {% if not SOCIALACCOUNT_ONLY %}
+          <form class="auth-form" method="post" action="{% url 'account_login' %}">
+            {% csrf_token %}
+            {% for hidden in form.hidden_fields %}
+              {{ hidden }}
+            {% endfor %}
+            {{ redirect_field }}
+
+            {% if form.non_field_errors %}
+              <div class="form-errors">
+                {% for error in form.non_field_errors %}
+                  <div>{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% for field in form.visible_fields %}
+              <div class="auth-field">
+                {% if field.widget_type == "checkbox" %}
+                  <label class="auth-checkbox" for="{{ field.id_for_label }}">
+                    {{ field }}
+                    <span>{{ field.label }}</span>
+                  </label>
+                {% else %}
+                  <div class="form-label-row">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {% if field.name == "password" %}
+                      <a class="auth-inline-link" href="{% url 'account_reset_password' %}">{% trans "Forgot password?" %}</a>
+                    {% endif %}
+                  </div>
+                  {{ field }}
+                {% endif %}
+
+                {% if field.help_text %}
+                  <div class="muted auth-help">{{ field.help_text|safe }}</div>
+                {% endif %}
+
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+
+            <button class="btn btn-primary auth-submit" type="submit">{% trans "Enter workspace" %}</button>
+          </form>
+        {% endif %}
+
+        {% if LOGIN_BY_CODE_ENABLED or PASSKEY_LOGIN_ENABLED or socialaccount_providers %}
+          <div class="auth-divider"><span>{% trans "Other ways to sign in" %}</span></div>
+          <div class="auth-alt-actions">
+            {% if PASSKEY_LOGIN_ENABLED %}
+              <button type="submit" form="mfa_login" id="passkey_login" class="btn btn-secondary auth-alt-button">
+                {% trans "Use a passkey" %}
+              </button>
+            {% endif %}
+            {% if LOGIN_BY_CODE_ENABLED %}
+              <a class="btn btn-secondary auth-alt-button" href="{{ request_login_code_url }}">
+                {% trans "Email me a sign-in code" %}
+              </a>
+            {% endif %}
+          </div>
+          {% if socialaccount_providers %}
+            <div class="auth-social">
+              {% include "socialaccount/snippets/login.html" with page_layout="entrance" %}
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </section>
+  </section>
+{% endblock body %}
+
+{% block extra_body %}
+  {{ block.super }}
+  {% if PASSKEY_LOGIN_ENABLED %}
+    {% include "mfa/webauthn/snippets/login_script.html" with button_id="passkey_login" %}
+  {% endif %}
+{% endblock %}

@@ -945,6 +945,157 @@ class ProjectSharedAccessTests(AuthenticatedTestCase):
         self.assertContains(resp, "Shared Project")
 
 
+class FullNovelViewTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.project = NovelProject.objects.create(
+            title="Full Novel Project",
+            slug="full-novel-project",
+            target_word_count=1000,
+            owner=self.user,
+        )
+        self.act = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.ACT,
+            parent=None,
+            order=1,
+            title="Act I",
+        )
+        self.chapter_one = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.CHAPTER,
+            parent=self.act,
+            order=1,
+            title="Arrival at Blackwater",
+        )
+        self.chapter_two = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.CHAPTER,
+            parent=self.act,
+            order=2,
+            title="The Terms of Escape",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter_one,
+            order=1,
+            title="Scene 1",
+            rendered_text="First chapter opening.",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter_one,
+            order=2,
+            title="Scene 2",
+            rendered_text="First chapter closing.",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter_two,
+            order=1,
+            title="Scene 3",
+            rendered_text="Second chapter opening.",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter_two,
+            order=2,
+            title="Scene 4",
+            rendered_text="",
+        )
+
+    def test_full_novel_view_groups_rendered_text_under_chapter_titles(self):
+        resp = self.client.get(reverse("full-novel", kwargs={"slug": self.project.slug}))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.context["outline_tree"],
+            [
+                {
+                    "act": {
+                        "title": "Act I",
+                        "anchor": f"act-{self.act.id}",
+                    },
+                    "chapters": [
+                        {
+                            "title": "Arrival at Blackwater",
+                            "anchor": f"chapter-{self.chapter_one.id}",
+                            "scenes": [
+                                {
+                                    "title": "Scene 1",
+                                    "anchor": resp.context["outline_tree"][0]["chapters"][0]["scenes"][0]["anchor"],
+                                    "pov": "",
+                                    "location": "",
+                                },
+                                {
+                                    "title": "Scene 2",
+                                    "anchor": resp.context["outline_tree"][0]["chapters"][0]["scenes"][1]["anchor"],
+                                    "pov": "",
+                                    "location": "",
+                                },
+                            ],
+                        },
+                        {
+                            "title": "The Terms of Escape",
+                            "anchor": f"chapter-{self.chapter_two.id}",
+                            "scenes": [
+                                {
+                                    "title": "Scene 3",
+                                    "anchor": resp.context["outline_tree"][0]["chapters"][1]["scenes"][0]["anchor"],
+                                    "pov": "",
+                                    "location": "",
+                                },
+                                {
+                                    "title": "Scene 4",
+                                    "anchor": "",
+                                    "pov": "",
+                                    "location": "",
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+        )
+        self.assertEqual(
+            resp.context["chapter_sections"],
+            [
+                {
+                    "title": "Arrival at Blackwater",
+                    "anchor": f"chapter-{self.chapter_one.id}",
+                    "text": "First chapter opening.\n\nFirst chapter closing.",
+                },
+                {
+                    "title": "The Terms of Escape",
+                    "anchor": f"chapter-{self.chapter_two.id}",
+                    "text": "Second chapter opening.",
+                },
+            ],
+        )
+        self.assertContains(resp, "Table of contents")
+        self.assertContains(resp, "Act I")
+        self.assertContains(resp, 'href="#act-', html=False)
+        self.assertContains(resp, f'href="#chapter-{self.chapter_one.id}"', html=False)
+        self.assertContains(resp, f'href="#chapter-{self.chapter_two.id}"', html=False)
+        self.assertContains(resp, "Scene 1")
+        self.assertContains(resp, "Scene 2")
+        self.assertContains(resp, "Scene 3")
+        self.assertContains(resp, "Scene 4")
+        self.assertContains(resp, f'id="act-{self.act.id}"', html=False)
+        self.assertContains(resp, f'id="chapter-{self.chapter_one.id}"', html=False)
+        self.assertContains(resp, f'id="chapter-{self.chapter_two.id}"', html=False)
+        self.assertContains(resp, 'id="scene-', html=False)
+        self.assertContains(resp, "Arrival at Blackwater")
+        self.assertContains(resp, "The Terms of Escape")
+        self.assertContains(resp, "First chapter opening.")
+        self.assertContains(resp, "First chapter closing.")
+        self.assertContains(resp, "Second chapter opening.")
+
+
 class ProjectArchiveTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()

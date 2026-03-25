@@ -2397,7 +2397,7 @@ class FullNovelView(LoginRequiredMixin, DetailView):
 
         nodes = (
             OutlineNode.objects.filter(project=project)
-            .only("id", "node_type", "parent_id", "order", "created_at", "rendered_text")
+            .only("id", "node_type", "parent_id", "order", "created_at", "title", "rendered_text", "pov", "location")
             .order_by("parent_id", "order", "created_at")
         )
 
@@ -2415,15 +2415,88 @@ class FullNovelView(LoginRequiredMixin, DetailView):
             elif n.node_type == OutlineNode.NodeType.SCENE and n.parent_id:
                 scenes_by_chapter.setdefault(n.parent_id, []).append(n)
 
-        scene_texts = []
+        outline_tree = []
+        manuscript_acts = []
         for act in acts:
+            act_title = (act.title or "").strip() or "Untitled act"
+            toc_chapters = []
+            manuscript_chapters = []
+
             for chapter in chapters_by_act.get(act.id, []):
+                chapter_title = (chapter.title or "").strip() or "Untitled chapter"
+                toc_scenes = []
+                manuscript_scenes = []
+
                 for scene in scenes_by_chapter.get(chapter.id, []):
                     text = (scene.rendered_text or "").strip()
+                    scene_title = (scene.title or "").strip() or "Untitled scene"
+                    scene_anchor = f"scene-{scene.id}" if text else ""
+                    toc_scenes.append(
+                        {
+                            "title": scene_title,
+                            "anchor": scene_anchor,
+                            "pov": (scene.pov or "").strip(),
+                            "location": (scene.location or "").strip(),
+                        }
+                    )
                     if text:
-                        scene_texts.append(text)
+                        manuscript_scenes.append(
+                            {
+                                "title": scene_title,
+                                "anchor": scene_anchor,
+                                "text": text,
+                            }
+                        )
 
-        ctx["full_text"] = "\n\n".join(scene_texts)
+                chapter_anchor = f"chapter-{chapter.id}" if manuscript_scenes else ""
+                toc_chapters.append(
+                    {
+                        "title": chapter_title,
+                        "anchor": chapter_anchor,
+                        "scenes": toc_scenes,
+                    }
+                )
+                if manuscript_scenes:
+                    manuscript_chapters.append(
+                        {
+                            "title": chapter_title,
+                            "anchor": chapter_anchor,
+                            "scenes": manuscript_scenes,
+                        }
+                    )
+
+            act_anchor = f"act-{act.id}" if manuscript_chapters else ""
+            outline_tree.append(
+                {
+                    "act": {
+                        "title": act_title,
+                        "anchor": act_anchor,
+                    },
+                    "chapters": toc_chapters,
+                }
+            )
+            if manuscript_chapters:
+                manuscript_acts.append(
+                    {
+                        "title": act_title,
+                        "anchor": act_anchor,
+                        "chapters": manuscript_chapters,
+                    }
+                )
+
+        chapter_sections = [
+            {
+                "title": chapter["title"],
+                "anchor": chapter["anchor"],
+                "text": "\n\n".join(scene["text"] for scene in chapter["scenes"]),
+            }
+            for act in manuscript_acts
+            for chapter in act["chapters"]
+        ]
+        ctx["outline_tree"] = outline_tree
+        ctx["manuscript_acts"] = manuscript_acts
+        ctx["chapter_sections"] = chapter_sections
+        ctx["full_text"] = "\n\n".join(chapter["text"] for chapter in chapter_sections)
         return ctx
 
 

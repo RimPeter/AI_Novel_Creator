@@ -17,10 +17,81 @@
       <p class="page-lead">Read the current stitched manuscript in one uninterrupted pass.</p>
     </section>
 
+    {% if outline_tree %}
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Navigation</span>
+            <h2 class="page-panel-title">Table of contents</h2>
+          </div>
+        </div>
+        <ul>
+          {% for item in outline_tree %}
+            <li>
+              {% if item.act.anchor %}
+                <a href="#{{ item.act.anchor }}">{{ item.act.title }}</a>
+              {% else %}
+                {{ item.act.title }}
+              {% endif %}
+              {% if item.chapters %}
+                <ul>
+                  {% for chapter in item.chapters %}
+                    <li>
+                      {% if chapter.anchor %}
+                        <a href="#{{ chapter.anchor }}">{{ chapter.title }}</a>
+                      {% else %}
+                        {{ chapter.title }}
+                      {% endif %}
+                      {% if chapter.scenes %}
+                        <ul>
+                          {% for scene in chapter.scenes %}
+                            <li>
+                              {% if scene.anchor %}
+                                <a href="#{{ scene.anchor }}">{{ scene.title }}</a>
+                              {% else %}
+                                {{ scene.title }}
+                              {% endif %}
+                              {% if scene.pov or scene.location %}
+                                <span class="muted">
+                                  {% if scene.pov %} POV: {{ scene.pov }}{% endif %}
+                                  {% if scene.pov and scene.location %} /{% endif %}
+                                  {% if scene.location %} Location: {{ scene.location }}{% endif %}
+                                </span>
+                              {% endif %}
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
     <section class="card page-panel">
-      {% if full_text %}
+      {% if manuscript_acts %}
         <div class="muted">All final scenes stitched together.</div>
-        <p class="page-prose pre">{{ full_text }}</p>
+        <div class="page-stack">
+          {% for act in manuscript_acts %}
+            <section class="page-stack" id="{{ act.anchor }}">
+              <h2 class="page-panel-title">{{ act.title }}</h2>
+              {% for chapter in act.chapters %}
+                <article class="page-stack" id="{{ chapter.anchor }}">
+                  <h3 class="h2">{{ chapter.title }}</h3>
+                  <div class="page-stack">
+                    {% for scene in chapter.scenes %}
+                      <p class="page-prose pre" id="{{ scene.anchor }}">{{ scene.text }}</p>
+                    {% endfor %}
+                  </div>
+                </article>
+              {% endfor %}
+            </section>
+          {% endfor %}
+        </div>
       {% else %}
         <p class="muted">No final text yet. Render scenes first.</p>
       {% endif %}

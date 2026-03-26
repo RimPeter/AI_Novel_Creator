@@ -1398,7 +1398,7 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertNotContains(resp, "Garden")
 
     def test_shared_access_allows_opening_other_users_location_pages(self):
-        url = reverse("location-world-map", kwargs={"slug": self.project_b.slug})
+        url = reverse("location-list", kwargs={"slug": self.project_b.slug})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Garden")
@@ -1444,7 +1444,7 @@ class LocationViewsTests(AuthenticatedTestCase):
     def test_list_renders_nested_path(self):
         url = reverse("location-list", kwargs={"slug": self.project_a.slug})
         resp = self.client.get(url)
-        self.assertContains(resp, "World map")
+        self.assertContains(resp, "Locations")
         self.assertContains(resp, "Ship / Docking Bay")
 
     def test_list_renders_locations_as_nested_tree(self):
@@ -1467,17 +1467,6 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertContains(resp, "Drag this location into another location")
         self.assertContains(resp, f'data-location-id="{nested.id}"')
         self.assertContains(resp, 'draggable="true"')
-
-    def test_world_map_page_renders_location_boxes(self):
-        url = reverse("location-world-map", kwargs={"slug": self.project_a.slug})
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "World Map")
-        self.assertContains(resp, "class=\"world-location-box")
-        self.assertContains(resp, "class=\"world-location-children")
-        self.assertContains(resp, "data-location-move-url")
-        self.assertContains(resp, "Docking Bay")
-        self.assertNotContains(resp, "Garden")
 
     def test_move_location_reparents_under_new_parent(self):
         market = Location.objects.create(project=self.project_a, parent=self.root_a, name="Market", objects_map={})

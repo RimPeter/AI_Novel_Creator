@@ -27,7 +27,7 @@ from .forms import (
     OutlineSceneForm,
     StoryBibleForm,
 )
-from .location_hierarchy import build_location_rows, build_location_tree
+from .location_hierarchy import build_location_tree
 from .models import Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
@@ -860,7 +860,7 @@ def move_location(request, slug):
         if wants_json:
             return JsonResponse({"ok": False, "error": "Missing location or target parent."}, status=400)
         messages.error(request, "Missing location or target parent.")
-        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+        return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
     location = get_object_or_404(Location, id=location_id, project=project)
     target_parent = get_object_or_404(Location, id=target_parent_id, project=project)
@@ -869,13 +869,13 @@ def move_location(request, slug):
         if wants_json:
             return JsonResponse({"ok": False, "error": "The root location cannot be moved."}, status=400)
         messages.error(request, "The root location cannot be moved.")
-        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+        return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
     if location.id == target_parent.id:
         if wants_json:
             return JsonResponse({"ok": False, "error": "A location cannot be nested inside itself."}, status=400)
         messages.error(request, "A location cannot be nested inside itself.")
-        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+        return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
     location.parent = target_parent
     try:
@@ -885,12 +885,12 @@ def move_location(request, slug):
         if wants_json:
             return JsonResponse({"ok": False, "error": str(e)}, status=400)
         messages.error(request, str(e))
-        return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+        return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
     if wants_json:
         return JsonResponse({"ok": True})
     messages.success(request, "Location moved.")
-    return HttpResponseRedirect(reverse("location-world-map", kwargs={"slug": project.slug}))
+    return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
 
 @require_POST
@@ -2108,16 +2108,6 @@ class LocationListView(LoginRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["q"] = (self.request.GET.get("q") or "").strip()
-        ctx["location_rows"] = build_location_rows(ctx["locations"])
-        ctx["location_tree"] = build_location_tree(ctx["locations"])
-        return ctx
-
-
-class LocationWorldMapView(LocationListView):
-    template_name = "main/world_map.html"
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
         ctx["location_tree"] = build_location_tree(ctx["locations"])
         return ctx
 

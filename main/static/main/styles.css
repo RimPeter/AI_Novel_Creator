@@ -667,7 +667,22 @@ ul {
   background:
     radial-gradient(circle at top right, rgba(120, 169, 255, 0.08), transparent 30%),
     rgba(255, 255, 255, 0.04);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 24px rgba(5, 10, 22, 0.12);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.location-tree-node:hover,
+.location-tree-node:focus-within {
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(120, 169, 255, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(120, 169, 255, 0.14), transparent 32%),
+    rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 18px 38px rgba(5, 10, 22, 0.18);
 }
 
 .location-tree-node[draggable="true"] {
@@ -683,6 +698,7 @@ ul {
 }
 
 .location-tree-node.location-drop-over {
+  transform: translateY(-2px) scale(1.01);
   border-color: rgba(90, 140, 255, 0.58);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),

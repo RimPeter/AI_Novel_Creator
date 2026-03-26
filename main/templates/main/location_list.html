@@ -8,19 +8,18 @@
     <section class="card page-hero page-hero-compact">
       <div class="page-hero-head">
         <div>
-          <span class="page-kicker">World map</span>
+          <span class="page-kicker">Story geography</span>
           <h1 class="page-title">Locations</h1>
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
-          <a class="btn btn-secondary" href="world-map/">World map</a>
           <a class="btn btn-primary" href="{% url 'location-create' slug=project.slug %}">New location</a>
         </div>
       </div>
       <p class="page-lead">Track the story world from root spaces down to the smallest nested settings.</p>
       <div class="page-summary-grid">
         <article class="page-summary-card">
-          <strong>{{ location_rows|length }}</strong>
+          <strong>{{ locations|length }}</strong>
           <span>Locations</span>
         </article>
       </div>

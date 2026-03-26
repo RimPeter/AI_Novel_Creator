@@ -1447,6 +1447,27 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertContains(resp, "World map")
         self.assertContains(resp, "Ship / Docking Bay")
 
+    def test_list_renders_locations_as_nested_tree(self):
+        nested = Location.objects.create(
+            project=self.project_a,
+            parent=self.loc_a,
+            name="Maintenance Tunnel",
+            objects_map={},
+        )
+
+        url = reverse("location-list", kwargs={"slug": self.project_a.slug})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "class=\"location-tree-list")
+        self.assertContains(resp, "class=\"location-tree-children")
+        self.assertContains(resp, "Maintenance Tunnel")
+        self.assertContains(resp, f'href="{reverse("location-edit", kwargs={"slug": self.project_a.slug, "pk": nested.id})}"')
+        self.assertContains(resp, "data-location-move-url")
+        self.assertContains(resp, "Drag this location into another location")
+        self.assertContains(resp, f'data-location-id="{nested.id}"')
+        self.assertContains(resp, 'draggable="true"')
+
     def test_world_map_page_renders_location_boxes(self):
         url = reverse("location-world-map", kwargs={"slug": self.project_a.slug})
         resp = self.client.get(url)

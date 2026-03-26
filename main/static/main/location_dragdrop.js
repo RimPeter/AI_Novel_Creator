@@ -15,6 +15,8 @@
   const csrfToken = getCookie("csrftoken");
   let draggedLocationId = null;
 
+  const getLocationTarget = (event) => event.target?.closest?.(".world-location-box, .location-tree-node");
+
   const showMessage = (text, level = "info") => {
     const list =
       document.querySelector(".messages") ||
@@ -71,7 +73,7 @@
   };
 
   document.addEventListener("dragstart", (event) => {
-    const box = event.target?.closest?.(".world-location-box");
+    const box = getLocationTarget(event);
     if (!box || box.getAttribute("draggable") !== "true") return;
 
     draggedLocationId = box.dataset.locationId || null;
@@ -93,7 +95,7 @@
 
   document.addEventListener("dragover", (event) => {
     if (!draggedLocationId) return;
-    const box = event.target?.closest?.(".world-location-box");
+    const box = getLocationTarget(event);
     if (!box) return;
     if (box.dataset.locationId === draggedLocationId) return;
 
@@ -105,7 +107,7 @@
   document.addEventListener("drop", (event) => {
     if (!draggedLocationId) return;
 
-    const box = event.target?.closest?.(".world-location-box");
+    const box = getLocationTarget(event);
     if (!box) return;
 
     event.preventDefault();

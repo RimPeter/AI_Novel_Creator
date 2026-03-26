@@ -2109,6 +2109,7 @@ class LocationListView(LoginRequiredMixin, ListView):
         ctx["project"] = self.project
         ctx["q"] = (self.request.GET.get("q") or "").strip()
         ctx["location_rows"] = build_location_rows(ctx["locations"])
+        ctx["location_tree"] = build_location_tree(ctx["locations"])
         return ctx
 
 

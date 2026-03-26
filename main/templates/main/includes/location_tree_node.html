@@ -1,0 +1,30 @@
+<article
+  class="location-tree-node{% if node.location.is_root %} is-root{% endif %}"
+  data-location-id="{{ node.location.id }}"
+  data-parent-id="{% if node.location.parent_id %}{{ node.location.parent_id }}{% endif %}"
+  draggable="{% if not node.location.is_root %}true{% else %}false{% endif %}"
+>
+  <div class="location-tree-node-head">
+    <div>
+      <div class="location-tree-node-title">{{ node.location.name }}</div>
+      <div class="muted location-tree-node-meta">
+        {% if node.path and node.path != node.location.name %}{{ node.path }}<br />{% endif %}
+        {% if node.location.objects_map %}{{ node.location.objects_map|length }} objects{% else %}0 objects{% endif %}
+      </div>
+    </div>
+    <div class="actions">
+      {% if not node.location.is_root %}
+        <span class="world-location-drag" title="Drag this location into another location">Drag</span>
+      {% endif %}
+      <a class="btn btn-secondary btn-sm" href="{% url 'location-edit' slug=project.slug pk=node.location.id %}">Edit</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'location-delete' slug=project.slug pk=node.location.id %}">Delete</a>
+    </div>
+  </div>
+  {% if node.children %}
+    <div class="location-tree-children">
+      {% for child in node.children %}
+        {% include "main/includes/location_tree_node.html" with node=child project=project only %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</article>

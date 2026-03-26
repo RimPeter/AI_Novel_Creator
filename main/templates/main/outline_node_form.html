@@ -5,7 +5,7 @@
 
 {% block content %}
   <div class="page-shell">
-    <section class="card page-hero page-hero-compact">
+    <section class="card page-hero page-hero-compact{% if node_kind == 'scene' and object and chapter_scenes %} page-hero-has-scene-menu{% endif %}">
       <div class="page-hero-head">
         <div>
           <span class="page-kicker">Outline workshop</span>
@@ -13,6 +13,21 @@
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
+          {% if node_kind == "scene" and object and chapter_scenes %}
+            <details class="scene-chapter-menu">
+              <summary class="btn btn-secondary scene-chapter-menu-toggle">Chapter scenes</summary>
+              <div class="scene-chapter-menu-panel">
+                {% for chapter_scene in chapter_scenes %}
+                  <a
+                    class="scene-chapter-menu-link{% if chapter_scene.id == object.id %} is-current{% endif %}"
+                    href="{% url 'outline-node-edit' slug=project.slug pk=chapter_scene.id %}"
+                  >
+                    {{ chapter_scene.order }}. {{ chapter_scene.title|default:"(Untitled scene)" }}
+                  </a>
+                {% endfor %}
+              </div>
+            </details>
+          {% endif %}
         </div>
       </div>
       <p class="page-lead">

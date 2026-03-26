@@ -316,6 +316,19 @@ def _get_previous_scene_context(scene: OutlineNode) -> list[str]:
     return lines if len(lines) > 1 else []
 
 
+def _get_chapter_scene_links(scene: OutlineNode) -> list[OutlineNode]:
+    if not scene.parent_id:
+        return []
+
+    return list(
+        OutlineNode.objects.filter(
+            project=scene.project,
+            parent_id=scene.parent_id,
+            node_type=OutlineNode.NodeType.SCENE,
+        ).order_by("order", "created_at", "id")
+    )
+
+
 def _add_query_params(url: str, **params) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -2763,6 +2776,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
         ctx["parent_node"] = obj.parent
         ctx["node_kind"] = "chapter" if obj.node_type == OutlineNode.NodeType.CHAPTER else "scene"
         if obj.node_type == OutlineNode.NodeType.SCENE:
+            ctx["chapter_scenes"] = _get_chapter_scene_links(obj)
             ctx["character_list"] = Character.objects.filter(project=self.project).order_by("name")
             form = ctx.get("form")
             selected = []

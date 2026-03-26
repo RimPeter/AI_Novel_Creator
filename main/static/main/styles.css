@@ -228,6 +228,12 @@ a:hover {
 }
 
 @media (max-width: 720px) {
+  .scene-chapter-menu-panel {
+    left: 0;
+    right: auto;
+    min-width: min(280px, calc(100vw - 56px));
+  }
+
   .navbar-inner {
     position: relative;
     flex-wrap: wrap;
@@ -456,6 +462,65 @@ ul {
   flex-wrap: wrap;
 }
 
+.scene-chapter-menu {
+  position: relative;
+}
+
+.scene-chapter-menu summary {
+  list-style: none;
+}
+
+.scene-chapter-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.scene-chapter-menu-toggle::after {
+  content: "▾";
+  margin-left: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.scene-chapter-menu[open] .scene-chapter-menu-toggle::after {
+  content: "▴";
+}
+
+.scene-chapter-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: min(340px, 82vw);
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid var(--app-border);
+  background:
+    radial-gradient(circle at top left, rgba(255, 188, 117, 0.1), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(120, 169, 255, 0.14), transparent 42%),
+    rgba(10, 16, 29, 0.96);
+  box-shadow: var(--app-shadow);
+}
+
+.scene-chapter-menu-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.scene-chapter-menu-link:hover,
+.scene-chapter-menu-link:focus-visible {
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scene-chapter-menu-link.is-current {
+  border: 1px solid rgba(120, 169, 255, 0.28);
+  background: rgba(120, 169, 255, 0.14);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -625,6 +690,15 @@ ul {
 
 .page-hero-compact {
   padding: 28px;
+}
+
+.page-hero-has-scene-menu {
+  overflow: visible;
+  z-index: 3;
+}
+
+.page-hero-has-scene-menu .page-hero-head {
+  z-index: 4;
 }
 
 .page-hero-head,

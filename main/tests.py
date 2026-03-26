@@ -685,6 +685,42 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertNotIn("Other chapter scene", prompt)
         self.assertNotIn("Should not leak into the prompt.", prompt)
 
+    def test_edit_scene_shows_current_chapter_scene_dropdown_links(self):
+        sibling_scene = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter,
+            order=2,
+            title="Scene 2",
+            summary="A second scene in the same chapter.",
+        )
+        other_chapter = OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.CHAPTER,
+            parent=self.act,
+            order=2,
+            title="Chapter 2",
+        )
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=other_chapter,
+            order=1,
+            title="Other chapter scene",
+            summary="Should not appear in the dropdown.",
+        )
+
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Chapter scenes")
+        self.assertContains(resp, reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
+        self.assertContains(resp, reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": sibling_scene.id}))
+        self.assertContains(resp, "1. Scene 1")
+        self.assertContains(resp, "2. Scene 2")
+        self.assertNotContains(resp, "Other chapter scene")
+
     def test_render_uses_llm_when_available(self):
         self.scene.structure_json = (
             '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "x",\n  "pov": "Ava",\n  "location": "Docking bay",\n  "beats": []\n}'

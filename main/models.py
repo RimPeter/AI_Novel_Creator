@@ -341,3 +341,45 @@ class UserTextModelPreference(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Text model preference for {self.user}"
+
+
+class UserSubscription(TimeStampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="subscription_record",
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_subscription_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_product_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_price_id = models.CharField(max_length=255, blank=True, default="")
+    billing_interval = models.CharField(max_length=20, blank=True, default="")
+    status = models.CharField(max_length=40, blank=True, default="")
+    cancel_at_period_end = models.BooleanField(default=False)
+    current_period_start = models.DateTimeField(blank=True, null=True)
+    current_period_end = models.DateTimeField(blank=True, null=True)
+    trial_end = models.DateTimeField(blank=True, null=True)
+    last_checkout_session_id = models.CharField(max_length=255, blank=True, default="")
+    raw_data = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ["user_id"]
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in {"active", "trialing"}
+
+    def __str__(self) -> str:
+        return f"Subscription for {self.user}"
+
+
+class ProcessedStripeEvent(TimeStampedModel):
+    stripe_event_id = models.CharField(max_length=255, unique=True)
+    event_type = models.CharField(max_length=120, blank=True, default="")
+    payload = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.event_type or 'stripe.event'} {self.stripe_event_id}"

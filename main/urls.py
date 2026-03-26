@@ -5,6 +5,10 @@ from . import views
 urlpatterns = [
     path("", views.home, name="home"),
     path("token-usage/", views.TokenUsageView.as_view(), name="token-usage"),
+    path("billing/", views.BillingView.as_view(), name="billing"),
+    path("billing/checkout/", views.create_billing_checkout, name="billing-checkout"),
+    path("billing/portal/", views.create_billing_portal, name="billing-portal"),
+    path("billing/webhook/", views.stripe_webhook, name="billing-webhook"),
     path("updates/new/", views.HomeUpdateCreateView.as_view(), name="home-update-create"),
     path("updates/regenerate/", views.regenerate_home_update, name="home-update-regenerate"),
     path("projects/", views.ProjectListView.as_view(), name="project-list"),

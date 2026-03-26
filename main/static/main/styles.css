@@ -922,6 +922,50 @@ ul {
     rgba(255, 255, 255, 0.05);
 }
 
+.billing-status-grid,
+.billing-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.billing-status-card,
+.billing-plan-card {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at top right, rgba(120, 169, 255, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.04);
+}
+
+.billing-status-card strong,
+.billing-plan-kicker {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.billing-status-card span {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.billing-plan-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+
+.billing-plan-card form {
+  margin-top: 14px;
+}
+
 .page-stack {
   display: grid;
   gap: 18px;

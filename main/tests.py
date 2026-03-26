@@ -3,15 +3,25 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from unittest.mock import patch
 from urllib.parse import quote
 
-from .models import Character, GenerationRun, NovelProject, OutlineNode, UserTextModelPreference
+from .billing import process_webhook_event
+from .models import (
+    Character,
+    GenerationRun,
+    HomeUpdate,
+    Location,
+    NovelProject,
+    OutlineNode,
+    ProcessedStripeEvent,
+    UserSubscription,
+    UserTextModelPreference,
+)
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
-from .models import HomeUpdate, Location
 
 
 class AuthenticatedTestCase(TestCase):
@@ -203,6 +213,160 @@ class LLMTests(TestCase):
         self.assertEqual(chat_mock.call_count, 1)
         self.assertEqual(result.text, "Fallback text.")
         self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+
+
+@override_settings(
+    STRIPE_PUBLISHABLE_KEY="pk_test_123",
+    STRIPE_SECRET_KEY="sk_test_123",
+    STRIPE_WEBHOOK_SECRET="whsec_test_123",
+    STRIPE_PRICE_MONTHLY="price_monthly_123",
+    STRIPE_PRICE_YEARLY="price_yearly_123",
+    STRIPE_BILLING_ENABLED=True,
+)
+class BillingTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.project = NovelProject.objects.create(
+            title="Billing Project",
+            slug="billing-project",
+            target_word_count=1000,
+            owner=self.user,
+        )
+
+    def test_billing_page_renders_subscription_controls(self):
+        resp = self.client.get(reverse("billing"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Billing")
+        self.assertContains(resp, "Choose Monthly")
+        self.assertContains(resp, "Choose Yearly")
+
+    @patch("main.views.create_checkout_session")
+    def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
+        mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
+
+        resp = self.client.post(reverse("billing-checkout"), data={"plan": "monthly"})
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
+        self.assertEqual(mock_create_session.call_args.kwargs["price_id"], "price_monthly_123")
+        self.assertEqual(mock_create_session.call_args.kwargs["user"], self.user)
+
+    @patch("main.views.create_billing_portal_session")
+    def test_portal_redirects_to_stripe_portal(self, mock_create_portal):
+        UserSubscription.objects.create(
+            user=self.user,
+            stripe_customer_id="cus_123",
+            stripe_subscription_id="sub_123",
+            status="active",
+        )
+        mock_create_portal.return_value = SimpleNamespace(url="https://billing.stripe.test/session_123")
+
+        resp = self.client.post(reverse("billing-portal"))
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://billing.stripe.test/session_123")
+        self.assertEqual(mock_create_portal.call_args.kwargs["user"], self.user)
+
+    def test_generation_endpoint_requires_subscription_when_billing_enabled(self):
+        resp = self.client.post(
+            reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
+            data={},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 402)
+        self.assertEqual(resp.json()["ok"], False)
+        self.assertIn("subscription", resp.json()["error"].lower())
+        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+
+    def test_dashboard_generation_redirects_to_billing_without_subscription(self):
+        resp = self.client.post(
+            reverse("project-dashboard", kwargs={"slug": self.project.slug}),
+            data={"action": "generate_bible"},
+        )
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("billing"), resp["Location"])
+
+    @patch("main.billing.stripe.Subscription.retrieve")
+    def test_checkout_webhook_syncs_subscription_record(self, mock_retrieve):
+        mock_retrieve.return_value = {
+            "id": "sub_123",
+            "customer": "cus_123",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "current_period_start": 1735689600,
+            "current_period_end": 1738368000,
+            "trial_end": None,
+            "items": {
+                "data": [
+                    {
+                        "price": {
+                            "id": "price_monthly_123",
+                            "product": "prod_123",
+                            "recurring": {"interval": "month"},
+                        }
+                    }
+                ]
+            },
+        }
+
+        created = process_webhook_event(
+            {
+                "id": "evt_123",
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "id": "cs_123",
+                        "customer": "cus_123",
+                        "subscription": "sub_123",
+                        "client_reference_id": str(self.user.id),
+                        "metadata": {"user_id": str(self.user.id)},
+                    }
+                },
+            }
+        )
+
+        self.assertTrue(created)
+        record = UserSubscription.objects.get(user=self.user)
+        self.assertEqual(record.stripe_customer_id, "cus_123")
+        self.assertEqual(record.stripe_subscription_id, "sub_123")
+        self.assertEqual(record.stripe_price_id, "price_monthly_123")
+        self.assertEqual(record.billing_interval, "month")
+        self.assertEqual(record.status, "active")
+        self.assertTrue(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").exists())
+
+    @patch("main.billing.stripe.Subscription.retrieve")
+    def test_webhook_processing_is_idempotent(self, mock_retrieve):
+        mock_retrieve.return_value = {
+            "id": "sub_123",
+            "customer": "cus_123",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "current_period_start": 1735689600,
+            "current_period_end": 1738368000,
+            "trial_end": None,
+            "items": {"data": [{"price": {"id": "price_monthly_123", "product": "prod_123", "recurring": {"interval": "month"}}}]},
+        }
+        event = {
+            "id": "evt_123",
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_123",
+                    "customer": "cus_123",
+                    "subscription": "sub_123",
+                    "client_reference_id": str(self.user.id),
+                    "metadata": {"user_id": str(self.user.id)},
+                }
+            },
+        }
+
+        self.assertTrue(process_webhook_event(event))
+        self.assertFalse(process_webhook_event(event))
+        self.assertEqual(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").count(), 1)
 
 
 class HomePageTests(TestCase):

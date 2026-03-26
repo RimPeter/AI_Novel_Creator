@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import stripe
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -15,9 +16,20 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from django.views.decorators.http import require_POST
 
+from .billing import (
+    billing_enabled,
+    create_billing_portal_session,
+    create_checkout_session,
+    get_price_options,
+    get_subscription_display,
+    process_webhook_event,
+    user_has_active_subscription,
+    construct_webhook_event,
+)
 from .forms import (
     CharacterForm,
     HomeUpdateForm,
@@ -48,6 +60,27 @@ def _get_project_redirect_url(request, fallback_url: str) -> str:
     ):
         return next_url
     return fallback_url
+
+
+def _get_billing_url(request) -> str:
+    billing_url = reverse("billing")
+    next_url = request.get_full_path()
+    if next_url:
+        billing_url = _add_query_params(billing_url, next=next_url)
+    return billing_url
+
+
+def _subscription_required_response(request, *, wants_json: bool = False):
+    if not billing_enabled():
+        return None
+    if user_has_active_subscription(request.user):
+        return None
+    error = "An active subscription is required to use AI features."
+    billing_url = _get_billing_url(request)
+    if wants_json:
+        return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
+    messages.error(request, error)
+    return HttpResponseRedirect(billing_url)
 
 
 def _get_annotated_projects_queryset():
@@ -420,6 +453,9 @@ def brainstorm_project(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "seed_idea",
@@ -499,6 +535,9 @@ def add_project_details(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "seed_idea",
@@ -576,6 +615,9 @@ def brainstorm_scene(request, slug, pk):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "title",
@@ -658,6 +700,9 @@ def add_scene_details(request, slug, pk):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "title",
@@ -931,6 +976,9 @@ def brainstorm_character(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "name",
@@ -1025,6 +1073,9 @@ def add_character_details(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     allowed_fields = [
         "role",
@@ -1117,6 +1168,9 @@ def generate_character_portrait(request, slug, pk):
     project = _get_project_for_user(request, slug)
     if not getattr(settings, "OPENAI_API_KEY", ""):
         return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     character = get_object_or_404(Character, id=pk, project=project)
 
@@ -1299,6 +1353,87 @@ class TokenUsageView(LoginRequiredMixin, TemplateView):
         ctx["selected_text_model"] = get_user_text_model(self.request.user)
         ctx["default_text_model"] = get_default_text_model()
         return ctx
+
+
+class BillingView(LoginRequiredMixin, TemplateView):
+    template_name = "main/billing.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["billing_enabled"] = billing_enabled()
+        ctx["price_options"] = get_price_options()
+        ctx["subscription"] = get_subscription_display(self.request.user)
+        ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
+        ctx["next_url"] = (self.request.GET.get("next") or "").strip()
+        return ctx
+
+
+@require_POST
+@login_required
+def create_billing_checkout(request):
+    if not billing_enabled():
+        messages.error(request, "Stripe billing is not configured yet.")
+        return HttpResponseRedirect(reverse("billing"))
+
+    if user_has_active_subscription(request.user):
+        messages.warning(request, "You already have an active subscription. Use Manage billing instead.")
+        return HttpResponseRedirect(reverse("billing"))
+
+    plan = (request.POST.get("plan") or "").strip().lower()
+    price_by_plan = {option["key"]: option["price_id"] for option in get_price_options()}
+    price_id = price_by_plan.get(plan, "")
+    if not price_id:
+        messages.error(request, "Choose a valid billing plan.")
+        return HttpResponseRedirect(reverse("billing"))
+
+    success_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="success"))
+    cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="cancelled"))
+    try:
+        session = create_checkout_session(
+            user=request.user,
+            price_id=price_id,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except Exception as e:
+        messages.error(request, f"Could not start Stripe Checkout: {e}")
+        return HttpResponseRedirect(reverse("billing"))
+    return HttpResponseRedirect(session.url)
+
+
+@require_POST
+@login_required
+def create_billing_portal(request):
+    if not billing_enabled():
+        messages.error(request, "Stripe billing is not configured yet.")
+        return HttpResponseRedirect(reverse("billing"))
+    try:
+        session = create_billing_portal_session(
+            user=request.user,
+            return_url=request.build_absolute_uri(reverse("billing")),
+        )
+    except Exception as e:
+        messages.error(request, f"Could not open the billing portal: {e}")
+        return HttpResponseRedirect(reverse("billing"))
+    return HttpResponseRedirect(session.url)
+
+
+@csrf_exempt
+@require_POST
+def stripe_webhook(request):
+    if not billing_enabled():
+        return JsonResponse({"ok": False, "error": "Stripe billing is not configured."}, status=404)
+
+    signature = request.headers.get("Stripe-Signature", "")
+    try:
+        event = construct_webhook_event(payload=request.body, signature=signature)
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "Invalid payload."}, status=400)
+    except stripe.error.SignatureVerificationError:
+        return JsonResponse({"ok": False, "error": "Invalid signature."}, status=400)
+
+    process_webhook_event(event)
+    return JsonResponse({"ok": True})
 
 
 @require_POST
@@ -1822,6 +1957,9 @@ def brainstorm_location_description(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     name = (request.POST.get("name") or "").strip()
     description = (request.POST.get("description") or "").strip()
@@ -1884,6 +2022,9 @@ def add_location_details(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     name = (request.POST.get("name") or "").strip()
     description = (request.POST.get("description") or "").strip()
@@ -1951,6 +2092,9 @@ def extract_location_objects(request, slug):
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     name = (request.POST.get("name") or "").strip()
     description = (request.POST.get("description") or "").strip()
@@ -2024,6 +2168,9 @@ def generate_location_image(request, slug, pk):
     project = _get_project_for_user(request, slug)
     if not getattr(settings, "OPENAI_API_KEY", ""):
         return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
 
     location = get_object_or_404(Location, id=pk, project=project)
 
@@ -2369,6 +2516,11 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         self.object = self.get_object()
         project = self.object
         action = request.POST.get("action", "")
+
+        if action in {"generate_bible", "generate_outline", "generate_all_scenes"}:
+            blocked = _subscription_required_response(request)
+            if blocked is not None:
+                return blocked
 
         if action == "generate_bible":
             generate_bible.delay(str(project.id))
@@ -2807,6 +2959,11 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
             if request.POST.get("location") == OutlineSceneForm.LOCATION_CREATE_SENTINEL:
                 create_url = reverse("location-create", kwargs={"slug": self.project.slug})
                 return HttpResponseRedirect(_add_query_params(create_url, next=request.get_full_path()))
+
+        if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render", "reshuffle"}:
+            blocked = _subscription_required_response(request)
+            if blocked is not None:
+                return blocked
 
         if self.object.node_type == OutlineNode.NodeType.SCENE and action in {"structurize", "render", "reshuffle", "import-draft"}:
             if action == "structurize":

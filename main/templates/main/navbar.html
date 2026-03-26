@@ -13,6 +13,9 @@
       <a href="{% url 'project-list' %}">Projects</a>
       <a href="{% url 'project-archive-list' %}">Archive</a>
       <a href="{% url 'token-usage' %}">Token Usage</a>
+      {% if user.is_authenticated %}
+        <a href="{% url 'billing' %}">Billing</a>
+      {% endif %}
       <a href="{% url 'project-create' %}">New Project</a>
       {% if user.is_authenticated and user.is_superuser %}
         <a href="{% url 'home-update-create' %}">Post Update</a>

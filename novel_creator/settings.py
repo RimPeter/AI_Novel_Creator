@@ -22,6 +22,20 @@ load_dotenv(BASE_DIR / ".env")
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+STRIPE_PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_MONTHLY", "").strip()
+STRIPE_PRICE_YEARLY = os.environ.get("STRIPE_PRICE_YEARLY", "").strip()
+STRIPE_BILLING_ENABLED = all(
+    [
+        STRIPE_PUBLISHABLE_KEY,
+        STRIPE_SECRET_KEY,
+        STRIPE_WEBHOOK_SECRET,
+        STRIPE_PRICE_MONTHLY,
+        STRIPE_PRICE_YEARLY,
+    ]
+)
 
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY is not set")

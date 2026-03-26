@@ -51,6 +51,19 @@ def _coerce_text_fragment(value) -> str:
     return ""
 
 
+def _get_object_value(value, key: str, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _responses_reasoning_effort(model_name: str) -> str | None:
+    normalized = (model_name or "").strip().lower()
+    if normalized.startswith("gpt-5") or normalized.startswith("o"):
+        return "low"
+    return None
+
+
 def _iter_nested_text_fragments(value, *, depth: int = 0):
     if depth > 6 or value is None:
         return
@@ -60,14 +73,14 @@ def _iter_nested_text_fragments(value, *, depth: int = 0):
             yield text
         return
     if isinstance(value, dict):
-        preferred_keys = ("output_text", "text", "value", "content")
+        preferred_keys = ("output_text", "output", "content", "text", "value")
         seen = set()
         for key in preferred_keys:
             if key in value:
                 seen.add(key)
                 yield from _iter_nested_text_fragments(value.get(key), depth=depth + 1)
         for key, nested in value.items():
-            if key in seen:
+            if key in seen or key in {"type", "role", "status", "id"}:
                 continue
             yield from _iter_nested_text_fragments(nested, depth=depth + 1)
         return
@@ -83,28 +96,24 @@ def _iter_nested_text_fragments(value, *, depth: int = 0):
         if dumped is not None:
             yield from _iter_nested_text_fragments(dumped, depth=depth + 1)
             return
-    for attr in ("output_text", "text", "value", "content", "output"):
+    for attr in ("output_text", "output", "content", "text", "value"):
         if hasattr(value, attr):
             yield from _iter_nested_text_fragments(getattr(value, attr), depth=depth + 1)
 
 
 def _extract_responses_text(response) -> str:
-    output_text = _coerce_text_fragment(getattr(response, "output_text", None))
+    output_text = _coerce_text_fragment(_get_object_value(response, "output_text", None))
     if output_text.strip():
         return output_text
 
-    for item in getattr(response, "output", []) or []:
-        for content in getattr(item, "content", []) or []:
-            text_value = _coerce_text_fragment(getattr(content, "text", None))
+    for item in _get_object_value(response, "output", []) or []:
+        for content in _get_object_value(item, "content", []) or []:
+            text_value = _coerce_text_fragment(_get_object_value(content, "text", None))
             if text_value.strip():
                 return text_value
             for candidate in _iter_nested_text_fragments(content):
                 if candidate.strip():
                     return candidate
-
-    for candidate in _iter_nested_text_fragments(response):
-        if candidate.strip():
-            return candidate
 
     return ""
 
@@ -144,6 +153,9 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
             "input": prompt,
             "max_output_tokens": max_output_tokens,
         }
+        reasoning_effort = _responses_reasoning_effort(model_name)
+        if reasoning_effort:
+            request_kwargs["reasoning"] = {"effort": reasoning_effort}
         response = client.responses.create(**request_kwargs)
         prompt_tokens = _get_usage_value(getattr(response, "usage", None), "input_tokens")
         completion_tokens = _get_usage_value(getattr(response, "usage", None), "output_tokens")

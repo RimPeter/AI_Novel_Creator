@@ -81,6 +81,7 @@ class LLMTests(TestCase):
         self.assertEqual(kwargs["max_output_tokens"], 64)
         self.assertEqual(kwargs["instructions"], SYSTEM_PROMPT)
         self.assertEqual(kwargs["input"], "Test prompt")
+        self.assertEqual(kwargs["reasoning"], {"effort": "low"})
         self.assertEqual(result.text, "Plain text.")
         self.assertEqual(result.usage, {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13})
 
@@ -131,6 +132,53 @@ class LLMTests(TestCase):
             )
 
         self.assertEqual(result.text, "Nested text.")
+
+    def test_call_llm_reads_responses_api_dict_output_without_returning_text_type_marker(self):
+        fake_response = SimpleNamespace(
+            output_text="",
+            text=SimpleNamespace(format=SimpleNamespace(type="text")),
+            output=[
+                {
+                    "content": [
+                        {"type": "output_text", "text": "Draft paragraph."},
+                    ]
+                }
+            ],
+            usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response):
+            result = call_llm(
+                prompt="Test prompt",
+                model_name="gpt-5-mini",
+                params={"max_tokens": 64},
+            )
+
+        self.assertEqual(result.text, "Draft paragraph.")
+
+    def test_call_llm_ignores_gpt5_metadata_only_responses_and_falls_back(self):
+        responses_response = SimpleNamespace(
+            output_text="",
+            text=SimpleNamespace(format=SimpleNamespace(type="text"), verbosity="medium"),
+            reasoning=SimpleNamespace(effort="medium"),
+            output=[SimpleNamespace(type="reasoning", content=None)],
+            usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
+        )
+        chat_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Fallback text."))],
+            usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=responses_response):
+            with patch("main.llm.client.chat.completions.create", return_value=chat_response):
+                result = call_llm(
+                    prompt="Test prompt",
+                    model_name="gpt-5-mini",
+                    params={"max_tokens": 64},
+                )
+
+        self.assertEqual(result.text, "Fallback text.")
+        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
 
     def test_call_llm_falls_back_to_chat_completions_when_responses_text_is_empty(self):
         responses_response = SimpleNamespace(

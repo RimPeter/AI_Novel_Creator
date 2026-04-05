@@ -383,6 +383,23 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Choose Monthly")
         self.assertContains(resp, "Choose Yearly")
 
+    @patch("main.views.get_subscription_display")
+    @patch("main.views.sync_checkout_session")
+    def test_billing_page_syncs_successful_checkout_session(self, mock_sync_checkout, mock_get_subscription_display):
+        mock_get_subscription_display.return_value = {
+            "has_subscription": True,
+            "is_active": True,
+            "status": "active",
+            "plan_label": "Monthly",
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+        }
+
+        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=cs_test_123")
+
+        self.assertEqual(resp.status_code, 200)
+        mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
+
     @patch("main.views.create_checkout_session")
     def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
         mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
@@ -393,6 +410,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
         self.assertEqual(mock_create_session.call_args.kwargs["price_id"], "price_monthly_123")
         self.assertEqual(mock_create_session.call_args.kwargs["user"], self.user)
+        self.assertIn("checkout=success", mock_create_session.call_args.kwargs["success_url"])
+        self.assertIn("session_id=%7BCHECKOUT_SESSION_ID%7D", mock_create_session.call_args.kwargs["success_url"])
 
     @patch("main.views.create_billing_portal_session")
     def test_portal_redirects_to_stripe_portal(self, mock_create_portal):

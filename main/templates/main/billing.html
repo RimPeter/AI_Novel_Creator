@@ -30,7 +30,11 @@
         </div>
       </div>
       {% if checkout_status == "success" %}
-        <p class="muted">Stripe Checkout completed. Your subscription status updates automatically after the webhook sync.</p>
+        {% if checkout_sync_error %}
+          <p class="muted">Stripe Checkout completed, but the immediate subscription refresh failed. Webhook sync will still update the status. Error: {{ checkout_sync_error }}</p>
+        {% else %}
+          <p class="muted">Stripe Checkout completed. The subscription status was refreshed immediately and will also stay in sync through Stripe webhooks.</p>
+        {% endif %}
       {% elif checkout_status == "cancelled" %}
         <p class="muted">Checkout was cancelled. No billing changes were made.</p>
       {% endif %}

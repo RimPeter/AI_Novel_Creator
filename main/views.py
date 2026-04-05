@@ -27,6 +27,7 @@ from .billing import (
     create_checkout_session,
     get_price_options,
     get_subscription_display,
+    sync_checkout_session,
     process_webhook_event,
     user_has_active_subscription,
     construct_webhook_event,
@@ -1402,8 +1403,22 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["billing_enabled"] = billing_enabled()
         ctx["price_options"] = get_price_options()
-        ctx["subscription"] = get_subscription_display(self.request.user)
         ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
+        ctx["checkout_session_id"] = (self.request.GET.get("session_id") or "").strip()
+        ctx["checkout_sync_error"] = ""
+        if (
+            ctx["billing_enabled"]
+            and ctx["checkout_status"] == "success"
+            and ctx["checkout_session_id"]
+        ):
+            try:
+                sync_checkout_session(
+                    user=self.request.user,
+                    session_id=ctx["checkout_session_id"],
+                )
+            except Exception as e:
+                ctx["checkout_sync_error"] = str(e)
+        ctx["subscription"] = get_subscription_display(self.request.user)
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
 
@@ -1426,7 +1441,13 @@ def create_billing_checkout(request):
         messages.error(request, "Choose a valid billing plan.")
         return HttpResponseRedirect(reverse("billing"))
 
-    success_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="success"))
+    success_url = request.build_absolute_uri(
+        _add_query_params(
+            reverse("billing"),
+            checkout="success",
+            session_id="{CHECKOUT_SESSION_ID}",
+        )
+    )
     cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="cancelled"))
     try:
         session = create_checkout_session(

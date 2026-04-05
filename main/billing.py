@@ -151,6 +151,46 @@ def create_checkout_session(*, user, price_id: str, success_url: str, cancel_url
     return session
 
 
+def sync_checkout_session(*, user, session_id: str) -> UserSubscription | None:
+    session_id = str(session_id or "").strip()
+    if not session_id:
+        return None
+
+    _set_stripe_api_key()
+    session = stripe.checkout.Session.retrieve(session_id)
+    session_dict = _as_dict(session)
+    customer_id = str(session_dict.get("customer") or "").strip()
+    metadata = session_dict.get("metadata") or {}
+
+    resolved_user = _resolve_user(customer_id=customer_id, metadata=metadata)
+    if resolved_user is None:
+        client_reference_id = str(session_dict.get("client_reference_id") or "").strip()
+        if client_reference_id:
+            try:
+                resolved_user = get_user_model().objects.get(pk=client_reference_id)
+            except Exception:
+                resolved_user = None
+
+    if resolved_user is None or resolved_user.pk != user.pk:
+        return None
+
+    record = sync_customer_only_record(
+        user=user,
+        customer_id=customer_id,
+        checkout_session_id=str(session_dict.get("id") or "").strip(),
+    )
+    subscription_id = str(session_dict.get("subscription") or "").strip()
+    if not subscription_id:
+        return record
+
+    subscription = stripe.Subscription.retrieve(subscription_id)
+    return sync_subscription_record(
+        user=user,
+        subscription=subscription,
+        checkout_session_id=str(session_dict.get("id") or "").strip(),
+    )
+
+
 def create_billing_portal_session(*, user, return_url: str):
     _set_stripe_api_key()
     record = get_or_create_subscription_record(user)

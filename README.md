@@ -6,6 +6,33 @@ Create `.env` from `.env.example` and set `OPENAI_API_KEY`.
 
 For account emails, set `SITE_DOMAIN` and `SITE_NAME` so confirmation and recovery messages use the correct branding and host.
 
+## Stripe Billing
+
+The app already includes hosted Stripe Checkout, the Stripe customer portal, webhook processing, and subscription gating for AI features.
+
+Required environment variables:
+
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_MONTHLY`
+- `STRIPE_PRICE_YEARLY`
+
+Routes:
+
+- Billing page: `/billing/`
+- Checkout start: `/billing/checkout/`
+- Billing portal: `/billing/portal/`
+- Webhook endpoint: `/billing/webhook/`
+
+Local webhook forwarding with the Stripe CLI:
+
+```powershell
+stripe listen --forward-to http://127.0.0.1:8010/billing/webhook/
+```
+
+Copy the signing secret from the Stripe CLI output into `STRIPE_WEBHOOK_SECRET`.
+
 ### 1) Start Redis
 
 If you have Docker Desktop:

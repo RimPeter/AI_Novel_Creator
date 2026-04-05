@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 from .billing import process_webhook_event
@@ -949,6 +949,45 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertContains(resp, "!{...}!")
         self.assertContains(resp, 'id="draft-unbrace-btn"')
         self.assertContains(resp, "Remove {}")
+
+    def test_edit_scene_shows_synonym_button_and_lookup_url(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="draft-synonym-btn"')
+        self.assertContains(resp, 'aria-pressed="false"')
+        self.assertContains(resp, reverse("scene-synonyms", kwargs={"slug": self.project.slug}))
+
+    @patch("main.views.urlopen")
+    def test_scene_synonyms_endpoint_filters_duplicate_and_identical_results(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            [
+                {"word": "still"},
+                {"word": "calm"},
+                {"word": "Quiet"},
+                {"word": "calm"},
+                {"word": "peaceful"},
+            ]
+        ).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        url = reverse("scene-synonyms", kwargs={"slug": self.project.slug})
+        resp = self.client.get(url, {"word": "quiet"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {"ok": True, "word": "quiet", "synonyms": ["still", "calm", "peaceful"]},
+        )
+
+    def test_scene_synonyms_endpoint_requires_word(self):
+        url = reverse("scene-synonyms", kwargs={"slug": self.project.slug})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["ok"], False)
 
 
 class SceneLocationDropdownTests(AuthenticatedTestCase):

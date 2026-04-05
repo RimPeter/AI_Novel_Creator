@@ -3,6 +3,7 @@ import re
 from collections import defaultdict
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 
 import stripe
 from django.contrib import messages
@@ -18,7 +19,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from .billing import (
     billing_enabled,
@@ -965,6 +966,45 @@ def rename_scene_title(request, slug):
     scene.title = title
     scene.save(update_fields=["title", "updated_at"])
     return JsonResponse({"ok": True, "title": scene.title})
+
+
+@require_GET
+@login_required
+def scene_synonyms(request, slug):
+    _get_project_for_user(request, slug)
+
+    word = re.sub(r"[^A-Za-z'-]+", "", (request.GET.get("word") or "").strip()).strip("-'")
+    if len(word) < 2:
+        return JsonResponse({"ok": False, "error": "Word is required."}, status=400)
+
+    request_url = "https://api.datamuse.com/words?" + urlencode({"ml": word.lower(), "max": 12})
+    api_request = Request(
+        request_url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "AI-Novel-Creator/1.0",
+        },
+    )
+
+    synonyms = []
+    try:
+        with urlopen(api_request, timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        payload = []
+
+    seen = set()
+    for item in payload if isinstance(payload, list) else []:
+        candidate = str(item.get("word") or "").strip()
+        normalized = re.sub(r"[^A-Za-z'-]+", "", candidate).strip("-'").lower()
+        if not normalized or normalized == word.lower() or normalized in seen:
+            continue
+        seen.add(normalized)
+        synonyms.append(candidate)
+        if len(synonyms) >= 8:
+            break
+
+    return JsonResponse({"ok": True, "word": word.lower(), "synonyms": synonyms})
 
 
 @require_POST

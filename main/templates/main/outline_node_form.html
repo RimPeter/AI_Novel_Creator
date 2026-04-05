@@ -83,9 +83,27 @@
                           Remove {} and !{...}! markers from the current selection. Click without a selection to remove all draft markers.
                         </span>
                       </span>
+                      <span class="tooltip-wrap">
+                        <button
+                          class="btn btn-secondary btn-sm draft-synonym-btn"
+                          type="button"
+                          id="draft-synonym-btn"
+                          aria-pressed="false"
+                        >
+                          Synonym
+                        </button>
+                        <span class="tooltip-bubble" role="tooltip">
+                          Turn on hover mode for the draft so you can inspect similar-meaning words without editing the text.
+                        </span>
+                      </span>
                     </div>
                   </div>
-                  <div class="draft-editor" data-draft-editor data-regenerated-ranges="{{ request.GET.hl|default:'' }}">
+                  <div
+                    class="draft-editor"
+                    data-draft-editor
+                    data-regenerated-ranges="{{ request.GET.hl|default:'' }}"
+                    data-synonyms-url="{% url 'scene-synonyms' slug=project.slug %}"
+                  >
                     <div class="draft-highlight" aria-hidden="true"></div>
                     <textarea
                       class="form-control draft-input auto-grow"

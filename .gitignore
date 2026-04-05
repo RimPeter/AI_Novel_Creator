@@ -13,6 +13,7 @@ $RECYCLE.BIN/
 # Logs
 *.log
 logs/
+.local_mail/
 
 # Celery filesystem broker
 .celery-broker/

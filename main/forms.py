@@ -1,8 +1,27 @@
 from django import forms
 import json
 
+from allauth.account.forms import RequestLoginCodeForm, ResetPasswordForm
+
 from .location_hierarchy import build_location_label_map, collect_descendant_ids
 from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
+from .signals import sync_legacy_account_emails
+
+
+class LegacyVerifiedResetPasswordForm(ResetPasswordForm):
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if email:
+            sync_legacy_account_emails(email=email)
+        return super().clean_email()
+
+
+class LegacyVerifiedRequestLoginCodeForm(RequestLoginCodeForm):
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if email:
+            sync_legacy_account_emails(email=email)
+        return super().clean_email()
 
 
 class NovelProjectForm(forms.ModelForm):

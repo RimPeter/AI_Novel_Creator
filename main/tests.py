@@ -2,7 +2,9 @@ import json
 from datetime import datetime
 from types import SimpleNamespace
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -10,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 from .billing import process_webhook_event
+from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
     Character,
     GenerationRun,
@@ -21,7 +24,7 @@ from .models import (
     UserSubscription,
     UserTextModelPreference,
 )
-from .llm import LLMResult, SYSTEM_PROMPT, call_llm
+from .signals import sync_legacy_account_emails
 
 
 class AuthenticatedTestCase(TestCase):
@@ -33,6 +36,145 @@ class AuthenticatedTestCase(TestCase):
             password="password123",
         )
         self.client.force_login(self.user)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AccountEmailFlowTests(TestCase):
+    def test_legacy_accounts_get_verified_primary_email_records(self):
+        user = get_user_model().objects.create_user(
+            username="legacywriter",
+            email="legacywriter@example.com",
+            password="password123",
+        )
+
+        sync_legacy_account_emails()
+
+        email_address = EmailAddress.objects.get(user=user, email=user.email)
+        self.assertTrue(email_address.primary)
+        self.assertTrue(email_address.verified)
+
+    def test_request_login_code_marks_legacy_email_as_verified(self):
+        user = get_user_model().objects.create_user(
+            username="legacycode",
+            email="legacycode@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=False,
+        )
+
+        response = self.client.post(
+            reverse("account_request_login_code"),
+            data={"email": user.email},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        email_address = EmailAddress.objects.get(user=user, email=user.email)
+        self.assertTrue(email_address.verified)
+
+    def test_password_reset_marks_legacy_email_as_verified(self):
+        user = get_user_model().objects.create_user(
+            username="legacyreset",
+            email="legacyreset@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=False,
+        )
+
+        response = self.client.post(
+            reverse("account_reset_password"),
+            data={"email": user.email},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        email_address = EmailAddress.objects.get(user=user, email=user.email)
+        self.assertTrue(email_address.verified)
+
+    def test_signup_sends_confirmation_email_and_requires_verification(self):
+        response = self.client.post(
+            reverse("account_signup"),
+            data={
+                "username": "newwriter",
+                "email": "newwriter@example.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("newwriter@example.com", mail.outbox[0].to)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+        email_address = EmailAddress.objects.get(email="newwriter@example.com")
+        self.assertFalse(email_address.verified)
+
+    def test_login_page_offers_email_sign_in_code_recovery(self):
+        response = self.client.get(reverse("account_login"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Email me a sign-in code")
+
+    def test_password_reset_sends_email_to_verified_address(self):
+        user = get_user_model().objects.create_user(
+            username="recoverme",
+            email="recoverme@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=True,
+        )
+
+        response = self.client.post(
+            reverse("account_reset_password"),
+            data={"email": user.email},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(user.email, mail.outbox[0].to)
+
+    def test_password_change_sends_security_notification_email(self):
+        user = get_user_model().objects.create_user(
+            username="changeme",
+            email="changeme@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=True,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("account_change_password"),
+            data={
+                "oldpassword": "password123",
+                "password1": "NewPassword123!",
+                "password2": "NewPassword123!",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any(user.email in message.to for message in mail.outbox))
+        self.assertTrue(any("password" in message.subject.lower() for message in mail.outbox))
 
 
 class LLMTests(TestCase):

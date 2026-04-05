@@ -14,12 +14,16 @@
           <h1 class="page-title">{% trans "Email addresses" %}</h1>
         </div>
         <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'account_change_password' %}">{% trans "Change Password" %}</a>
           <a class="btn btn-secondary" href="{% url 'home' %}">{% trans "Home" %}</a>
           <a class="btn btn-secondary" href="{% url 'project-list' %}">{% trans "Projects" %}</a>
         </div>
       </div>
       <p class="page-lead">
         {% trans "Manage the addresses connected to your account, choose the primary login address, and resend verification when needed." %}
+      </p>
+      <p class="muted">
+        {% trans "New accounts must confirm their email before signing in, and password recovery and security notifications are sent to your verified address." %}
       </p>
     </section>
 

@@ -10,24 +10,36 @@
     </label>
     <div class="navbar-links" id="primary-navigation">
       <a href="{% url 'home' %}">Home</a>
-      <a href="{% url 'project-list' %}">Projects</a>
-      <a href="{% url 'project-archive-list' %}">Archive</a>
-      <a href="{% url 'token-usage' %}">Token Usage</a>
-      {% if user.is_authenticated %}
-        <a href="{% url 'billing' %}">Billing</a>
-      {% endif %}
-      <a href="{% url 'project-create' %}">New Project</a>
-      {% if user.is_authenticated and user.is_superuser %}
-        <a href="{% url 'home-update-create' %}">Post Update</a>
-      {% endif %}
-      <a href="{% url 'admin:index' %}">Admin</a>
+      <details class="nav-dropdown">
+        <summary>Projects</summary>
+        <div class="nav-dropdown-menu">
+          <a href="{% url 'project-list' %}">Projects</a>
+          <a href="{% url 'project-archive-list' %}">Archive</a>
+          <a href="{% url 'project-create' %}">New Project</a>
+        </div>
+      </details>
+      <details class="nav-dropdown">
+        <summary>More</summary>
+        <div class="nav-dropdown-menu">
+          <a href="{% url 'token-usage' %}">Token Usage</a>
+          {% if user.is_authenticated %}
+            <a href="{% url 'billing' %}">Billing</a>
+          {% endif %}
+          {% if user.is_authenticated and user.is_superuser %}
+            <a href="{% url 'home-update-create' %}">Post Update</a>
+          {% endif %}
+          <a href="{% url 'admin:index' %}">Admin</a>
+          {% if user.is_authenticated %}
+            <a href="{% url 'account_email' %}">Account</a>
+            <a href="{% url 'account_logout' %}">Sign out</a>
+          {% endif %}
+        </div>
+      </details>
       {% if user.is_authenticated %}
         <a class="nav-model-badge" href="{% url 'token-usage' %}" title="Active text generation model">
           <span class="nav-model-label">Model</span>
           <strong>{{ navbar_text_model }}</strong>
         </a>
-        <a href="{% url 'account_email' %}">Account</a>
-        <a href="{% url 'account_logout' %}">Sign out</a>
       {% else %}
         <a href="{% url 'account_login' %}">Sign in</a>
         <a href="{% url 'account_signup' %}">Sign up</a>

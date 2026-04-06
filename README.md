@@ -90,3 +90,32 @@ python manage.py celery_ping
 ```
 
 On Windows, the project defaults Celery to the `solo` worker pool (required for Celery on Windows).
+
+## Heroku
+
+The repo now includes the two files Heroku expects at the app root:
+
+- `.python-version`
+- `Procfile`
+
+Set these config vars before deploying:
+
+- `OPENAI_API_KEY`
+- `SECRET_KEY`
+- `DEBUG=False`
+- `ALLOWED_HOSTS=your-app.herokuapp.com`
+- `CSRF_TRUSTED_ORIGINS=https://your-app.herokuapp.com`
+- `SITE_DOMAIN=your-app.herokuapp.com`
+- `SITE_NAME=AI Novel Creator`
+- `SECURE_HSTS_SECONDS=3600`
+
+Optional but recommended:
+
+- `DATABASE_URL` for Heroku Postgres
+- SMTP settings if you want real account emails instead of the file backend
+
+Deployment notes:
+
+- The `release` process runs `python manage.py migrate`.
+- The `web` process runs `gunicorn novel_creator.wsgi`.
+- Static files are served with WhiteNoise, so `DISABLE_COLLECTSTATIC` should be unset on Heroku.

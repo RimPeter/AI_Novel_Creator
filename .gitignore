@@ -31,7 +31,6 @@ node_modules/
 # Python
 __pycache__/
 *.py[cod]
-.python-version
 .venv/
 venv/
 venv05012026
@@ -42,4 +41,5 @@ dist/
 build/
 out/
 target/
+staticfiles/
 notes.txt

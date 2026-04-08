@@ -189,6 +189,28 @@ def _get_selected_character_context(project: NovelProject, selected_ids: list[st
     return lines if len(lines) > 1 else []
 
 
+def _get_selected_location_context(project: NovelProject, location_name: str) -> list[str]:
+    name = (location_name or "").strip()
+    if not name:
+        return []
+
+    location = (
+        Location.objects.filter(project=project, name__iexact=name)
+        .only("name", "description")
+        .order_by("name", "id")
+        .first()
+    )
+    if location is None:
+        return []
+
+    lines = [f"Selected location: {location.name}"]
+    description = (location.description or "").strip()
+    if description:
+        lines.append("Location description: " + description)
+
+    return lines if len(lines) > 1 else []
+
+
 def _truncate_prompt_text(text: str, limit: int = 2000) -> str:
     value = (text or "").strip()
     if len(value) <= limit:
@@ -3049,7 +3071,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 prompt_lines = [
                     "Write a rough scene draft in prose (no bullet points, no JSON, no markdown headings).",
                     "Write in continuous prose with paragraphs; do not include section headers.",
-                    "Keep it grounded in the provided summary, POV, location, and selected character details when available.",
+                    "Keep it grounded in the provided summary, POV, location, selected location details, previous-scene continuity, and selected character details when available.",
                     "Avoid meta commentary and avoid explaining what you are doing.",
                     "",
                     "Title: " + (scene.title or ""),
@@ -3057,6 +3079,10 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     "Location: " + (scene.location or ""),
                     "Summary: " + summary,
                 ]
+                location_lines = _get_selected_location_context(scene.project, scene.location)
+                if location_lines:
+                    prompt_lines.append("")
+                    prompt_lines.extend(location_lines)
                 character_lines = _get_selected_character_context(scene.project, scene.characters)
                 if character_lines:
                     prompt_lines.append("")
@@ -3076,7 +3102,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     params = {"temperature": 0.7, "max_tokens": 900}
                     result = _call_tracked_llm(
                         project=scene.project,
-                        action_label="Scene Draft from Summary",
+                        action_label="Scene Draft from Scene Outline",
                         prompt=prompt,
                         model_name=model_name,
                         params=params,
@@ -3084,7 +3110,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     )
                     scene.structure_json = (result.text or "").strip()
                     scene.save()
-                    messages.success(request, "Generated draft from scene summary.")
+                    messages.success(request, "Generated draft from scene outline.")
                 except Exception:
                     scene.structure_json = summary
                     scene.save()

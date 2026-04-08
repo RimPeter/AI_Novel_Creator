@@ -985,6 +985,11 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertNotIn("- Zed:", prompt)
 
     def test_structurize_includes_previous_scene_from_same_chapter_only(self):
+        Location.objects.create(
+            project=self.project,
+            name="Docking bay",
+            description="A noisy cargo threshold lit by warning strips and maintenance sparks.",
+        )
         previous_scene = OutlineNode.objects.create(
             project=self.project,
             node_type=OutlineNode.NodeType.SCENE,
@@ -1031,6 +1036,11 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 302)
         prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Selected location: Docking bay", prompt)
+        self.assertIn(
+            "Location description: A noisy cargo threshold lit by warning strips and maintenance sparks.",
+            prompt,
+        )
         self.assertIn("Previous scene in this chapter:", prompt)
         self.assertIn("Title: Scene 0", prompt)
         self.assertIn("POV: Mira", prompt)

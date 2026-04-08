@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db.utils import OperationalError, ProgrammingError
 from django.db import transaction
 from django.db.models import Count, Max, Q, ProtectedError, Sum
 from django.http import Http404, HttpResponseRedirect, JsonResponse
@@ -40,13 +41,18 @@ from .forms import (
     OutlineChapterForm,
     OutlineSceneForm,
     StoryBibleForm,
+    StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
+from .models import Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm, generate_image_data_url
+
+STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS = 200_000
+STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS = 12_000
+STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
@@ -134,10 +140,94 @@ def _get_story_bible_context(project: NovelProject) -> list[str]:
     elif facts:
         lines.append("Story bible facts (JSON): " + json.dumps(facts, ensure_ascii=False))
 
+    document_lines = _get_story_bible_document_context(bible)
+    if document_lines:
+        lines.extend(document_lines)
+
     if not lines:
         return []
 
     return ["Story bible context:"] + lines
+
+
+def _get_story_bible_document_context(bible: StoryBible) -> list[str]:
+    try:
+        documents = list(
+            bible.documents.exclude(extracted_text="")
+            .only("original_name", "page_count", "extracted_text")
+            .order_by("-created_at", "-id")
+        )
+    except (OperationalError, ProgrammingError):
+        return []
+    if not documents:
+        return []
+
+    lines = []
+    remaining = STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS
+    for document in documents:
+        if remaining <= 0:
+            break
+
+        raw_text = (document.extracted_text or "").strip()
+        if not raw_text:
+            continue
+
+        excerpt_limit = min(STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS, remaining)
+        excerpt = _truncate_prompt_text(raw_text, limit=excerpt_limit)
+        if not excerpt:
+            continue
+
+        name = (document.original_name or "").strip() or "PDF reference"
+        header = f"Story bible PDF reference: {name}"
+        if document.page_count:
+            header += f" ({document.page_count} pages)"
+        lines.append(header)
+        lines.append("PDF excerpt: " + excerpt)
+        remaining -= len(excerpt)
+
+    return lines
+
+
+def _extract_story_bible_pdf(uploaded_file) -> tuple[str, int]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise ValueError("PDF uploads require the pypdf package to be installed.") from exc
+
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
+    try:
+        reader = PdfReader(uploaded_file)
+        if reader.is_encrypted:
+            reader.decrypt("")
+    except Exception as exc:
+        raise ValueError("Could not read that PDF. Upload a standard, non-corrupted PDF file.") from exc
+
+    pages = []
+    for page in reader.pages:
+        try:
+            text = (page.extract_text() or "").strip()
+        except Exception:
+            text = ""
+        if text:
+            pages.append(text)
+
+    extracted_text = "\n\n".join(pages).strip()
+    if not extracted_text:
+        raise ValueError("The PDF did not contain extractable text.")
+
+    if len(extracted_text) > STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS:
+        extracted_text = _truncate_prompt_text(extracted_text, limit=STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS)
+
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
+    return extracted_text, len(reader.pages)
 
 
 def _get_selected_character_context(project: NovelProject, selected_ids: list[str] | None) -> list[str]:
@@ -2754,6 +2844,11 @@ class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.setdefault("upload_form", StoryBiblePdfUploadForm())
+        try:
+            ctx["uploaded_documents"] = self.object.documents.all()
+        except (OperationalError, ProgrammingError):
+            ctx["uploaded_documents"] = []
         return ctx
 
     def form_valid(self, form):
@@ -2762,7 +2857,39 @@ class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
         return response
 
     def get_success_url(self):
-        return reverse_lazy("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.object.id})
+        return reverse_lazy("bible-edit", kwargs={"slug": self.project.slug})
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if (request.POST.get("action") or "").strip() == "upload_pdf":
+            upload_form = StoryBiblePdfUploadForm(request.POST, request.FILES)
+            if upload_form.is_valid():
+                uploaded_file = upload_form.cleaned_data["pdf_file"]
+                try:
+                    extracted_text, page_count = _extract_story_bible_pdf(uploaded_file)
+                except ValueError as exc:
+                    upload_form.add_error("pdf_file", str(exc))
+                else:
+                    try:
+                        uploaded_file.seek(0)
+                    except Exception:
+                        pass
+                    StoryBibleDocument.objects.create(
+                        story_bible=self.object,
+                        file=uploaded_file,
+                        original_name=(uploaded_file.name or "").strip(),
+                        file_size=int(getattr(uploaded_file, "size", 0) or 0),
+                        page_count=page_count,
+                        extracted_text=extracted_text,
+                        extracted_text_chars=len(extracted_text),
+                    )
+                    messages.success(request, "PDF reference uploaded.")
+                    return HttpResponseRedirect(self.get_success_url())
+
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form, upload_form=upload_form))
+
+        return super().post(request, *args, **kwargs)
 
 
 class SuperuserRequiredMixin(UserPassesTestMixin):

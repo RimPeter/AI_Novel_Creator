@@ -43,10 +43,64 @@
         {% endfor %}
 
         <div class="actions">
-          <button class="btn btn-primary" type="submit">Save</button>
+          <button class="btn btn-primary" type="submit" name="action" value="save">Save</button>
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
         </div>
       </form>
+    </section>
+
+    <section class="card page-panel">
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">Reference import</span>
+          <h2 class="page-panel-title">Upload PDF</h2>
+        </div>
+      </div>
+      <p class="page-panel-copy muted">
+        Add supporting canon documents as PDFs. Uploaded references are stored on the project and only bounded excerpts are sent to AI prompts to control token usage.
+      </p>
+
+      <form method="post" enctype="multipart/form-data" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload_pdf" />
+
+        {% if upload_form.non_field_errors %}
+          <div class="form-errors">{{ upload_form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in upload_form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-secondary" type="submit">Upload PDF</button>
+        </div>
+      </form>
+
+      {% if uploaded_documents %}
+        <div class="form-row">
+          <label class="form-label">Uploaded references</label>
+          <div class="stack">
+            {% for document in uploaded_documents %}
+              <div class="card">
+                <strong>{{ document.original_name|default:document.file.name }}</strong>
+                <div class="muted">
+                  {{ document.file_size }} bytes{% if document.page_count %} / {{ document.page_count }} pages{% endif %} / {{ document.extracted_text_chars }} extracted characters
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
     </section>
   </div>
 {% endblock %}

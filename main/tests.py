@@ -1,10 +1,13 @@
 import json
+import shutil
+import tempfile
 from datetime import datetime
 from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -21,10 +24,13 @@ from .models import (
     NovelProject,
     OutlineNode,
     ProcessedStripeEvent,
+    StoryBible,
+    StoryBibleDocument,
     UserSubscription,
     UserTextModelPreference,
 )
 from .signals import sync_legacy_account_emails
+from .views import _get_story_bible_context
 
 
 class AuthenticatedTestCase(TestCase):
@@ -539,6 +545,61 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(process_webhook_event(event))
         self.assertFalse(process_webhook_event(event))
         self.assertEqual(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").count(), 1)
+
+
+class StoryBibleUploadTests(AuthenticatedTestCase):
+    def setUp(self):
+        super().setUp()
+        self.project = NovelProject.objects.create(
+            title="Bible Project",
+            slug="bible-project",
+            target_word_count=1000,
+            owner=self.user,
+        )
+        self.bible = StoryBible.objects.create(
+            project=self.project,
+            summary_md="Core canon summary.",
+        )
+        self.media_root = tempfile.mkdtemp()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.media_override.enable()
+        self.addCleanup(self.media_override.disable)
+        self.addCleanup(lambda: shutil.rmtree(self.media_root, ignore_errors=True))
+
+    @patch("main.views._extract_story_bible_pdf", return_value=("Canon import text.", 3))
+    def test_upload_pdf_creates_story_bible_document(self, mock_extract):
+        upload = SimpleUploadedFile("canon-reference.pdf", b"%PDF-1.4\n%stub", content_type="application/pdf")
+
+        response = self.client.post(
+            reverse("bible-edit", kwargs={"slug": self.project.slug}),
+            data={"action": "upload_pdf", "pdf_file": upload},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        document = StoryBibleDocument.objects.get(story_bible=self.bible)
+        self.assertEqual(document.original_name, "canon-reference.pdf")
+        self.assertEqual(document.page_count, 3)
+        self.assertEqual(document.extracted_text, "Canon import text.")
+        self.assertEqual(document.extracted_text_chars, len("Canon import text."))
+        self.assertTrue(document.file.name.endswith(".pdf"))
+        mock_extract.assert_called_once()
+
+    def test_story_bible_context_includes_uploaded_pdf_excerpt(self):
+        StoryBibleDocument.objects.create(
+            story_bible=self.bible,
+            original_name="appendix.pdf",
+            file_size=128,
+            page_count=4,
+            extracted_text="Important canon appendix text.",
+            extracted_text_chars=len("Important canon appendix text."),
+            file=SimpleUploadedFile("appendix.pdf", b"%PDF-1.4\n%stub", content_type="application/pdf"),
+        )
+
+        context = "\n".join(_get_story_bible_context(self.project))
+
+        self.assertIn("Story bible summary: Core canon summary.", context)
+        self.assertIn("Story bible PDF reference: appendix.pdf (4 pages)", context)
+        self.assertIn("PDF excerpt: Important canon appendix text.", context)
 
 
 class HomePageTests(TestCase):

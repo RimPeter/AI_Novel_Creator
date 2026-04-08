@@ -7,6 +7,8 @@ from .location_hierarchy import build_location_label_map, collect_descendant_ids
 from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 from .signals import sync_legacy_account_emails
 
+STORY_BIBLE_PDF_MAX_BYTES = 5 * 1024 * 1024
+
 
 class LegacyVerifiedResetPasswordForm(ResetPasswordForm):
     def clean_email(self):
@@ -134,6 +136,37 @@ class StoryBibleForm(forms.ModelForm):
         if not value:
             return {}
         return value
+
+
+class StoryBiblePdfUploadForm(forms.Form):
+    pdf_file = forms.FileField(
+        label="Upload PDF",
+        help_text="Upload a PDF reference for the story bible. Maximum size: 5 MB.",
+        widget=forms.ClearableFileInput(
+            attrs={
+                "class": "form-control",
+                "accept": "application/pdf,.pdf",
+            }
+        ),
+    )
+
+    def clean_pdf_file(self):
+        uploaded = self.cleaned_data.get("pdf_file")
+        if uploaded is None:
+            raise forms.ValidationError("Choose a PDF file to upload.")
+
+        name = (uploaded.name or "").strip()
+        if not name.lower().endswith(".pdf"):
+            raise forms.ValidationError("Upload a PDF file.")
+
+        if uploaded.size and uploaded.size > STORY_BIBLE_PDF_MAX_BYTES:
+            raise forms.ValidationError("PDF is too large. Keep uploads at 5 MB or less.")
+
+        content_type = str(getattr(uploaded, "content_type", "") or "").strip().lower()
+        if content_type and content_type not in {"application/pdf", "application/x-pdf"}:
+            raise forms.ValidationError("Upload a valid PDF file.")
+
+        return uploaded
 
 
 class HomeUpdateForm(forms.ModelForm):

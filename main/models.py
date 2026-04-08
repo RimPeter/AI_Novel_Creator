@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 
 from django.conf import settings
@@ -58,6 +59,31 @@ class StoryBible(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"StoryBible: {self.project.title}"
+
+
+def story_bible_pdf_upload_to(instance, filename: str) -> str:
+    _, ext = os.path.splitext(filename or "")
+    extension = ext.lower() if ext else ".pdf"
+    project_slug = getattr(instance.story_bible.project, "slug", "project")
+    return f"story_bible_pdfs/{project_slug}/{uuid.uuid4().hex}{extension}"
+
+
+class StoryBibleDocument(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    story_bible = models.ForeignKey(StoryBible, on_delete=models.CASCADE, related_name="documents")
+    file = models.FileField(upload_to=story_bible_pdf_upload_to)
+    original_name = models.CharField(max_length=255, blank=True, default="")
+    file_size = models.PositiveIntegerField(default=0)
+    page_count = models.PositiveIntegerField(default=0)
+    extracted_text = models.TextField(blank=True, default="")
+    extracted_text_chars = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        name = self.original_name or os.path.basename(getattr(self.file, "name", "") or "")
+        return f"{self.story_bible.project.title}: {name or 'PDF reference'}"
 
 
 class HomeUpdate(TimeStampedModel):

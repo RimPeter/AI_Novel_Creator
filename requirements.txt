@@ -26,6 +26,7 @@ openai==2.14.0
 packaging==25.0
 prompt_toolkit==3.0.52
 psycopg[binary]>=3.2,<4
+pypdf==6.1.1
 pydantic==2.12.5
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0

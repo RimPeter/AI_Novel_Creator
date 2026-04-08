@@ -92,9 +92,23 @@
           <div class="stack">
             {% for document in uploaded_documents %}
               <div class="card">
-                <strong>{{ document.original_name|default:document.file.name }}</strong>
-                <div class="muted">
-                  {{ document.file_size }} bytes{% if document.page_count %} / {{ document.page_count }} pages{% endif %} / {{ document.extracted_text_chars }} extracted characters
+                <div class="page-panel-head">
+                  <div>
+                    <strong>{{ document.original_name|default:document.file.name }}</strong>
+                    <div class="muted">
+                      {{ document.file_size }} bytes{% if document.page_count %} / {{ document.page_count }} pages{% endif %} / {{ document.extracted_text_chars }} extracted characters
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <a class="btn btn-secondary btn-sm" href="{% url 'bible-document-detail' slug=project.slug pk=document.id %}">Read</a>
+                    {% if document.file %}
+                      <a class="btn btn-secondary btn-sm" href="{{ document.file.url }}" download>Download</a>
+                    {% endif %}
+                    <form method="post" action="{% url 'bible-document-delete' slug=project.slug pk=document.id %}">
+                      {% csrf_token %}
+                      <button class="btn btn-secondary btn-sm" type="submit" data-confirm="Delete this PDF reference?">Delete</button>
+                    </form>
+                  </div>
                 </div>
               </div>
             {% endfor %}

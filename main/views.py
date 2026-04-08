@@ -2892,6 +2892,50 @@ class StoryBibleUpdateView(LoginRequiredMixin, UpdateView):
         return super().post(request, *args, **kwargs)
 
 
+class StoryBibleDocumentDetailView(LoginRequiredMixin, DetailView):
+    model = StoryBibleDocument
+    template_name = "main/bible_document_detail.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return StoryBibleDocument.objects.select_related("story_bible__project").filter(story_bible__project=self.project)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        return ctx
+
+
+@require_POST
+@login_required
+def delete_story_bible_document(request, slug: str, pk):
+    project = _get_project_for_user(request, slug)
+    try:
+        document = get_object_or_404(
+            StoryBibleDocument.objects.select_related("story_bible__project"),
+            id=pk,
+            story_bible__project=project,
+        )
+    except (OperationalError, ProgrammingError):
+        messages.error(request, "PDF deletion is unavailable until migrations are applied.")
+        return HttpResponseRedirect(reverse("bible-edit", kwargs={"slug": project.slug}))
+
+    storage = document.file.storage
+    file_name = document.file.name
+    document.delete()
+    if file_name:
+        try:
+            storage.delete(file_name)
+        except Exception:
+            pass
+
+    messages.success(request, "PDF deleted.")
+    return HttpResponseRedirect(reverse("bible-edit", kwargs={"slug": project.slug}))
+
+
 class SuperuserRequiredMixin(UserPassesTestMixin):
     raise_exception = True
 

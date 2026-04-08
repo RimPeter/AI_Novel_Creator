@@ -1,0 +1,39 @@
+{% extends "main/base.html" %}
+
+{% block title %}Read PDF | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Reference reader</span>
+          <h1 class="page-title">{{ object.original_name|default:object.file.name }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'bible-edit' slug=project.slug %}">Back to bible</a>
+          {% if object.file %}
+            <a class="btn btn-secondary" href="{{ object.file.url }}" target="_blank" rel="noopener">Open PDF</a>
+            <a class="btn btn-secondary" href="{{ object.file.url }}" download>Download</a>
+          {% endif %}
+        </div>
+      </div>
+      <p class="page-lead">Review the extracted text for this uploaded PDF reference.</p>
+      <div class="page-meta">
+        <span class="page-chip">{{ project.title }}</span>
+        <span class="page-chip">{{ object.file_size }} bytes</span>
+        {% if object.page_count %}
+          <span class="page-chip">{{ object.page_count }} pages</span>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card page-panel">
+      {% if object.extracted_text %}
+        <p class="dashboard-bible-copy pre">{{ object.extracted_text }}</p>
+      {% else %}
+        <p class="dashboard-empty-copy">No extractable text was stored for this PDF.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

@@ -601,6 +601,60 @@ class StoryBibleUploadTests(AuthenticatedTestCase):
         self.assertIn("Story bible PDF reference: appendix.pdf (4 pages)", context)
         self.assertIn("PDF excerpt: Important canon appendix text.", context)
 
+    def test_story_bible_edit_page_can_delete_uploaded_pdf(self):
+        document = StoryBibleDocument.objects.create(
+            story_bible=self.bible,
+            original_name="appendix.pdf",
+            file_size=128,
+            page_count=4,
+            extracted_text="Important canon appendix text.",
+            extracted_text_chars=len("Important canon appendix text."),
+            file=SimpleUploadedFile("appendix.pdf", b"%PDF-1.4\n%stub", content_type="application/pdf"),
+        )
+
+        response = self.client.post(
+            reverse("bible-document-delete", kwargs={"slug": self.project.slug, "pk": document.id}),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(StoryBibleDocument.objects.filter(id=document.id).exists())
+
+    def test_story_bible_edit_page_can_read_uploaded_pdf(self):
+        document = StoryBibleDocument.objects.create(
+            story_bible=self.bible,
+            original_name="appendix.pdf",
+            file_size=128,
+            page_count=4,
+            extracted_text="Important canon appendix text.",
+            extracted_text_chars=len("Important canon appendix text."),
+            file=SimpleUploadedFile("appendix.pdf", b"%PDF-1.4\n%stub", content_type="application/pdf"),
+        )
+
+        response = self.client.get(
+            reverse("bible-document-detail", kwargs={"slug": self.project.slug, "pk": document.id}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "appendix.pdf")
+        self.assertContains(response, "Important canon appendix text.")
+
+    def test_story_bible_edit_page_shows_download_link_for_uploaded_pdf(self):
+        document = StoryBibleDocument.objects.create(
+            story_bible=self.bible,
+            original_name="appendix.pdf",
+            file_size=128,
+            page_count=4,
+            extracted_text="Important canon appendix text.",
+            extracted_text_chars=len("Important canon appendix text."),
+            file=SimpleUploadedFile("appendix.pdf", b"%PDF-1.4\n%stub", content_type="application/pdf"),
+        )
+
+        response = self.client.get(reverse("bible-edit", kwargs={"slug": self.project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download")
+        self.assertContains(response, document.file.url)
+
 
 class HomePageTests(TestCase):
     def test_home_page_displays_updates_board(self):

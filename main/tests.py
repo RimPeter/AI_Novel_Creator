@@ -177,6 +177,17 @@ class AccountEmailFlowTests(TestCase):
         self.assertTrue(any("password" in message.subject.lower() for message in mail.outbox))
 
 
+class NavbarVisibilityTests(TestCase):
+    def test_anonymous_users_do_not_see_projects_or_more_dropdowns(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Home")
+        self.assertContains(response, "Sign in")
+        self.assertNotContains(response, "<summary>Projects</summary>", html=False)
+        self.assertNotContains(response, "<summary>More</summary>", html=False)
+
+
 class LLMTests(TestCase):
     def test_call_llm_replaces_em_dash_and_uses_global_instruction(self):
         fake_response = SimpleNamespace(

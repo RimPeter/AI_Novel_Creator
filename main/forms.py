@@ -192,7 +192,7 @@ class OutlineSceneForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 14,
-                "placeholder": "Write the scene draft here in prose.",
+                "placeholder": "Draft the scene in prose. For stronger generation results, make sure all relevant locations and characters have been created and added first.",
             }
         ),
         label="Draft",
@@ -228,6 +228,7 @@ class OutlineSceneForm(forms.ModelForm):
                     "class": "form-control auto-grow",
                     "rows": 18,
                     "data-autogrow": "true",
+                    "placeholder": "Refine or paste the final scene prose here once the draft is ready.",
                 }
             ),
         }
@@ -235,6 +236,7 @@ class OutlineSceneForm(forms.ModelForm):
             "rendered_text": "Final scene prose (editable).",
         }
         labels = {
+            "summary": "Scene Outline",
             "rendered_text": "Final text",
         }
 

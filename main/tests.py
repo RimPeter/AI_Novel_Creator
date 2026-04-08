@@ -898,6 +898,25 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
             location="Docking bay",
         )
 
+    def test_edit_scene_uses_scene_outline_label(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Scene Outline")
+        self.assertContains(resp, "Draft from Scene Outline")
+        self.assertNotContains(resp, ">Summary<", html=False)
+        self.assertContains(
+            resp,
+            'data-placeholder="Draft the scene in prose. For stronger generation results, make sure all relevant locations and characters have been created and added first."',
+            html=False,
+        )
+        self.assertContains(
+            resp,
+            'placeholder="Refine or paste the final scene prose here once the draft is ready."',
+            html=False,
+        )
+
     def test_structurize_fills_structure_json(self):
         url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         resp = self.client.post(

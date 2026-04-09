@@ -15,9 +15,10 @@ from django.utils import timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
-from .billing import process_webhook_event, sync_subscription_record
+from .billing import process_webhook_event, sync_checkout_session, sync_subscription_record
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
+    BillingCompanyProfile,
     BillingInvoice,
     Character,
     GenerationRun,
@@ -405,6 +406,18 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Choose Yearly subscription")
         self.assertContains(resp, "Choose One month pass")
         self.assertContains(resp, "Choose One week trial")
+        self.assertNotContains(resp, "Clear current status")
+
+    def test_ferdinand_superuser_sees_clear_status_option(self):
+        self.user.username = "Ferdinand"
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["username", "is_superuser", "is_staff"])
+
+        resp = self.client.get(reverse("billing"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Clear current status")
 
     def test_billing_page_lists_invoices(self):
         invoice = BillingInvoice.objects.create(
@@ -424,6 +437,7 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Invoices")
         self.assertContains(resp, "INV-1001")
         self.assertContains(resp, reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
+        self.assertNotContains(resp, "Edit invoice")
 
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
@@ -521,6 +535,12 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(mock_create_portal.call_args.kwargs["user"], self.user)
 
     def test_invoice_pdf_download_returns_pdf(self):
+        BillingCompanyProfile.objects.create(
+            company_name="Example Books Ltd",
+            company_email="accounts@example.com",
+            company_address="1 Example Street",
+            company_tax_id="GB123456",
+        )
         invoice = BillingInvoice.objects.create(
             user=self.user,
             invoice_number="INV-2002",
@@ -538,6 +558,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp["Content-Type"], "application/pdf")
         self.assertIn("INV-2002.pdf", resp["Content-Disposition"])
         self.assertTrue(resp.content.startswith(b"%PDF-"))
+        self.assertIn(b"Example Books Ltd", resp.content)
+        self.assertIn(b"accounts@example.com", resp.content)
 
     def test_invoice_pdf_download_is_scoped_to_owner(self):
         other_user = get_user_model().objects.create_user(
@@ -557,59 +579,92 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 404)
 
-    def test_superuser_can_edit_invoice(self):
+    def test_superuser_can_edit_company_details(self):
         self.user.is_superuser = True
         self.user.is_staff = True
         self.user.save(update_fields=["is_superuser", "is_staff"])
-        invoice = BillingInvoice.objects.create(
-            user=self.user,
-            invoice_number="INV-EDIT",
-            status="draft",
-            total_amount=500,
-            amount_paid=0,
-        )
 
         resp = self.client.post(
-            reverse("billing-invoice-edit", kwargs={"pk": invoice.pk}),
+            reverse("billing-company-details"),
             data={
-                "invoice_number": "INV-EDIT",
-                "source_type": "manual",
-                "status": "paid",
-                "currency": "GBP",
-                "issue_date": "2026-04-09",
-                "due_date": "",
-                "paid_at": "",
-                "seller_name": "AI Novel Creator",
-                "seller_email": "billing@example.com",
-                "seller_address": "1 Admin Street",
-                "buyer_name": "Tester",
-                "buyer_email": "tester@example.com",
-                "buyer_address": "2 User Road",
-                "description": "Edited invoice description",
-                "subtotal_amount": "500",
-                "tax_amount": "0",
-                "total_amount": "500",
-                "amount_paid": "500",
-                "notes": "Updated by admin",
+                "company_name": "Example Books Ltd",
+                "company_email": "billing@example.com",
+                "company_address": "1 Admin Street",
+                "company_tax_id": "GB123456",
             },
         )
 
         self.assertEqual(resp.status_code, 302)
-        invoice.refresh_from_db()
-        self.assertEqual(invoice.status, "paid")
-        self.assertEqual(invoice.description, "Edited invoice description")
-        self.assertEqual(invoice.buyer_address, "2 User Road")
+        profile = BillingCompanyProfile.objects.get()
+        self.assertEqual(profile.company_name, "Example Books Ltd")
+        self.assertEqual(profile.company_email, "billing@example.com")
+        self.assertEqual(profile.company_address, "1 Admin Street")
+        self.assertEqual(profile.company_tax_id, "GB123456")
 
-    def test_regular_user_cannot_edit_invoice(self):
-        invoice = BillingInvoice.objects.create(
-            user=self.user,
-            invoice_number="INV-LOCKED",
-            status="draft",
-        )
+    def test_regular_user_cannot_edit_company_details(self):
+        BillingCompanyProfile.objects.create()
 
-        resp = self.client.get(reverse("billing-invoice-edit", kwargs={"pk": invoice.pk}))
+        resp = self.client.get(reverse("billing-company-details"))
 
         self.assertEqual(resp.status_code, 403)
+
+    def test_superuser_sees_company_details_link(self):
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_superuser", "is_staff"])
+
+        resp = self.client.get(reverse("billing"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse("billing-company-details"))
+
+    def test_ferdinand_superuser_can_clear_billing_status(self):
+        self.user.username = "Ferdinand"
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["username", "is_superuser", "is_staff"])
+        UserSubscription.objects.create(
+            user=self.user,
+            stripe_customer_id="cus_123",
+            stripe_subscription_id="sub_123",
+            stripe_product_id="prod_123",
+            stripe_price_id="price_monthly_123",
+            billing_interval="month",
+            status="active",
+            cancel_at_period_end=True,
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timedelta(days=30),
+            last_checkout_session_id="cs_123",
+            raw_data={"status": "active"},
+        )
+
+        resp = self.client.post(reverse("billing-clear-status"))
+
+        self.assertEqual(resp.status_code, 302)
+        record = UserSubscription.objects.get(user=self.user)
+        self.assertEqual(record.stripe_customer_id, "cus_123")
+        self.assertEqual(record.stripe_subscription_id, "")
+        self.assertEqual(record.stripe_price_id, "")
+        self.assertEqual(record.status, "")
+        self.assertFalse(record.cancel_at_period_end)
+        self.assertIsNone(record.current_period_end)
+
+    def test_non_ferdinand_superuser_cannot_clear_billing_status(self):
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_superuser", "is_staff"])
+        UserSubscription.objects.create(
+            user=self.user,
+            stripe_subscription_id="sub_123",
+            status="active",
+        )
+
+        resp = self.client.post(reverse("billing-clear-status"))
+
+        self.assertEqual(resp.status_code, 403)
+        record = UserSubscription.objects.get(user=self.user)
+        self.assertEqual(record.stripe_subscription_id, "sub_123")
+        self.assertEqual(record.status, "active")
 
     def test_generation_endpoint_requires_subscription_when_billing_enabled(self):
         resp = self.client.post(
@@ -680,6 +735,61 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(record.billing_interval, "month")
         self.assertEqual(record.status, "active")
         self.assertTrue(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").exists())
+
+    @patch("main.billing.stripe.Invoice.retrieve")
+    @patch("main.billing.stripe.Subscription.retrieve")
+    @patch("main.billing.stripe.checkout.Session.retrieve")
+    def test_sync_checkout_session_creates_invoice_for_subscription_checkout(self, mock_session_retrieve, mock_sub_retrieve, mock_invoice_retrieve):
+        mock_session_retrieve.return_value = {
+            "id": "cs_sub_123",
+            "customer": "cus_123",
+            "subscription": "sub_123",
+            "invoice": "in_123",
+            "currency": "gbp",
+            "created": 1735689600,
+            "client_reference_id": str(self.user.id),
+            "metadata": {
+                "user_id": str(self.user.id),
+                "plan_key": "monthly",
+                "price_id": "price_monthly_123",
+            },
+        }
+        mock_sub_retrieve.return_value = {
+            "id": "sub_123",
+            "customer": "cus_123",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "current_period_start": 1735689600,
+            "current_period_end": 1738368000,
+            "trial_end": None,
+            "items": {"data": [{"price": {"id": "price_monthly_123", "product": "prod_123", "recurring": {"interval": "month"}}}]},
+        }
+        mock_invoice_retrieve.return_value = {
+            "id": "in_123",
+            "number": "INV-CHECKOUT-1",
+            "subscription": "sub_123",
+            "customer": "cus_123",
+            "status": "paid",
+            "currency": "gbp",
+            "created": 1735689600,
+            "subtotal": 1500,
+            "tax": 0,
+            "total": 1500,
+            "amount_paid": 1500,
+            "customer_details": {
+                "name": "Test Buyer",
+                "email": "tester@example.com",
+            },
+            "lines": {"data": [{"description": "Monthly subscription"}]},
+        }
+
+        record = sync_checkout_session(user=self.user, session_id="cs_sub_123")
+
+        self.assertIsNotNone(record)
+        invoice = BillingInvoice.objects.get(user=self.user, stripe_invoice_id="in_123")
+        self.assertEqual(invoice.invoice_number, "INV-CHECKOUT-1")
+        self.assertEqual(invoice.stripe_checkout_session_id, "cs_sub_123")
+        self.assertEqual(invoice.total_amount, 1500)
 
     @patch("main.billing.stripe.Subscription.retrieve")
     def test_webhook_processing_is_idempotent(self, mock_retrieve):

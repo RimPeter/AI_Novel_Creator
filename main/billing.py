@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .models import BillingInvoice, ProcessedStripeEvent, UserSubscription
+from .models import BillingCompanyProfile, BillingInvoice, ProcessedStripeEvent, UserSubscription
 
 
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
@@ -93,6 +93,25 @@ def get_or_create_subscription_record(user) -> UserSubscription:
     return UserSubscription.objects.create(user=user)
 
 
+def clear_subscription_status(user) -> UserSubscription | None:
+    record = get_subscription_record(user)
+    if record is None:
+        return None
+    record.stripe_subscription_id = ""
+    record.stripe_product_id = ""
+    record.stripe_price_id = ""
+    record.billing_interval = ""
+    record.status = ""
+    record.cancel_at_period_end = False
+    record.current_period_start = None
+    record.current_period_end = None
+    record.trial_end = None
+    record.last_checkout_session_id = ""
+    record.raw_data = {}
+    record.save()
+    return record
+
+
 def user_has_active_subscription(user) -> bool:
     record = get_subscription_record(user)
     return bool(record and record.is_active)
@@ -137,6 +156,13 @@ def get_billing_invoices(user):
     if not getattr(user, "is_authenticated", False):
         return BillingInvoice.objects.none()
     return BillingInvoice.objects.filter(user=user).select_related("subscription_record")
+
+
+def get_billing_company_profile() -> BillingCompanyProfile:
+    profile = BillingCompanyProfile.objects.first()
+    if profile is not None:
+        return profile
+    return BillingCompanyProfile.objects.create()
 
 
 def get_billing_invoice_displays(user) -> list[dict[str, Any]]:
@@ -380,6 +406,34 @@ def _sync_checkout_invoice(
     )
 
 
+def _sync_session_invoice(
+    *,
+    user,
+    session: dict[str, Any],
+    checkout_session_id: str,
+    subscription_record: UserSubscription | None = None,
+) -> BillingInvoice | None:
+    invoice_id = str(session.get("invoice") or "").strip()
+    if invoice_id:
+        _set_stripe_api_key()
+        invoice = stripe.Invoice.retrieve(invoice_id)
+        invoice_dict = _as_dict(invoice)
+        return _upsert_invoice_record(
+            user=user,
+            source_type="stripe_invoice",
+            stripe_invoice_id=invoice_id,
+            stripe_checkout_session_id=checkout_session_id,
+            payload=invoice_dict,
+            fallback_number_prefix="INV",
+            fallback_description="Stripe invoice",
+            fallback_status=str(invoice_dict.get("status") or "").strip(),
+            fallback_currency=str(invoice_dict.get("currency") or session.get("currency") or "GBP"),
+            fallback_issue_date=_timestamp_to_date(invoice_dict.get("created") or session.get("created")) or timezone.localdate(),
+            subscription_record=subscription_record,
+        )
+    return _sync_checkout_invoice(user=user, session=session, checkout_session_id=checkout_session_id)
+
+
 def ensure_stripe_customer(user) -> tuple[UserSubscription, str]:
     _set_stripe_api_key()
     record = get_or_create_subscription_record(user)
@@ -535,11 +589,18 @@ def sync_checkout_session(*, user, session_id: str) -> UserSubscription | None:
         ) or record
 
     subscription = stripe.Subscription.retrieve(subscription_id)
-    return sync_subscription_record(
+    subscription_record = sync_subscription_record(
         user=user,
         subscription=subscription,
         checkout_session_id=checkout_session_id,
     )
+    _sync_session_invoice(
+        user=user,
+        session=session_dict,
+        checkout_session_id=checkout_session_id,
+        subscription_record=subscription_record,
+    )
+    return subscription_record
 
 
 def create_billing_portal_session(*, user, return_url: str):
@@ -636,7 +697,13 @@ def handle_checkout_session_completed(session: dict[str, Any]) -> None:
         )
         return
     subscription = stripe.Subscription.retrieve(subscription_id)
-    sync_subscription_record(user=user, subscription=subscription, checkout_session_id=checkout_session_id)
+    subscription_record = sync_subscription_record(user=user, subscription=subscription, checkout_session_id=checkout_session_id)
+    _sync_session_invoice(
+        user=user,
+        session=session_dict,
+        checkout_session_id=checkout_session_id,
+        subscription_record=subscription_record,
+    )
 
 
 def handle_subscription_event(subscription: dict[str, Any]) -> None:

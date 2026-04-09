@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BillingInvoice, HomeUpdate, ProcessedStripeEvent, UserSubscription
+from .models import BillingCompanyProfile, BillingInvoice, HomeUpdate, ProcessedStripeEvent, UserSubscription
 
 
 @admin.register(HomeUpdate)
@@ -36,3 +36,8 @@ class BillingInvoiceAdmin(admin.ModelAdmin):
     list_display = ("public_number", "user", "status", "issue_date", "total_amount", "currency")
     search_fields = ("invoice_number", "stripe_invoice_id", "stripe_checkout_session_id", "user__username", "user__email")
     list_filter = ("status", "currency", "source_type")
+
+
+@admin.register(BillingCompanyProfile)
+class BillingCompanyProfileAdmin(admin.ModelAdmin):
+    list_display = ("company_name", "company_email", "updated_at")

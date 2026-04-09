@@ -417,6 +417,25 @@ def default_invoice_seller_email() -> str:
     return default_from
 
 
+class BillingCompanyProfile(TimeStampedModel):
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    company_name = models.CharField(max_length=255, blank=True, default=default_invoice_seller_name)
+    company_email = models.CharField(max_length=255, blank=True, default=default_invoice_seller_email)
+    company_address = models.TextField(blank=True, default="")
+    company_tax_id = models.CharField(max_length=120, blank=True, default="")
+
+    class Meta:
+        verbose_name = "Billing company profile"
+        verbose_name_plural = "Billing company profile"
+
+    def save(self, *args, **kwargs):
+        self.singleton_key = 1
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.company_name or "Billing company profile"
+
+
 class BillingInvoice(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(

@@ -25,9 +25,11 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .billing import (
     billing_enabled,
+    clear_subscription_status,
     create_billing_portal_session,
     create_checkout_session,
     format_minor_amount,
+    get_billing_company_profile,
     get_billing_invoice_displays,
     get_price_options,
     get_subscription_display,
@@ -37,7 +39,7 @@ from .billing import (
     construct_webhook_event,
 )
 from .forms import (
-    BillingInvoiceForm,
+    BillingCompanyProfileForm,
     CharacterForm,
     HomeUpdateForm,
     LocationForm,
@@ -48,7 +50,7 @@ from .forms import (
     StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
+from .models import BillingCompanyProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
@@ -58,6 +60,7 @@ STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS = 200_000
 STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS = 12_000
 STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
 STRIPE_CHECKOUT_SESSION_PLACEHOLDER = "{CHECKOUT_SESSION_ID}"
+BILLING_STATUS_RESET_SUPERUSER = "ferdinand"
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
@@ -503,6 +506,14 @@ def _build_stripe_checkout_success_url(request) -> str:
         session_id=placeholder_token,
     )
     return request.build_absolute_uri(success_path).replace(placeholder_token, STRIPE_CHECKOUT_SESSION_PLACEHOLDER)
+
+
+def _can_clear_billing_status(user) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if not getattr(user, "is_superuser", False):
+        return False
+    return str(getattr(user, "username", "") or "").strip().lower() == BILLING_STATUS_RESET_SUPERUSER
 
 
 def _renumber_outline_for_project(project: NovelProject) -> None:
@@ -1535,6 +1546,8 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx["billing_enabled"] = billing_enabled()
         ctx["price_options"] = get_price_options()
         ctx["invoices"] = get_billing_invoice_displays(self.request.user)
+        ctx["can_clear_billing_status"] = _can_clear_billing_status(self.request.user)
+        ctx["can_edit_company_details"] = bool(self.request.user.is_authenticated and self.request.user.is_superuser)
         ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
         ctx["checkout_session_id"] = (self.request.GET.get("session_id") or "").strip()
         ctx["checkout_sync_error"] = ""
@@ -1609,6 +1622,19 @@ def create_billing_portal(request):
         messages.error(request, f"Could not open the billing portal: {e}")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
+
+
+@require_POST
+@login_required
+def clear_billing_status(request):
+    if not _can_clear_billing_status(request.user):
+        return JsonResponse({"ok": False, "error": "Forbidden."}, status=403)
+    record = clear_subscription_status(request.user)
+    if record is None:
+        messages.info(request, "No billing status was stored for this account.")
+    else:
+        messages.success(request, "Billing status cleared for test checkout.")
+    return HttpResponseRedirect(reverse("billing"))
 
 
 @csrf_exempt
@@ -1688,6 +1714,7 @@ def _build_simple_pdf(lines: list[str]) -> bytes:
 
 
 def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
+    company_profile = get_billing_company_profile()
     lines = [
         f"Invoice {invoice.public_number}",
         "",
@@ -1696,9 +1723,10 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
         f"Due date: {invoice.due_date.isoformat() if invoice.due_date else 'N/A'}",
         f"Paid at: {timezone.localtime(invoice.paid_at).strftime('%Y-%m-%d %H:%M UTC') if invoice.paid_at else 'N/A'}",
         "",
-        f"Seller: {invoice.seller_name}",
-        invoice.seller_email,
-        invoice.seller_address,
+        f"Seller: {company_profile.company_name}",
+        company_profile.company_email,
+        company_profile.company_address,
+        f"Tax ID: {company_profile.company_tax_id}" if company_profile.company_tax_id else "",
         "",
         f"Bill to: {invoice.buyer_name or invoice.user.get_username()}",
         invoice.buyer_email,
@@ -3061,23 +3089,17 @@ class SuperuserRequiredMixin(UserPassesTestMixin):
         return bool(self.request.user.is_authenticated and self.request.user.is_superuser)
 
 
-class BillingInvoiceUpdateView(LoginRequiredMixin, SuperuserRequiredMixin, UpdateView):
-    model = BillingInvoice
-    form_class = BillingInvoiceForm
-    template_name = "main/billing_invoice_form.html"
+class BillingCompanyProfileUpdateView(LoginRequiredMixin, SuperuserRequiredMixin, UpdateView):
+    model = BillingCompanyProfile
+    form_class = BillingCompanyProfileForm
+    template_name = "main/billing_company_profile_form.html"
 
-    def get_queryset(self):
-        return BillingInvoice.objects.select_related("user", "subscription_record")
+    def get_object(self, queryset=None):
+        return get_billing_company_profile()
 
     def form_valid(self, form):
-        messages.success(self.request, "Invoice saved.")
+        messages.success(self.request, "Company details saved.")
         return super().form_valid(form)
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx["invoice"] = self.object
-        ctx["invoice_total_display"] = format_minor_amount(self.object.total_amount, self.object.currency)
-        return ctx
 
     def get_success_url(self):
         return reverse_lazy("billing")

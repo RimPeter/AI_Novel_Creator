@@ -1,0 +1,47 @@
+{% extends "main/base.html" %}
+
+{% block title %}Company Details | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Billing admin</span>
+          <h1 class="page-title">Company details</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Back to billing</a>
+        </div>
+      </div>
+      <p class="page-lead">These company details are used for every downloadable invoice PDF.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="post" class="form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save company details</button>
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

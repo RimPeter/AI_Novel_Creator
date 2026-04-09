@@ -4,7 +4,7 @@ import json
 from allauth.account.forms import RequestLoginCodeForm, ResetPasswordForm
 
 from .location_hierarchy import build_location_label_map, collect_descendant_ids
-from .models import Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
+from .models import BillingInvoice, Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 from .signals import sync_legacy_account_emails
 
 STORY_BIBLE_PDF_MAX_BYTES = 5 * 1024 * 1024
@@ -199,6 +199,53 @@ class HomeUpdateForm(forms.ModelForm):
                     "placeholder": "Paste raw git text or technical notes here.",
                 }
             ),
+        }
+
+
+class BillingInvoiceForm(forms.ModelForm):
+    class Meta:
+        model = BillingInvoice
+        fields = [
+            "invoice_number",
+            "source_type",
+            "status",
+            "currency",
+            "issue_date",
+            "due_date",
+            "paid_at",
+            "seller_name",
+            "seller_email",
+            "seller_address",
+            "buyer_name",
+            "buyer_email",
+            "buyer_address",
+            "description",
+            "subtotal_amount",
+            "tax_amount",
+            "total_amount",
+            "amount_paid",
+            "notes",
+        ]
+        widgets = {
+            "invoice_number": forms.TextInput(attrs={"class": "form-control"}),
+            "source_type": forms.TextInput(attrs={"class": "form-control"}),
+            "status": forms.TextInput(attrs={"class": "form-control"}),
+            "currency": forms.TextInput(attrs={"class": "form-control"}),
+            "issue_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "due_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "paid_at": forms.DateTimeInput(attrs={"class": "form-control", "type": "datetime-local"}),
+            "seller_name": forms.TextInput(attrs={"class": "form-control"}),
+            "seller_email": forms.EmailInput(attrs={"class": "form-control"}),
+            "seller_address": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "buyer_name": forms.TextInput(attrs={"class": "form-control"}),
+            "buyer_email": forms.EmailInput(attrs={"class": "form-control"}),
+            "buyer_address": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "subtotal_amount": forms.NumberInput(attrs={"class": "form-control", "step": 1}),
+            "tax_amount": forms.NumberInput(attrs={"class": "form-control", "step": 1}),
+            "total_amount": forms.NumberInput(attrs={"class": "form-control", "step": 1}),
+            "amount_paid": forms.NumberInput(attrs={"class": "form-control", "step": 1}),
+            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
         }
 
 

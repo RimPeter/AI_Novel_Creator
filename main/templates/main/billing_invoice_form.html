@@ -1,0 +1,69 @@
+{% extends "main/base.html" %}
+
+{% block title %}Edit Invoice | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Billing admin</span>
+          <h1 class="page-title">Edit invoice {{ invoice.public_number }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Back to billing</a>
+          <a class="btn btn-secondary" href="{% url 'billing-invoice-pdf' invoice.pk %}">Download PDF</a>
+        </div>
+      </div>
+      <p class="page-lead">Adjust invoice details before customers download the PDF copy.</p>
+    </section>
+
+    <section class="card page-panel">
+      <div class="billing-invoice-summary">
+        <article class="billing-status-card">
+          <strong>User</strong>
+          <span>{{ invoice.user.username }}</span>
+        </article>
+        <article class="billing-status-card">
+          <strong>Total</strong>
+          <span>{{ invoice_total_display }}</span>
+        </article>
+        <article class="billing-status-card">
+          <strong>Stripe invoice</strong>
+          <span>{{ invoice.stripe_invoice_id|default:"None" }}</span>
+        </article>
+        <article class="billing-status-card">
+          <strong>Checkout session</strong>
+          <span>{{ invoice.stripe_checkout_session_id|default:"None" }}</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="card page-panel">
+      <form method="post" class="form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save invoice</button>
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

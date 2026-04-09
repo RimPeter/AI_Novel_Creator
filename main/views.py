@@ -1,5 +1,6 @@
 import json
 import re
+import textwrap
 from collections import defaultdict
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -13,7 +14,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.utils import OperationalError, ProgrammingError
 from django.db import transaction
 from django.db.models import Count, Max, Q, ProtectedError, Sum
-from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -26,6 +27,8 @@ from .billing import (
     billing_enabled,
     create_billing_portal_session,
     create_checkout_session,
+    format_minor_amount,
+    get_billing_invoice_displays,
     get_price_options,
     get_subscription_display,
     sync_checkout_session,
@@ -34,6 +37,7 @@ from .billing import (
     construct_webhook_event,
 )
 from .forms import (
+    BillingInvoiceForm,
     CharacterForm,
     HomeUpdateForm,
     LocationForm,
@@ -44,7 +48,7 @@ from .forms import (
     StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
+from .models import BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
@@ -1530,6 +1534,7 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["billing_enabled"] = billing_enabled()
         ctx["price_options"] = get_price_options()
+        ctx["invoices"] = get_billing_invoice_displays(self.request.user)
         ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
         ctx["checkout_session_id"] = (self.request.GET.get("session_id") or "").strip()
         ctx["checkout_sync_error"] = ""
@@ -1622,6 +1627,104 @@ def stripe_webhook(request):
 
     process_webhook_event(event)
     return JsonResponse({"ok": True})
+
+
+def _get_billing_invoice_for_request(request, pk) -> BillingInvoice:
+    queryset = BillingInvoice.objects.select_related("user", "subscription_record")
+    if request.user.is_superuser:
+        return get_object_or_404(queryset, pk=pk)
+    return get_object_or_404(queryset, pk=pk, user=request.user)
+
+
+def _escape_pdf_text(value: str) -> str:
+    return str(value or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _build_simple_pdf(lines: list[str]) -> bytes:
+    wrapped_lines: list[str] = []
+    for raw_line in lines:
+        text = str(raw_line or "").strip()
+        if not text:
+            wrapped_lines.append("")
+            continue
+        wrapped_lines.extend(textwrap.wrap(text, width=88) or [""])
+    wrapped_lines = wrapped_lines[:52]
+
+    content_lines = [
+        "BT",
+        "/F1 12 Tf",
+        "50 790 Td",
+        "14 TL",
+    ]
+    for index, line in enumerate(wrapped_lines):
+        if index:
+            content_lines.append("T*")
+        content_lines.append(f"({_escape_pdf_text(line)}) Tj")
+    content_lines.append("ET")
+    stream = "\n".join(content_lines).encode("latin-1", "replace")
+
+    objects = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+        f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
+    ]
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
+
+
+def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
+    lines = [
+        f"Invoice {invoice.public_number}",
+        "",
+        f"Status: {invoice.status or 'draft'}",
+        f"Issue date: {invoice.issue_date.isoformat() if invoice.issue_date else ''}",
+        f"Due date: {invoice.due_date.isoformat() if invoice.due_date else 'N/A'}",
+        f"Paid at: {timezone.localtime(invoice.paid_at).strftime('%Y-%m-%d %H:%M UTC') if invoice.paid_at else 'N/A'}",
+        "",
+        f"Seller: {invoice.seller_name}",
+        invoice.seller_email,
+        invoice.seller_address,
+        "",
+        f"Bill to: {invoice.buyer_name or invoice.user.get_username()}",
+        invoice.buyer_email,
+        invoice.buyer_address,
+        "",
+        "Description:",
+        invoice.description or "Billing invoice",
+        "",
+        f"Subtotal: {format_minor_amount(invoice.subtotal_amount, invoice.currency)}",
+        f"Tax: {format_minor_amount(invoice.tax_amount, invoice.currency)}",
+        f"Total: {format_minor_amount(invoice.total_amount, invoice.currency)}",
+        f"Paid: {format_minor_amount(invoice.amount_paid, invoice.currency)}",
+        f"Due: {format_minor_amount(invoice.amount_due, invoice.currency)}",
+    ]
+    if invoice.notes:
+        lines.extend(["", "Notes:", invoice.notes])
+    return _build_simple_pdf(lines)
+
+
+@login_required
+def download_billing_invoice_pdf(request, pk):
+    invoice = _get_billing_invoice_for_request(request, pk)
+    response = HttpResponse(_build_invoice_pdf(invoice), content_type="application/pdf")
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", invoice.public_number or "invoice").strip("-") or "invoice"
+    response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+    return response
 
 
 @require_POST
@@ -2956,6 +3059,28 @@ class SuperuserRequiredMixin(UserPassesTestMixin):
 
     def test_func(self):
         return bool(self.request.user.is_authenticated and self.request.user.is_superuser)
+
+
+class BillingInvoiceUpdateView(LoginRequiredMixin, SuperuserRequiredMixin, UpdateView):
+    model = BillingInvoice
+    form_class = BillingInvoiceForm
+    template_name = "main/billing_invoice_form.html"
+
+    def get_queryset(self):
+        return BillingInvoice.objects.select_related("user", "subscription_record")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Invoice saved.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["invoice"] = self.object
+        ctx["invoice_total_display"] = format_minor_amount(self.object.total_amount, self.object.currency)
+        return ctx
+
+    def get_success_url(self):
+        return reverse_lazy("billing")
 
 
 class HomeUpdateCreateView(LoginRequiredMixin, SuperuserRequiredMixin, CreateView):

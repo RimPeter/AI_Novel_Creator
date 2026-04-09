@@ -1109,6 +1109,49 @@ ul {
   margin-top: 14px;
 }
 
+.billing-invoice-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.billing-invoice-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at top right, rgba(120, 169, 255, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.04);
+}
+
+.billing-invoice-meta {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.billing-invoice-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .billing-invoice-card {
+    flex-direction: column;
+  }
+
+  .billing-invoice-meta {
+    justify-items: start;
+    min-width: 0;
+  }
+}
+
 .page-stack {
   display: grid;
   gap: 18px;

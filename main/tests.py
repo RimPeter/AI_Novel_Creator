@@ -18,6 +18,7 @@ from urllib.parse import quote
 from .billing import process_webhook_event, sync_subscription_record
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
+    BillingInvoice,
     Character,
     GenerationRun,
     HomeUpdate,
@@ -405,6 +406,25 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Choose One month pass")
         self.assertContains(resp, "Choose One week trial")
 
+    def test_billing_page_lists_invoices(self):
+        invoice = BillingInvoice.objects.create(
+            user=self.user,
+            invoice_number="INV-1001",
+            status="paid",
+            currency="GBP",
+            description="Monthly subscription",
+            subtotal_amount=1500,
+            total_amount=1500,
+            amount_paid=1500,
+        )
+
+        resp = self.client.get(reverse("billing"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Invoices")
+        self.assertContains(resp, "INV-1001")
+        self.assertContains(resp, reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
+
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
     def test_billing_page_syncs_successful_checkout_session(self, mock_sync_checkout, mock_get_subscription_display):
@@ -499,6 +519,97 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://billing.stripe.test/session_123")
         self.assertEqual(mock_create_portal.call_args.kwargs["user"], self.user)
+
+    def test_invoice_pdf_download_returns_pdf(self):
+        invoice = BillingInvoice.objects.create(
+            user=self.user,
+            invoice_number="INV-2002",
+            status="paid",
+            currency="GBP",
+            description="Yearly subscription",
+            subtotal_amount=10000,
+            total_amount=10000,
+            amount_paid=10000,
+        )
+
+        resp = self.client.get(reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertIn("INV-2002.pdf", resp["Content-Disposition"])
+        self.assertTrue(resp.content.startswith(b"%PDF-"))
+
+    def test_invoice_pdf_download_is_scoped_to_owner(self):
+        other_user = get_user_model().objects.create_user(
+            username="otherbillinguser",
+            email="otherbillinguser@example.com",
+            password="password123",
+        )
+        invoice = BillingInvoice.objects.create(
+            user=other_user,
+            invoice_number="INV-OTHER",
+            status="paid",
+            total_amount=500,
+            amount_paid=500,
+        )
+
+        resp = self.client.get(reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
+
+        self.assertEqual(resp.status_code, 404)
+
+    def test_superuser_can_edit_invoice(self):
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_superuser", "is_staff"])
+        invoice = BillingInvoice.objects.create(
+            user=self.user,
+            invoice_number="INV-EDIT",
+            status="draft",
+            total_amount=500,
+            amount_paid=0,
+        )
+
+        resp = self.client.post(
+            reverse("billing-invoice-edit", kwargs={"pk": invoice.pk}),
+            data={
+                "invoice_number": "INV-EDIT",
+                "source_type": "manual",
+                "status": "paid",
+                "currency": "GBP",
+                "issue_date": "2026-04-09",
+                "due_date": "",
+                "paid_at": "",
+                "seller_name": "AI Novel Creator",
+                "seller_email": "billing@example.com",
+                "seller_address": "1 Admin Street",
+                "buyer_name": "Tester",
+                "buyer_email": "tester@example.com",
+                "buyer_address": "2 User Road",
+                "description": "Edited invoice description",
+                "subtotal_amount": "500",
+                "tax_amount": "0",
+                "total_amount": "500",
+                "amount_paid": "500",
+                "notes": "Updated by admin",
+            },
+        )
+
+        self.assertEqual(resp.status_code, 302)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, "paid")
+        self.assertEqual(invoice.description, "Edited invoice description")
+        self.assertEqual(invoice.buyer_address, "2 User Road")
+
+    def test_regular_user_cannot_edit_invoice(self):
+        invoice = BillingInvoice.objects.create(
+            user=self.user,
+            invoice_number="INV-LOCKED",
+            status="draft",
+        )
+
+        resp = self.client.get(reverse("billing-invoice-edit", kwargs={"pk": invoice.pk}))
+
+        self.assertEqual(resp.status_code, 403)
 
     def test_generation_endpoint_requires_subscription_when_billing_enabled(self):
         resp = self.client.post(
@@ -599,6 +710,60 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(process_webhook_event(event))
         self.assertFalse(process_webhook_event(event))
         self.assertEqual(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").count(), 1)
+
+    @patch("main.billing.stripe.Subscription.retrieve")
+    def test_invoice_webhook_creates_invoice_record(self, mock_retrieve):
+        UserSubscription.objects.create(
+            user=self.user,
+            stripe_customer_id="cus_123",
+            stripe_subscription_id="sub_123",
+            status="active",
+        )
+        mock_retrieve.return_value = {
+            "id": "sub_123",
+            "customer": "cus_123",
+            "status": "active",
+            "cancel_at_period_end": False,
+            "current_period_start": 1735689600,
+            "current_period_end": 1738368000,
+            "trial_end": None,
+            "items": {"data": [{"price": {"id": "price_monthly_123", "product": "prod_123", "recurring": {"interval": "month"}}}]},
+        }
+
+        created = process_webhook_event(
+            {
+                "id": "evt_invoice_123",
+                "type": "invoice.paid",
+                "data": {
+                    "object": {
+                        "id": "in_123",
+                        "subscription": "sub_123",
+                        "customer": "cus_123",
+                        "number": "INV-STRIPE-1",
+                        "status": "paid",
+                        "currency": "gbp",
+                        "created": 1735689600,
+                        "subtotal": 1500,
+                        "tax": 0,
+                        "total": 1500,
+                        "amount_paid": 1500,
+                        "customer_details": {
+                            "name": "Test Buyer",
+                            "email": "tester@example.com",
+                            "address": {"line1": "1 Test Street", "country": "GB"},
+                        },
+                        "lines": {"data": [{"description": "Monthly subscription"}]},
+                    }
+                },
+            }
+        )
+
+        self.assertTrue(created)
+        invoice = BillingInvoice.objects.get(user=self.user, stripe_invoice_id="in_123")
+        self.assertEqual(invoice.invoice_number, "INV-STRIPE-1")
+        self.assertEqual(invoice.status, "paid")
+        self.assertEqual(invoice.total_amount, 1500)
+        self.assertEqual(invoice.description, "Monthly subscription")
 
     def test_sync_subscription_record_accepts_dict_shaped_items_data(self):
         record = sync_subscription_record(
@@ -701,6 +866,10 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(record.cancel_at_period_end)
         self.assertEqual(record.current_period_end - record.current_period_start, timedelta(days=30))
         self.assertTrue(record.is_active)
+        invoice = BillingInvoice.objects.get(user=self.user, stripe_checkout_session_id="cs_payment_123")
+        self.assertEqual(invoice.status, "paid")
+        self.assertEqual(invoice.total_amount, 0)
+        self.assertEqual(invoice.description, "One month pass")
 
 
 class StoryBibleUploadTests(AuthenticatedTestCase):

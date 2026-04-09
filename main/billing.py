@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .models import ProcessedStripeEvent, UserSubscription
+from .models import BillingInvoice, ProcessedStripeEvent, UserSubscription
 
 
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
@@ -125,6 +125,37 @@ def get_subscription_display(user) -> dict[str, Any]:
     }
 
 
+def format_minor_amount(amount: int, currency: str = "GBP") -> str:
+    amount = int(amount or 0)
+    currency_code = str(currency or "GBP").upper()
+    sign = "-" if amount < 0 else ""
+    major = abs(amount) / 100
+    return f"{sign}{currency_code} {major:.2f}"
+
+
+def get_billing_invoices(user):
+    if not getattr(user, "is_authenticated", False):
+        return BillingInvoice.objects.none()
+    return BillingInvoice.objects.filter(user=user).select_related("subscription_record")
+
+
+def get_billing_invoice_displays(user) -> list[dict[str, Any]]:
+    invoices = []
+    for invoice in get_billing_invoices(user):
+        invoices.append(
+            {
+                "object": invoice,
+                "number": invoice.public_number,
+                "status": invoice.status or "draft",
+                "issue_date": invoice.issue_date,
+                "total_display": format_minor_amount(invoice.total_amount, invoice.currency),
+                "paid_display": format_minor_amount(invoice.amount_paid, invoice.currency),
+                "due_display": format_minor_amount(invoice.amount_due, invoice.currency),
+            }
+        )
+    return invoices
+
+
 def _set_stripe_api_key() -> None:
     stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", "")
 
@@ -170,6 +201,183 @@ def _timestamp_to_datetime(value) -> timezone.datetime | None:
         return timezone.datetime.fromtimestamp(int(value), tz=timezone.utc)
     except Exception:
         return None
+
+
+def _timestamp_to_date(value):
+    dt = _timestamp_to_datetime(value)
+    if dt is None:
+        return None
+    return timezone.localtime(dt).date()
+
+
+def _clean_invoice_number(value: str, *, fallback_prefix: str, fallback_key: str) -> str:
+    cleaned = str(value or "").strip()
+    if cleaned:
+        return cleaned
+    fallback_key = str(fallback_key or "").strip()
+    if not fallback_key:
+        return ""
+    compact = fallback_key.replace("cs_", "").replace("in_", "").replace("-", "").upper()[:12]
+    return f"{fallback_prefix}-{compact}"
+
+
+def _coerce_amount(value) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _collapse_invoice_lines(lines_value) -> str:
+    lines_dict = _as_dict(lines_value)
+    items = _get_nested_value(lines_dict, "data", []) or []
+    if isinstance(items, dict):
+        items = list(items.values())
+    descriptions: list[str] = []
+    for item in items if isinstance(items, (list, tuple)) else []:
+        item_dict = _as_dict(item)
+        description = str(item_dict.get("description") or "").strip()
+        if description and description not in descriptions:
+            descriptions.append(description)
+    return "\n".join(descriptions).strip()
+
+
+def _normalize_address(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "\n".join(str(item).strip() for item in value if str(item).strip()).strip()
+    if isinstance(value, dict):
+        ordered = []
+        for key in ("line1", "line2", "city", "state", "postal_code", "country"):
+            part = str(value.get(key) or "").strip()
+            if part:
+                ordered.append(part)
+        return "\n".join(ordered).strip()
+    return ""
+
+
+def _upsert_invoice_record(
+    *,
+    user,
+    source_type: str,
+    stripe_invoice_id: str = "",
+    stripe_checkout_session_id: str = "",
+    payload: dict[str, Any],
+    fallback_number_prefix: str,
+    fallback_description: str = "",
+    fallback_status: str = "",
+    fallback_currency: str = "GBP",
+    fallback_issue_date=None,
+    fallback_paid_at=None,
+    subscription_record: UserSubscription | None = None,
+) -> BillingInvoice:
+    invoice = None
+    if stripe_invoice_id:
+        invoice = BillingInvoice.objects.filter(stripe_invoice_id=stripe_invoice_id).first()
+    if invoice is None and stripe_checkout_session_id:
+        invoice = BillingInvoice.objects.filter(stripe_checkout_session_id=stripe_checkout_session_id).first()
+    if invoice is None:
+        invoice = BillingInvoice(user=user)
+
+    payload = payload or {}
+    customer_details = _as_dict(payload.get("customer_details"))
+    billing_reason = str(payload.get("billing_reason") or "").strip()
+    created_issue_date = _timestamp_to_date(payload.get("created"))
+    due_date = _timestamp_to_date(payload.get("due_date"))
+    status_transitions = _as_dict(payload.get("status_transitions"))
+    paid_at = _timestamp_to_datetime(status_transitions.get("paid_at")) or fallback_paid_at
+    description = str(payload.get("description") or "").strip() or _collapse_invoice_lines(payload.get("lines"))
+    if not description:
+        description = fallback_description
+
+    total_amount_value = payload.get("total") if "total" in payload else payload.get("amount_total")
+    subtotal_amount_value = payload.get("subtotal") if "subtotal" in payload else payload.get("amount_subtotal")
+    tax_amount_value = payload.get("tax")
+    amount_paid_value = payload.get("amount_paid") if "amount_paid" in payload else payload.get("amount_total")
+
+    invoice.user = user
+    invoice.subscription_record = subscription_record or get_subscription_record(user)
+    invoice.stripe_invoice_id = stripe_invoice_id or invoice.stripe_invoice_id
+    invoice.stripe_checkout_session_id = stripe_checkout_session_id or invoice.stripe_checkout_session_id
+    invoice.source_type = source_type or invoice.source_type
+    invoice.status = str(payload.get("status") or fallback_status or invoice.status or "").strip()
+    invoice.currency = str(payload.get("currency") or fallback_currency or invoice.currency or "GBP").upper()
+    invoice.issue_date = created_issue_date or fallback_issue_date or invoice.issue_date or timezone.localdate()
+    invoice.due_date = due_date or invoice.due_date
+    invoice.paid_at = paid_at or invoice.paid_at
+    if not invoice.invoice_number:
+        invoice.invoice_number = _clean_invoice_number(
+            str(payload.get("number") or ""),
+            fallback_prefix=fallback_number_prefix,
+            fallback_key=stripe_invoice_id or stripe_checkout_session_id,
+        )
+    if not invoice.seller_name:
+        invoice.seller_name = str(getattr(settings, "SITE_NAME", "") or "AI Novel Creator").strip() or "AI Novel Creator"
+    if not invoice.seller_email:
+        invoice.seller_email = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
+    if not invoice.buyer_name:
+        invoice.buyer_name = str(customer_details.get("name") or getattr(user, "get_username", lambda: "")() or "").strip()
+    if not invoice.buyer_email:
+        invoice.buyer_email = str(customer_details.get("email") or getattr(user, "email", "") or "").strip()
+    if not invoice.buyer_address:
+        invoice.buyer_address = _normalize_address(customer_details.get("address"))
+    if not invoice.description:
+        invoice.description = description
+    invoice.subtotal_amount = _coerce_amount(subtotal_amount_value)
+    invoice.tax_amount = _coerce_amount(tax_amount_value)
+    invoice.total_amount = _coerce_amount(total_amount_value)
+    invoice.amount_paid = _coerce_amount(amount_paid_value)
+    invoice.notes = invoice.notes or billing_reason
+    invoice.raw_data = payload
+    invoice.save()
+    return invoice
+
+
+def _sync_checkout_invoice(
+    *,
+    user,
+    session: dict[str, Any],
+    checkout_session_id: str,
+    option: dict[str, str] | None = None,
+) -> BillingInvoice | None:
+    payment_status = str(session.get("payment_status") or "").strip().lower()
+    if payment_status not in {"paid", "no_payment_required"}:
+        return None
+    if option is None:
+        metadata = session.get("metadata") or {}
+        option = get_price_option(str(metadata.get("plan_key") or "").strip())
+        if not option:
+            option = get_price_option_by_price_id(str(metadata.get("price_id") or "").strip())
+    if not option:
+        return None
+
+    amount_total = _coerce_amount(session.get("amount_total"))
+    amount_subtotal = _coerce_amount(session.get("amount_subtotal") or amount_total)
+    payload = {
+        "number": "",
+        "status": "paid",
+        "currency": str(session.get("currency") or "GBP").upper(),
+        "created": session.get("created"),
+        "amount_total": amount_total,
+        "subtotal": amount_subtotal,
+        "tax": _coerce_amount(session.get("total_details", {}).get("amount_tax") if isinstance(session.get("total_details"), dict) else 0),
+        "amount_paid": amount_total,
+        "description": option.get("label") or option.get("description") or "Billing invoice",
+        "customer_details": _as_dict(session.get("customer_details")),
+    }
+    return _upsert_invoice_record(
+        user=user,
+        source_type="checkout_session",
+        stripe_checkout_session_id=checkout_session_id,
+        payload=payload,
+        fallback_number_prefix="CHK",
+        fallback_description=option.get("description") or option.get("label") or "Billing invoice",
+        fallback_status="paid",
+        fallback_currency=str(session.get("currency") or "GBP"),
+        fallback_issue_date=_timestamp_to_date(session.get("created")) or timezone.localdate(),
+        fallback_paid_at=_timestamp_to_datetime(session.get("created")),
+    )
 
 
 def ensure_stripe_customer(user) -> tuple[UserSubscription, str]:
@@ -283,6 +491,12 @@ def _sync_timeboxed_access_record(
     record.last_checkout_session_id = checkout_session_id
     record.raw_data = session
     record.save()
+    _sync_checkout_invoice(
+        user=user,
+        session=session,
+        checkout_session_id=checkout_session_id,
+        option=option,
+    )
     return record
 
 
@@ -438,15 +652,29 @@ def handle_subscription_event(subscription: dict[str, Any]) -> None:
 def handle_invoice_event(invoice: dict[str, Any]) -> None:
     _set_stripe_api_key()
     invoice_dict = _as_dict(invoice)
+    stripe_invoice_id = str(invoice_dict.get("id") or "").strip()
     subscription_id = str(invoice_dict.get("subscription") or "").strip()
     customer_id = str(invoice_dict.get("customer") or "").strip()
-    if not subscription_id:
-        return
     user = _resolve_user(customer_id=customer_id, metadata=invoice_dict.get("metadata") or {})
     if user is None:
         return
-    subscription = stripe.Subscription.retrieve(subscription_id)
-    sync_subscription_record(user=user, subscription=subscription)
+    subscription_record = get_subscription_record(user)
+    if subscription_id:
+        subscription = stripe.Subscription.retrieve(subscription_id)
+        subscription_record = sync_subscription_record(user=user, subscription=subscription)
+    _upsert_invoice_record(
+        user=user,
+        source_type="stripe_invoice",
+        stripe_invoice_id=stripe_invoice_id,
+        stripe_checkout_session_id=str(invoice_dict.get("parent", {}).get("invoice_item_details", {}).get("invoice") or ""),
+        payload=invoice_dict,
+        fallback_number_prefix="INV",
+        fallback_description="Stripe invoice",
+        fallback_status=str(invoice_dict.get("status") or "").strip(),
+        fallback_currency=str(invoice_dict.get("currency") or "GBP"),
+        fallback_issue_date=_timestamp_to_date(invoice_dict.get("created")) or timezone.localdate(),
+        subscription_record=subscription_record,
+    )
 
 
 def process_webhook_event(event) -> bool:

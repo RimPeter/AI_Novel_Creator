@@ -64,6 +64,39 @@
       {% endif %}
     </section>
 
+    <section class="card page-panel">
+      <div class="header-row">
+        <div>
+          <h2 class="page-panel-title">Invoices</h2>
+          <p class="muted">Download a PDF copy of each invoice. Superusers can edit invoice details before exporting.</p>
+        </div>
+      </div>
+      {% if invoices %}
+        <div class="billing-invoice-list">
+          {% for invoice in invoices %}
+            <article class="billing-invoice-card">
+              <div>
+                <strong>{{ invoice.number }}</strong>
+                <div class="muted">{{ invoice.issue_date|date:"Y-m-d" }} • {{ invoice.status|title }}</div>
+                <div class="muted">{{ invoice.object.description|default:"Billing invoice" }}</div>
+              </div>
+              <div class="billing-invoice-meta">
+                <strong>{{ invoice.total_display }}</strong>
+                <div class="actions">
+                  <a class="btn btn-secondary btn-sm" href="{% url 'billing-invoice-pdf' invoice.object.pk %}">Download PDF</a>
+                  {% if user.is_superuser %}
+                    <a class="btn btn-secondary btn-sm" href="{% url 'billing-invoice-edit' invoice.object.pk %}">Edit invoice</a>
+                  {% endif %}
+                </div>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No invoices yet. Completed payments will appear here.</p>
+      {% endif %}
+    </section>
+
     {% if billing_enabled %}
       <section class="card page-panel">
         <div class="header-row">

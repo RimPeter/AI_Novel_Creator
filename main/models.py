@@ -403,6 +403,72 @@ class UserSubscription(TimeStampedModel):
         return f"Subscription for {self.user}"
 
 
+def default_invoice_seller_name() -> str:
+    return str(getattr(settings, "SITE_NAME", "") or "AI Novel Creator").strip() or "AI Novel Creator"
+
+
+def default_invoice_seller_email() -> str:
+    default_from = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
+    if "<" in default_from and ">" in default_from:
+        start = default_from.find("<") + 1
+        end = default_from.find(">", start)
+        if end > start:
+            return default_from[start:end].strip()
+    return default_from
+
+
+class BillingInvoice(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="billing_invoices",
+    )
+    subscription_record = models.ForeignKey(
+        UserSubscription,
+        on_delete=models.SET_NULL,
+        related_name="invoices",
+        blank=True,
+        null=True,
+    )
+    stripe_invoice_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    invoice_number = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    source_type = models.CharField(max_length=40, blank=True, default="")
+    status = models.CharField(max_length=40, blank=True, default="")
+    currency = models.CharField(max_length=12, blank=True, default="GBP")
+    issue_date = models.DateField(default=timezone.localdate)
+    due_date = models.DateField(blank=True, null=True)
+    paid_at = models.DateTimeField(blank=True, null=True)
+    seller_name = models.CharField(max_length=255, blank=True, default=default_invoice_seller_name)
+    seller_email = models.CharField(max_length=255, blank=True, default=default_invoice_seller_email)
+    seller_address = models.TextField(blank=True, default="")
+    buyer_name = models.CharField(max_length=255, blank=True, default="")
+    buyer_email = models.CharField(max_length=255, blank=True, default="")
+    buyer_address = models.TextField(blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    subtotal_amount = models.IntegerField(default=0)
+    tax_amount = models.IntegerField(default=0)
+    total_amount = models.IntegerField(default=0)
+    amount_paid = models.IntegerField(default=0)
+    notes = models.TextField(blank=True, default="")
+    raw_data = models.JSONField(blank=True, default=dict)
+
+    class Meta:
+        ordering = ["-issue_date", "-created_at"]
+
+    @property
+    def public_number(self) -> str:
+        return (self.invoice_number or self.stripe_invoice_id or str(self.pk)).strip()
+
+    @property
+    def amount_due(self) -> int:
+        return max(int(self.total_amount or 0) - int(self.amount_paid or 0), 0)
+
+    def __str__(self) -> str:
+        return f"Invoice {self.public_number} for {self.user}"
+
+
 class ProcessedStripeEvent(TimeStampedModel):
     stripe_event_id = models.CharField(max_length=255, unique=True)
     event_type = models.CharField(max_length=120, blank=True, default="")

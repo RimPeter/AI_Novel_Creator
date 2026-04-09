@@ -393,7 +393,11 @@ class UserSubscription(TimeStampedModel):
 
     @property
     def is_active(self) -> bool:
-        return self.status in {"active", "trialing"}
+        if self.status not in {"active", "trialing"}:
+            return False
+        if self.current_period_end and self.current_period_end <= timezone.now():
+            return False
+        return True
 
     def __str__(self) -> str:
         return f"Subscription for {self.user}"

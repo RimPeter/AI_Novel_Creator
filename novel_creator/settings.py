@@ -37,14 +37,26 @@ def env_list(name, default=None):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def env_str(name, default=""):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    cleaned = value.strip()
+    if cleaned.lower() in {"", "none", "null", "undefined"}:
+        return default
+    return cleaned
+
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 RUNNING_TESTS = "test" in sys.argv
-STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "").strip()
-STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
-STRIPE_PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_MONTHLY", "").strip()
-STRIPE_PRICE_YEARLY = os.environ.get("STRIPE_PRICE_YEARLY", "").strip()
+STRIPE_PUBLISHABLE_KEY = env_str("STRIPE_PUBLISHABLE_KEY")
+STRIPE_SECRET_KEY = env_str("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = env_str("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_MONTHLY = env_str("STRIPE_PRICE_MONTHLY")
+STRIPE_PRICE_YEARLY = env_str("STRIPE_PRICE_YEARLY")
+STRIPE_PRICE_SINGLE_MONTH = env_str("STRIPE_PRICE_SINGLE_MONTH")
+STRIPE_PRICE_TRIAL_WEEK = env_str("STRIPE_PRICE_TRIAL_WEEK")
 STRIPE_BILLING_ENABLED = all(
     [
         STRIPE_PUBLISHABLE_KEY,
@@ -52,6 +64,8 @@ STRIPE_BILLING_ENABLED = all(
         STRIPE_WEBHOOK_SECRET,
         STRIPE_PRICE_MONTHLY,
         STRIPE_PRICE_YEARLY,
+        STRIPE_PRICE_SINGLE_MONTH,
+        STRIPE_PRICE_TRIAL_WEEK,
     ]
 )
 if RUNNING_TESTS:

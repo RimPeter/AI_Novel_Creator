@@ -8,7 +8,7 @@ For account emails, set `SITE_DOMAIN` and `SITE_NAME` so confirmation and recove
 
 ## Stripe Billing
 
-The app already includes hosted Stripe Checkout, the Stripe customer portal, webhook processing, and subscription gating for AI features.
+The app already includes hosted Stripe Checkout, the Stripe customer portal, webhook processing, and billing gating for AI features.
 
 Required environment variables:
 
@@ -17,6 +17,17 @@ Required environment variables:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_MONTHLY`
 - `STRIPE_PRICE_YEARLY`
+- `STRIPE_PRICE_SINGLE_MONTH`
+- `STRIPE_PRICE_TRIAL_WEEK`
+
+Use a real `whsec_...` value for `STRIPE_WEBHOOK_SECRET`. Placeholder strings such as `NONE`, `null`, or `undefined` are treated as unset and will keep billing disabled.
+
+Configured plans:
+
+- Monthly subscription: `£15`
+- Yearly subscription: `£100`
+- One month pass: `£20`
+- One week trial: `£5`
 
 Routes:
 

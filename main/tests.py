@@ -1,10 +1,11 @@
 import json
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
+from stripe._stripe_object import StripeObject
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -14,7 +15,7 @@ from django.utils import timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
-from .billing import process_webhook_event
+from .billing import process_webhook_event, sync_subscription_record
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
     Character,
@@ -380,6 +381,8 @@ class LLMTests(TestCase):
     STRIPE_WEBHOOK_SECRET="whsec_test_123",
     STRIPE_PRICE_MONTHLY="price_monthly_123",
     STRIPE_PRICE_YEARLY="price_yearly_123",
+    STRIPE_PRICE_SINGLE_MONTH="price_single_month_123",
+    STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
     STRIPE_BILLING_ENABLED=True,
 )
 class BillingTests(AuthenticatedTestCase):
@@ -397,8 +400,10 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Billing")
-        self.assertContains(resp, "Choose Monthly")
-        self.assertContains(resp, "Choose Yearly")
+        self.assertContains(resp, "Choose Monthly subscription")
+        self.assertContains(resp, "Choose Yearly subscription")
+        self.assertContains(resp, "Choose One month pass")
+        self.assertContains(resp, "Choose One week trial")
 
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
@@ -417,6 +422,42 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 200)
         mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
 
+    @patch("main.views.get_subscription_display")
+    @patch("main.views.sync_checkout_session", side_effect=KeyError(0))
+    def test_billing_page_shows_exception_type_for_sync_failure(self, mock_sync_checkout, mock_get_subscription_display):
+        mock_get_subscription_display.return_value = {
+            "has_subscription": False,
+            "is_active": False,
+            "status": "inactive",
+            "plan_label": "",
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+        }
+
+        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=cs_test_123")
+
+        self.assertEqual(resp.status_code, 200)
+        mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
+        self.assertContains(resp, "Error: KeyError: 0")
+
+    @patch("main.views.get_subscription_display")
+    @patch("main.views.sync_checkout_session")
+    def test_billing_page_skips_placeholder_checkout_session(self, mock_sync_checkout, mock_get_subscription_display):
+        mock_get_subscription_display.return_value = {
+            "has_subscription": False,
+            "is_active": False,
+            "status": "inactive",
+            "plan_label": "",
+            "current_period_end": None,
+            "cancel_at_period_end": False,
+        }
+
+        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=%7BCHECKOUT_SESSION_ID%7D")
+
+        self.assertEqual(resp.status_code, 200)
+        mock_sync_checkout.assert_not_called()
+        self.assertContains(resp, "Stripe did not return a usable session id in the redirect.")
+
     @patch("main.views.create_checkout_session")
     def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
         mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
@@ -425,10 +466,23 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
-        self.assertEqual(mock_create_session.call_args.kwargs["price_id"], "price_monthly_123")
+        self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "monthly")
+        self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_monthly_123")
         self.assertEqual(mock_create_session.call_args.kwargs["user"], self.user)
         self.assertIn("checkout=success", mock_create_session.call_args.kwargs["success_url"])
-        self.assertIn("session_id=%7BCHECKOUT_SESSION_ID%7D", mock_create_session.call_args.kwargs["success_url"])
+        self.assertIn("session_id={CHECKOUT_SESSION_ID}", mock_create_session.call_args.kwargs["success_url"])
+        self.assertNotIn("%7BCHECKOUT_SESSION_ID%7D", mock_create_session.call_args.kwargs["success_url"])
+
+    @patch("main.views.create_checkout_session")
+    def test_one_time_checkout_redirects_to_stripe_checkout(self, mock_create_session):
+        mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_456")
+
+        resp = self.client.post(reverse("billing-checkout"), data={"plan": "single_month"})
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_456")
+        self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "single_month")
+        self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_single_month_123")
 
     @patch("main.views.create_billing_portal_session")
     def test_portal_redirects_to_stripe_portal(self, mock_create_portal):
@@ -545,6 +599,108 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(process_webhook_event(event))
         self.assertFalse(process_webhook_event(event))
         self.assertEqual(ProcessedStripeEvent.objects.filter(stripe_event_id="evt_123").count(), 1)
+
+    def test_sync_subscription_record_accepts_dict_shaped_items_data(self):
+        record = sync_subscription_record(
+            user=self.user,
+            subscription={
+                "id": "sub_123",
+                "customer": "cus_123",
+                "status": "active",
+                "cancel_at_period_end": False,
+                "current_period_start": 1735689600,
+                "current_period_end": 1738368000,
+                "trial_end": None,
+                "items": {
+                    "data": {
+                        "primary": {
+                            "price": {
+                                "id": "price_monthly_123",
+                                "product": "prod_123",
+                                "recurring": {"interval": "month"},
+                            }
+                        }
+                    }
+                },
+            },
+            checkout_session_id="cs_123",
+        )
+
+        self.assertEqual(record.stripe_customer_id, "cus_123")
+        self.assertEqual(record.stripe_subscription_id, "sub_123")
+        self.assertEqual(record.stripe_price_id, "price_monthly_123")
+        self.assertEqual(record.billing_interval, "month")
+
+    def test_sync_subscription_record_accepts_stripe_object(self):
+        subscription = StripeObject.construct_from(
+            {
+                "id": "sub_123",
+                "customer": "cus_123",
+                "status": "active",
+                "cancel_at_period_end": False,
+                "current_period_start": 1735689600,
+                "current_period_end": 1738368000,
+                "trial_end": None,
+                "items": {
+                    "data": [
+                        {
+                            "price": {
+                                "id": "price_monthly_123",
+                                "product": "prod_123",
+                                "recurring": {"interval": "month"},
+                            }
+                        }
+                    ]
+                },
+            },
+            "sk_test_123",
+        )
+
+        record = sync_subscription_record(
+            user=self.user,
+            subscription=subscription,
+            checkout_session_id="cs_123",
+        )
+
+        self.assertEqual(record.stripe_customer_id, "cus_123")
+        self.assertEqual(record.stripe_subscription_id, "sub_123")
+        self.assertEqual(record.stripe_price_id, "price_monthly_123")
+        self.assertEqual(record.billing_interval, "month")
+
+    def test_payment_checkout_webhook_grants_timeboxed_access(self):
+        created = process_webhook_event(
+            {
+                "id": "evt_payment_123",
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "id": "cs_payment_123",
+                        "created": 1735689600,
+                        "customer": "cus_123",
+                        "payment_status": "paid",
+                        "client_reference_id": str(self.user.id),
+                        "metadata": {
+                            "user_id": str(self.user.id),
+                            "plan_key": "single_month",
+                            "price_id": "price_single_month_123",
+                            "checkout_mode": "payment",
+                            "access_days": "30",
+                        },
+                    }
+                },
+            }
+        )
+
+        self.assertTrue(created)
+        record = UserSubscription.objects.get(user=self.user)
+        self.assertEqual(record.stripe_customer_id, "cus_123")
+        self.assertEqual(record.stripe_subscription_id, "")
+        self.assertEqual(record.stripe_price_id, "price_single_month_123")
+        self.assertEqual(record.billing_interval, "month")
+        self.assertEqual(record.status, "active")
+        self.assertTrue(record.cancel_at_period_end)
+        self.assertEqual(record.current_period_end - record.current_period_start, timedelta(days=30))
+        self.assertTrue(record.is_active)
 
 
 class StoryBibleUploadTests(AuthenticatedTestCase):

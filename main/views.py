@@ -53,6 +53,7 @@ from .llm import call_llm, generate_image_data_url
 STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS = 200_000
 STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS = 12_000
 STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
+STRIPE_CHECKOUT_SESSION_PLACEHOLDER = "{CHECKOUT_SESSION_ID}"
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
@@ -484,6 +485,20 @@ def _add_query_params(url: str, **params) -> str:
             continue
         query[k] = str(v)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, doseq=True), parts.fragment))
+
+
+def _is_stripe_checkout_session_placeholder(session_id: str) -> bool:
+    return str(session_id or "").strip() == STRIPE_CHECKOUT_SESSION_PLACEHOLDER
+
+
+def _build_stripe_checkout_success_url(request) -> str:
+    placeholder_token = "__stripe_checkout_session_id__"
+    success_path = _add_query_params(
+        reverse("billing"),
+        checkout="success",
+        session_id=placeholder_token,
+    )
+    return request.build_absolute_uri(success_path).replace(placeholder_token, STRIPE_CHECKOUT_SESSION_PLACEHOLDER)
 
 
 def _renumber_outline_for_project(project: NovelProject) -> None:
@@ -1518,18 +1533,25 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
         ctx["checkout_session_id"] = (self.request.GET.get("session_id") or "").strip()
         ctx["checkout_sync_error"] = ""
+        ctx["checkout_sync_notice"] = ""
         if (
             ctx["billing_enabled"]
             and ctx["checkout_status"] == "success"
             and ctx["checkout_session_id"]
         ):
-            try:
-                sync_checkout_session(
-                    user=self.request.user,
-                    session_id=ctx["checkout_session_id"],
+            if _is_stripe_checkout_session_placeholder(ctx["checkout_session_id"]):
+                ctx["checkout_sync_notice"] = (
+                    "Stripe did not return a usable session id in the redirect. "
+                    "Your account status will update shortly through the Stripe webhook."
                 )
-            except Exception as e:
-                ctx["checkout_sync_error"] = str(e)
+            else:
+                try:
+                    sync_checkout_session(
+                        user=self.request.user,
+                        session_id=ctx["checkout_session_id"],
+                    )
+                except Exception as e:
+                    ctx["checkout_sync_error"] = f"{type(e).__name__}: {e}"
         ctx["subscription"] = get_subscription_display(self.request.user)
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
@@ -1543,28 +1565,21 @@ def create_billing_checkout(request):
         return HttpResponseRedirect(reverse("billing"))
 
     if user_has_active_subscription(request.user):
-        messages.warning(request, "You already have an active subscription. Use Manage billing instead.")
+        messages.warning(request, "You already have active paid access. Use Manage billing for recurring plans.")
         return HttpResponseRedirect(reverse("billing"))
 
     plan = (request.POST.get("plan") or "").strip().lower()
-    price_by_plan = {option["key"]: option["price_id"] for option in get_price_options()}
-    price_id = price_by_plan.get(plan, "")
-    if not price_id:
+    option = next((item for item in get_price_options() if item["key"] == plan and item["price_id"]), None)
+    if option is None:
         messages.error(request, "Choose a valid billing plan.")
         return HttpResponseRedirect(reverse("billing"))
 
-    success_url = request.build_absolute_uri(
-        _add_query_params(
-            reverse("billing"),
-            checkout="success",
-            session_id="{CHECKOUT_SESSION_ID}",
-        )
-    )
+    success_url = _build_stripe_checkout_success_url(request)
     cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="cancelled"))
     try:
         session = create_checkout_session(
             user=request.user,
-            price_id=price_id,
+            option=option,
             success_url=success_url,
             cancel_url=cancel_url,
         )

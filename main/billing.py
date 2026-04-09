@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import stripe
@@ -21,17 +22,59 @@ def get_price_options() -> list[dict[str, str]]:
     return [
         {
             "key": "monthly",
-            "label": "Monthly",
+            "label": "Monthly subscription",
+            "price_display": "£15 / month",
             "interval": "month",
+            "checkout_mode": "subscription",
+            "description": "Recurring access billed every month.",
             "price_id": getattr(settings, "STRIPE_PRICE_MONTHLY", ""),
         },
         {
             "key": "yearly",
-            "label": "Yearly",
+            "label": "Yearly subscription",
+            "price_display": "£100 / year",
             "interval": "year",
+            "checkout_mode": "subscription",
+            "description": "Recurring access billed once per year.",
             "price_id": getattr(settings, "STRIPE_PRICE_YEARLY", ""),
         },
+        {
+            "key": "single_month",
+            "label": "One month pass",
+            "price_display": "£20 one-off",
+            "interval": "month",
+            "checkout_mode": "payment",
+            "description": "Single payment for 30 days of access.",
+            "access_days": "30",
+            "price_id": getattr(settings, "STRIPE_PRICE_SINGLE_MONTH", ""),
+        },
+        {
+            "key": "trial_week",
+            "label": "One week trial",
+            "price_display": "£5 one-off",
+            "interval": "week",
+            "checkout_mode": "payment",
+            "description": "Single payment for 7 days of access.",
+            "access_days": "7",
+            "price_id": getattr(settings, "STRIPE_PRICE_TRIAL_WEEK", ""),
+        },
     ]
+
+
+def get_price_option(plan_key: str) -> dict[str, str]:
+    plan_key = str(plan_key or "").strip().lower()
+    for option in get_price_options():
+        if option["key"] == plan_key:
+            return option
+    return {}
+
+
+def get_price_option_by_price_id(price_id: str) -> dict[str, str]:
+    price_id = str(price_id or "").strip()
+    for option in get_price_options():
+        if option["price_id"] == price_id:
+            return option
+    return {}
 
 
 def get_subscription_record(user) -> UserSubscription | None:
@@ -67,10 +110,13 @@ def get_subscription_display(user) -> dict[str, Any]:
             "cancel_at_period_end": False,
         }
 
+    option = get_price_option_by_price_id(record.stripe_price_id)
     interval = (record.billing_interval or "").strip().lower()
-    plan_label = "Monthly" if interval == "month" else "Yearly" if interval == "year" else ""
+    plan_label = option.get("label", "")
+    if not plan_label:
+        plan_label = "Monthly subscription" if interval == "month" else "Yearly subscription" if interval == "year" else ""
     return {
-        "has_subscription": bool(record.stripe_subscription_id or record.stripe_customer_id),
+        "has_subscription": bool(record.stripe_subscription_id),
         "is_active": record.is_active,
         "status": record.status,
         "plan_label": plan_label,
@@ -88,6 +134,8 @@ def _as_dict(value) -> dict[str, Any]:
         return {}
     if isinstance(value, dict):
         return value
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
     if hasattr(value, "model_dump"):
         return value.model_dump()
     return dict(value)
@@ -100,7 +148,15 @@ def _get_nested_value(value, key: str, default=None):
 
 
 def _get_first_price(subscription: dict[str, Any]) -> dict[str, Any]:
-    items = (_get_nested_value(subscription, "items", {}) or {}).get("data", [])
+    items_container = _get_nested_value(subscription, "items", {}) or {}
+    items = _get_nested_value(items_container, "data", []) or []
+    if isinstance(items, dict):
+        items = items.get("data") or list(items.values())
+    elif not isinstance(items, (list, tuple)):
+        try:
+            items = list(items)
+        except TypeError:
+            items = [items]
     if not items:
         return {}
     price = _get_nested_value(items[0], "price", {}) or {}
@@ -132,23 +188,102 @@ def ensure_stripe_customer(user) -> tuple[UserSubscription, str]:
     return record, customer.id
 
 
-def create_checkout_session(*, user, price_id: str, success_url: str, cancel_url: str):
+def _build_checkout_metadata(*, user, option: dict[str, str]) -> dict[str, str]:
+    return {
+        "user_id": str(user.id),
+        "plan_key": option["key"],
+        "price_id": option["price_id"],
+        "checkout_mode": option["checkout_mode"],
+        "access_days": str(option.get("access_days") or ""),
+    }
+
+
+def create_checkout_session(*, user, option: dict[str, str], success_url: str, cancel_url: str):
     _set_stripe_api_key()
     record, customer_id = ensure_stripe_customer(user)
-    session = stripe.checkout.Session.create(
-        mode="subscription",
+    metadata = _build_checkout_metadata(user=user, option=option)
+    session_kwargs = dict(
+        mode=option["checkout_mode"],
         customer=customer_id,
         client_reference_id=str(user.id),
-        line_items=[{"price": price_id, "quantity": 1}],
+        line_items=[{"price": option["price_id"], "quantity": 1}],
         allow_promotion_codes=True,
         success_url=success_url,
         cancel_url=cancel_url,
-        metadata={"user_id": str(user.id), "price_id": price_id},
-        subscription_data={"metadata": {"user_id": str(user.id)}},
+        metadata=metadata,
     )
+    if option["checkout_mode"] == "subscription":
+        session_kwargs["subscription_data"] = {"metadata": metadata}
+    else:
+        session_kwargs["payment_intent_data"] = {"metadata": metadata}
+    session = stripe.checkout.Session.create(**session_kwargs)
     record.last_checkout_session_id = session.id
     record.save(update_fields=["last_checkout_session_id", "updated_at"])
     return session
+
+
+def _resolve_checkout_user(*, customer_id: str, metadata: dict[str, Any], client_reference_id: str = ""):
+    resolved_user = _resolve_user(customer_id=customer_id, metadata=metadata)
+    if resolved_user is not None:
+        return resolved_user
+    if client_reference_id:
+        try:
+            return get_user_model().objects.get(pk=client_reference_id)
+        except Exception:
+            return None
+    return None
+
+
+def _sync_timeboxed_access_record(
+    *,
+    user,
+    session: dict[str, Any],
+    customer_id: str,
+    checkout_session_id: str,
+) -> UserSubscription | None:
+    metadata = session.get("metadata") or {}
+    if str(session.get("payment_status") or "").strip().lower() not in {"paid", "no_payment_required"}:
+        return sync_customer_only_record(
+            user=user,
+            customer_id=customer_id,
+            checkout_session_id=checkout_session_id,
+        )
+
+    option = get_price_option(str(metadata.get("plan_key") or "").strip())
+    if not option:
+        option = get_price_option_by_price_id(str(metadata.get("price_id") or "").strip())
+    if not option:
+        return sync_customer_only_record(
+            user=user,
+            customer_id=customer_id,
+            checkout_session_id=checkout_session_id,
+        )
+
+    access_days = int(str(metadata.get("access_days") or option.get("access_days") or "0") or "0")
+    if access_days <= 0:
+        return sync_customer_only_record(
+            user=user,
+            customer_id=customer_id,
+            checkout_session_id=checkout_session_id,
+        )
+
+    record = get_or_create_subscription_record(user)
+    session_created = _timestamp_to_datetime(session.get("created")) or timezone.now()
+    period_end = session_created + timedelta(days=access_days)
+    record.stripe_customer_id = customer_id or record.stripe_customer_id
+    record.stripe_subscription_id = ""
+    record.stripe_product_id = ""
+    record.stripe_price_id = option["price_id"]
+    record.billing_interval = option["interval"]
+    record.status = "trialing" if option["key"] == "trial_week" else "active"
+    record.cancel_at_period_end = True
+    record.current_period_start = session_created
+    record.current_period_end = period_end
+    record.trial_end = period_end if option["key"] == "trial_week" else None
+    record.last_checkout_session_id = checkout_session_id
+    record.raw_data = session
+    record.save()
+    return record
 
 
 def sync_checkout_session(*, user, session_id: str) -> UserSubscription | None:
@@ -161,33 +296,35 @@ def sync_checkout_session(*, user, session_id: str) -> UserSubscription | None:
     session_dict = _as_dict(session)
     customer_id = str(session_dict.get("customer") or "").strip()
     metadata = session_dict.get("metadata") or {}
-
-    resolved_user = _resolve_user(customer_id=customer_id, metadata=metadata)
-    if resolved_user is None:
-        client_reference_id = str(session_dict.get("client_reference_id") or "").strip()
-        if client_reference_id:
-            try:
-                resolved_user = get_user_model().objects.get(pk=client_reference_id)
-            except Exception:
-                resolved_user = None
+    resolved_user = _resolve_checkout_user(
+        customer_id=customer_id,
+        metadata=metadata,
+        client_reference_id=str(session_dict.get("client_reference_id") or "").strip(),
+    )
 
     if resolved_user is None or resolved_user.pk != user.pk:
         return None
 
+    checkout_session_id = str(session_dict.get("id") or "").strip()
     record = sync_customer_only_record(
         user=user,
         customer_id=customer_id,
-        checkout_session_id=str(session_dict.get("id") or "").strip(),
+        checkout_session_id=checkout_session_id,
     )
     subscription_id = str(session_dict.get("subscription") or "").strip()
     if not subscription_id:
-        return record
+        return _sync_timeboxed_access_record(
+            user=user,
+            session=session_dict,
+            customer_id=customer_id,
+            checkout_session_id=checkout_session_id,
+        ) or record
 
     subscription = stripe.Subscription.retrieve(subscription_id)
     return sync_subscription_record(
         user=user,
         subscription=subscription,
-        checkout_session_id=str(session_dict.get("id") or "").strip(),
+        checkout_session_id=checkout_session_id,
     )
 
 
@@ -261,27 +398,31 @@ def handle_checkout_session_completed(session: dict[str, Any]) -> None:
     session_dict = _as_dict(session)
     customer_id = str(session_dict.get("customer") or "").strip()
     metadata = session_dict.get("metadata") or {}
-    user = _resolve_user(customer_id=customer_id, metadata=metadata)
-    if user is None:
-        client_reference_id = str(session_dict.get("client_reference_id") or "").strip()
-        if client_reference_id:
-            try:
-                user = get_user_model().objects.get(pk=client_reference_id)
-            except Exception:
-                user = None
+    checkout_session_id = str(session_dict.get("id") or "").strip()
+    user = _resolve_checkout_user(
+        customer_id=customer_id,
+        metadata=metadata,
+        client_reference_id=str(session_dict.get("client_reference_id") or "").strip(),
+    )
     if user is None:
         return
 
     sync_customer_only_record(
         user=user,
         customer_id=customer_id,
-        checkout_session_id=str(session_dict.get("id") or "").strip(),
+        checkout_session_id=checkout_session_id,
     )
     subscription_id = str(session_dict.get("subscription") or "").strip()
     if not subscription_id:
+        _sync_timeboxed_access_record(
+            user=user,
+            session=session_dict,
+            customer_id=customer_id,
+            checkout_session_id=checkout_session_id,
+        )
         return
     subscription = stripe.Subscription.retrieve(subscription_id)
-    sync_subscription_record(user=user, subscription=subscription, checkout_session_id=str(session_dict.get("id") or "").strip())
+    sync_subscription_record(user=user, subscription=subscription, checkout_session_id=checkout_session_id)
 
 
 def handle_subscription_event(subscription: dict[str, Any]) -> None:

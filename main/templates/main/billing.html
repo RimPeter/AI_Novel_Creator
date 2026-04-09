@@ -20,7 +20,7 @@
           {% endif %}
         </div>
       </div>
-      <p class="page-lead">Manage one Stripe subscription for your account, with monthly or yearly billing.</p>
+      <p class="page-lead">Pay with Stripe using a monthly subscription, yearly subscription, one-month pass, or one-week trial.</p>
     </section>
 
     <section class="card page-panel">
@@ -31,9 +31,11 @@
       </div>
       {% if checkout_status == "success" %}
         {% if checkout_sync_error %}
-          <p class="muted">Stripe Checkout completed, but the immediate subscription refresh failed. Webhook sync will still update the status. Error: {{ checkout_sync_error }}</p>
+          <p class="muted">Stripe Checkout completed, but the immediate account refresh failed. Webhook sync will still update the status. Error: {{ checkout_sync_error }}</p>
+        {% elif checkout_sync_notice %}
+          <p class="muted">{{ checkout_sync_notice }}</p>
         {% else %}
-          <p class="muted">Stripe Checkout completed. The subscription status was refreshed immediately and will also stay in sync through Stripe webhooks.</p>
+          <p class="muted">Stripe Checkout completed. Your account access was refreshed immediately and will also stay in sync through Stripe webhooks.</p>
         {% endif %}
       {% elif checkout_status == "cancelled" %}
         <p class="muted">Checkout was cancelled. No billing changes were made.</p>
@@ -50,7 +52,7 @@
           </article>
           <article class="billing-status-card">
             <strong>Renews</strong>
-            <span>{% if subscription.current_period_end %}{{ subscription.current_period_end|date:"Y-m-d H:i" }} UTC{% else %}—{% endif %}</span>
+            <span>{% if subscription.current_period_end %}{{ subscription.current_period_end|date:"Y-m-d H:i" }} UTC{% else %}&mdash;{% endif %}</span>
           </article>
           <article class="billing-status-card">
             <strong>Cancellation</strong>
@@ -58,7 +60,7 @@
           </article>
         </div>
       {% else %}
-        <p class="muted">Stripe billing is not configured yet. Add Stripe keys, webhook secret, and monthly/yearly price IDs in the environment to enable subscriptions.</p>
+        <p class="muted">Stripe billing is not configured yet. Add the Stripe keys, webhook secret, and all four price IDs in the environment to enable checkout.</p>
       {% endif %}
     </section>
 
@@ -67,6 +69,7 @@
         <div class="header-row">
           <div>
             <h2 class="page-panel-title">Plans</h2>
+            <p class="muted">Recurring subscriptions can be managed in the Stripe billing portal. One-off passes expire automatically.</p>
           </div>
         </div>
         <div class="billing-plan-grid">
@@ -74,7 +77,8 @@
             <article class="billing-plan-card">
               <div class="billing-plan-kicker">{{ option.interval|title }}</div>
               <h3 class="billing-plan-title">{{ option.label }}</h3>
-              <p class="muted">Starts a hosted Stripe Checkout subscription for your account.</p>
+              <p class="billing-plan-price">{{ option.price_display }}</p>
+              <p class="muted">{{ option.description }}</p>
               <form method="post" action="{% url 'billing-checkout' %}">
                 {% csrf_token %}
                 <input type="hidden" name="plan" value="{{ option.key }}" />

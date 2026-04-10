@@ -5,36 +5,13 @@
   const moveUrl = configEl.getAttribute("data-location-move-url");
   if (!moveUrl) return;
 
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(";").shift();
-    return null;
-  };
+  const ui = window.AppUI;
+  if (!ui) return;
+  const csrfToken = ui.getCsrfToken();
 
-  const csrfToken = getCookie("csrftoken");
   let draggedLocationId = null;
 
   const getLocationTarget = (event) => event.target?.closest?.(".world-location-box, .location-tree-node");
-
-  const showMessage = (text, level = "info") => {
-    const list =
-      document.querySelector(".messages") ||
-      (() => {
-        const ul = document.createElement("ul");
-        ul.className = "messages";
-        const main = document.querySelector("main.wrap") || document.body;
-        main.insertBefore(ul, main.firstChild);
-        return ul;
-      })();
-
-    const li = document.createElement("li");
-    li.className = `message message-${level}`;
-    li.textContent = text;
-    list.appendChild(li);
-
-    window.setTimeout(() => li.remove(), 2500);
-  };
 
   const clearDropHighlights = () => {
     document.querySelectorAll(".location-drop-over").forEach((el) => el.classList.remove("location-drop-over"));
@@ -42,34 +19,23 @@
   };
 
   const submitMove = async ({ locationId, targetParentId }) => {
-    try {
-      const params = new URLSearchParams();
-      params.set("location_id", locationId);
-      params.set("target_parent_id", targetParentId);
+    const params = new URLSearchParams();
+    params.set("location_id", locationId);
+    params.set("target_parent_id", targetParentId);
 
-      const res = await fetch(moveUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-        },
-        credentials: "same-origin",
-        body: params.toString(),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || data.ok !== true) {
-        showMessage(data?.error || `Move failed (${res.status})`, "error");
-        return;
-      }
-
-      showMessage("Location moved.", "success");
-      window.location.reload();
-    } catch (e) {
-      showMessage(`Move failed: ${e?.message || e}`, "error");
+    const result = await ui.postFormUrlEncoded({
+      url: moveUrl,
+      params,
+      csrfToken,
+      failureLabel: "Move failed",
+    });
+    if (!result.ok) {
+      ui.showMessage(result.error, "error", 2500);
+      return;
     }
+
+    ui.showMessage("Location moved.", "success", 2500);
+    window.location.reload();
   };
 
   document.addEventListener("dragstart", (event) => {

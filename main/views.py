@@ -21,7 +21,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import CreateView, DeleteView, DetailView, FormView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from django.views.decorators.http import require_GET, require_POST
 
 from .billing import (
@@ -57,7 +57,6 @@ from .location_hierarchy import build_location_tree
 from .models import BillingCompanyProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
-from .chapter_tools import parse_scene_structure_json, render_scene_from_structure, structurize_scene
 from .llm import call_llm, generate_image_data_url
 
 STORY_BIBLE_DOCUMENT_MAX_EXTRACTED_CHARS = 200_000
@@ -106,6 +105,46 @@ def _subscription_required_response(request, *, wants_json: bool = False):
         return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
     messages.error(request, error)
     return HttpResponseRedirect(billing_url)
+
+
+def _ensure_json_ai_request(request):
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request, wants_json=True)
+    if blocked is not None:
+        return blocked
+    return None
+
+
+def _call_tracked_llm_json_object(
+    *,
+    project: NovelProject,
+    action_label: str,
+    prompt: str,
+    model_name: str,
+    params: dict,
+    run_type: str = GenerationRun.RunType.SCENE,
+    outline_node: OutlineNode | None = None,
+    use_json_object_extractor: bool = True,
+):
+    result = _call_tracked_llm(
+        project=project,
+        action_label=action_label,
+        prompt=prompt,
+        model_name=model_name,
+        params=params,
+        run_type=run_type,
+        outline_node=outline_node,
+    )
+    raw_text = (result.text or "").strip()
+    payload = _extract_json_object(raw_text) if use_json_object_extractor else raw_text
+    data = json.loads(payload) if payload else {}
+    if not isinstance(data, dict):
+        raise ValueError("Model response must be a JSON object.")
+    return data
 
 
 def _get_annotated_projects_queryset():
@@ -704,12 +743,7 @@ class ContactView(TemplateView):
 @login_required
 def brainstorm_project(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -756,7 +790,7 @@ def brainstorm_project(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 500}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=project,
             action_label="Project Brainstorm",
             prompt=prompt,
@@ -764,9 +798,6 @@ def brainstorm_project(request, slug):
             params=params,
             run_type=GenerationRun.RunType.BIBLE,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in data.items():
@@ -786,12 +817,7 @@ def brainstorm_project(request, slug):
 @login_required
 def add_project_details(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -832,7 +858,7 @@ def add_project_details(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 500}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=project,
             action_label="Project Add Details",
             prompt=prompt,
@@ -840,9 +866,6 @@ def add_project_details(request, slug):
             params=params,
             run_type=GenerationRun.RunType.BIBLE,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in data.items():
@@ -866,12 +889,7 @@ def add_project_details(request, slug):
 @login_required
 def brainstorm_scene(request, slug, pk):
     scene = _get_scene_for_user(request, slug=slug, pk=pk)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -921,7 +939,7 @@ def brainstorm_scene(request, slug, pk):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 500}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=scene.project,
             action_label="Scene Brainstorm",
             prompt=prompt,
@@ -929,9 +947,6 @@ def brainstorm_scene(request, slug, pk):
             params=params,
             outline_node=scene,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in data.items():
@@ -951,12 +966,7 @@ def brainstorm_scene(request, slug, pk):
 @login_required
 def add_scene_details(request, slug, pk):
     scene = _get_scene_for_user(request, slug=slug, pk=pk)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -999,7 +1009,7 @@ def add_scene_details(request, slug, pk):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 500}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=scene.project,
             action_label="Scene Add Details",
             prompt=prompt,
@@ -1007,9 +1017,6 @@ def add_scene_details(request, slug, pk):
             params=params,
             outline_node=scene,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in data.items():
@@ -1266,12 +1273,7 @@ def scene_synonyms(request, slug):
 @login_required
 def brainstorm_character(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -1323,17 +1325,14 @@ def brainstorm_character(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 500}
-        result = _call_tracked_llm(
+        suggestions = _call_tracked_llm_json_object(
             project=project,
             action_label="Character Brainstorm",
             prompt=prompt,
             model_name=model_name,
             params=params,
+            use_json_object_extractor=False,
         )
-        raw = (result.text or "").strip()
-        suggestions = json.loads(raw) if raw else {}
-        if not isinstance(suggestions, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in suggestions.items():
@@ -1363,12 +1362,7 @@ def brainstorm_character(request, slug):
 @login_required
 def add_character_details(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -1417,17 +1411,14 @@ def add_character_details(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 650}
-        result = _call_tracked_llm(
+        suggestions = _call_tracked_llm_json_object(
             project=project,
             action_label="Character Add Details",
             prompt=prompt,
             model_name=model_name,
             params=params,
+            use_json_object_extractor=False,
         )
-        raw = (result.text or "").strip()
-        suggestions = json.loads(raw) if raw else {}
-        if not isinstance(suggestions, dict):
-            raise ValueError("Model response must be a JSON object.")
 
         filtered = {}
         for key, value in suggestions.items():
@@ -2393,12 +2384,7 @@ def _strip_draft_markers(text: str) -> str:
 @login_required
 def brainstorm_location_description(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -2436,16 +2422,13 @@ def brainstorm_location_description(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 450}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=project,
             action_label="Location Brainstorm",
             prompt=prompt,
             model_name=model_name,
             params=params,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
         text = str(data.get("description") or "").strip()
         if not text:
             return JsonResponse({"ok": True, "suggestions": {}})
@@ -2458,12 +2441,7 @@ def brainstorm_location_description(request, slug):
 @login_required
 def add_location_details(request, slug):
     project = _get_project_for_user(request, slug)
-    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
-        request.headers.get("accept") or ""
-    )
-    if not wants_json:
-        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    blocked = _subscription_required_response(request, wants_json=True)
+    blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
@@ -2504,16 +2482,13 @@ def add_location_details(request, slug):
     try:
         model_name = get_user_text_model(request.user)
         params = {"temperature": 0.7, "max_tokens": 450}
-        result = _call_tracked_llm(
+        data = _call_tracked_llm_json_object(
             project=project,
             action_label="Location Add Details",
             prompt=prompt,
             model_name=model_name,
             params=params,
         )
-        data = json.loads(_extract_json_object(result.text))
-        if not isinstance(data, dict):
-            raise ValueError("Model response must be a JSON object.")
         text = str(data.get("description") or "").strip()
         if not text:
             return JsonResponse({"ok": True, "suggestions": {}})

@@ -43,3 +43,8 @@ out/
 target/
 staticfiles/
 notes.txt
+
+# Local runtime/data artifacts
+db.sqlite3
+media/
+control/

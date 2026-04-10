@@ -7,35 +7,9 @@
   const form = section.querySelector("form");
   if (!extractUrl || !form) return;
 
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(";").shift();
-    return null;
-  };
-
-  const csrfToken = getCookie("csrftoken");
-
-  const showMessage = (text, level = "info") => {
-    const list =
-      document.querySelector(".messages") ||
-      (() => {
-        const ul = document.createElement("ul");
-        ul.className = "messages";
-        const main = document.querySelector("main.wrap") || document.body;
-        main.insertBefore(ul, main.firstChild);
-        return ul;
-      })();
-
-    const li = document.createElement("li");
-    li.className = `message message-${level}`;
-    li.textContent = text;
-    list.appendChild(li);
-
-    window.setTimeout(() => {
-      li.remove();
-    }, 3000);
-  };
+  const ui = window.AppUI;
+  if (!ui) return;
+  const csrfToken = ui.getCsrfToken();
 
   const getValue = (name) => (form.querySelector(`[name="${name}"]`)?.value || "").trim();
 
@@ -92,42 +66,30 @@
   };
 
   const postExtract = async () => {
-    try {
-      const params = new URLSearchParams();
-      params.set("name", getValue("name"));
-      params.set("description", getValue("description"));
+    const params = new URLSearchParams();
+    params.set("name", getValue("name"));
+    params.set("description", getValue("description"));
 
-      const existing = getExistingObjectMap();
-      for (const { key, value } of existing.values()) {
-        params.append("object_key", key);
-        params.append("object_value", value);
-      }
+    const existing = getExistingObjectMap();
+    for (const { key, value } of existing.values()) {
+      params.append("object_key", key);
+      params.append("object_value", value);
+    }
 
-      const res = await fetch(extractUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-        },
-        credentials: "same-origin",
-        body: params.toString(),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (window.AIBillingGuard?.handleBillingResponse(res, data)) {
-        return null;
-      }
-      if (!res.ok || !data || data.ok !== true) {
-        showMessage(data?.error || `Extract failed (${res.status})`, "error");
-        return null;
-      }
-      return data.objects || {};
-    } catch (e) {
-      showMessage(`Request failed: ${e?.message || e}`, "error");
+    const result = await ui.postFormUrlEncoded({
+      url: extractUrl,
+      params,
+      csrfToken,
+      failureLabel: "Extract failed",
+    });
+    if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
       return null;
     }
+    if (!result.ok) {
+      ui.showMessage(result.error, "error");
+      return null;
+    }
+    return result.data?.objects || {};
   };
 
   btn.addEventListener("click", async () => {
@@ -135,7 +97,7 @@
 
     const description = getValue("description");
     if (!description) {
-      showMessage("Add a description first, then click Extract details.", "warning");
+      ui.showMessage("Add a description first, then click Extract details.", "warning");
       return;
     }
 
@@ -158,24 +120,20 @@
         const value = String(rawVal || "").trim();
 
         if (existing.has(keyLower)) {
-          if (value) {
-            const changed = fillExistingValueIfEmpty(keyLower, value);
-            if (changed) filled += 1;
-          }
+          if (value && fillExistingValueIfEmpty(keyLower, value)) filled += 1;
           continue;
         }
 
-        const ok = addObjectRow(key, value);
-        if (ok) {
+        if (addObjectRow(key, value)) {
           existing.set(keyLower, { key, value });
           added += 1;
         }
       }
 
-      if (!added && !filled) showMessage("No new objects found.", "warning");
-      else if (filled && !added) showMessage(`Filled ${filled} object attribute(s).`, "success");
-      else if (added && !filled) showMessage(`Added ${added} object(s).`, "success");
-      else showMessage(`Added ${added} object(s) and filled ${filled} attribute(s).`, "success");
+      if (!added && !filled) ui.showMessage("No new objects found.", "warning");
+      else if (filled && !added) ui.showMessage(`Filled ${filled} object attribute(s).`, "success");
+      else if (added && !filled) ui.showMessage(`Added ${added} object(s).`, "success");
+      else ui.showMessage(`Added ${added} object(s) and filled ${filled} attribute(s).`, "success");
     } finally {
       btn.disabled = false;
       btn.textContent = originalText;

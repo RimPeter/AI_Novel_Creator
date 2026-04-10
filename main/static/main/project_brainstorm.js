@@ -9,35 +9,9 @@
   const form = section.querySelector("form");
   if (!brainstormUrl || !addDetailsUrl || !form) return;
 
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(";").shift();
-    return null;
-  };
-
-  const csrfToken = getCookie("csrftoken");
-
-  const showMessage = (text, level = "info") => {
-    const list =
-      document.querySelector(".messages") ||
-      (() => {
-        const ul = document.createElement("ul");
-        ul.className = "messages";
-        const main = document.querySelector("main.wrap") || document.body;
-        main.insertBefore(ul, main.firstChild);
-        return ul;
-      })();
-
-    const li = document.createElement("li");
-    li.className = `message message-${level}`;
-    li.textContent = text;
-    list.appendChild(li);
-
-    window.setTimeout(() => {
-      li.remove();
-    }, 3000);
-  };
+  const ui = window.AppUI;
+  if (!ui) return;
+  const csrfToken = ui.getCsrfToken();
 
   const FIELD_NAMES = ["seed_idea", "genre", "tone", "style_notes"];
 
@@ -55,36 +29,23 @@
 
   const postForSuggestions = async (postUrl) => {
     const current = getCurrentValues();
+    const params = new URLSearchParams();
+    for (const name of FIELD_NAMES) {
+      params.set(name, current[name] || "");
+    }
 
-    try {
-      const params = new URLSearchParams();
-      for (const name of FIELD_NAMES) {
-        params.set(name, current[name] || "");
-      }
-
-      const res = await fetch(postUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-        },
-        credentials: "same-origin",
-        body: params.toString(),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || data.ok !== true) {
-        showMessage(data?.error || `Request failed (${res.status})`, "error");
-        return null;
-      }
-
-      return data.suggestions || {};
-    } catch (e) {
-      showMessage(`Request failed: ${e?.message || e}`, "error");
+    const result = await ui.postFormUrlEncoded({
+      url: postUrl,
+      params,
+      csrfToken,
+      failureLabel: "Request failed",
+    });
+    if (!result.ok) {
+      ui.showMessage(result.error, "error");
       return null;
     }
+
+    return result.data?.suggestions || {};
   };
 
   const fillEmptyFields = (suggestions) => {
@@ -127,7 +88,7 @@
     const current = getCurrentValues();
     const empties = FIELD_NAMES.filter((name) => !current[name]);
     if (!empties.length) {
-      showMessage("Nothing to fill — all fields already have values.", "info");
+      ui.showMessage("Nothing to fill - all fields already have values.", "info");
       return;
     }
 
@@ -139,8 +100,8 @@
       const suggestions = await postForSuggestions(brainstormUrl);
       if (!suggestions) return;
       const filled = fillEmptyFields(suggestions);
-      if (!filled) showMessage("No suggestions returned for empty fields.", "warning");
-      else showMessage(`Filled ${filled} field(s).`, "success");
+      if (!filled) ui.showMessage("No suggestions returned for empty fields.", "warning");
+      else ui.showMessage(`Filled ${filled} field(s).`, "success");
     } finally {
       brainstormBtn.disabled = false;
       brainstormBtn.textContent = originalText;
@@ -150,7 +111,7 @@
   addDetailsBtn.addEventListener("click", async () => {
     const current = getCurrentValues();
     if (!Object.values(current).some(Boolean)) {
-      showMessage("Add at least one project detail first.", "warning");
+      ui.showMessage("Add at least one project detail first.", "warning");
       return;
     }
 
@@ -162,12 +123,11 @@
       const suggestions = await postForSuggestions(addDetailsUrl);
       if (!suggestions) return;
       const changed = applyMoreDetails(suggestions);
-      if (!changed) showMessage("No additional details to add right now.", "warning");
-      else showMessage(`Enhanced ${changed} field(s).`, "success");
+      if (!changed) ui.showMessage("No additional details to add right now.", "warning");
+      else ui.showMessage(`Enhanced ${changed} field(s).`, "success");
     } finally {
       addDetailsBtn.disabled = false;
       addDetailsBtn.textContent = originalText;
     }
   });
 })();
-

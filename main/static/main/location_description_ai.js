@@ -9,35 +9,9 @@
   const form = section.querySelector("form");
   if (!brainstormUrl || !addDetailsUrl || !form) return;
 
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(";").shift();
-    return null;
-  };
-
-  const csrfToken = getCookie("csrftoken");
-
-  const showMessage = (text, level = "info") => {
-    const list =
-      document.querySelector(".messages") ||
-      (() => {
-        const ul = document.createElement("ul");
-        ul.className = "messages";
-        const main = document.querySelector("main.wrap") || document.body;
-        main.insertBefore(ul, main.firstChild);
-        return ul;
-      })();
-
-    const li = document.createElement("li");
-    li.className = `message message-${level}`;
-    li.textContent = text;
-    list.appendChild(li);
-
-    window.setTimeout(() => {
-      li.remove();
-    }, 3000);
-  };
+  const ui = window.AppUI;
+  if (!ui) return;
+  const csrfToken = ui.getCsrfToken();
 
   const getField = (name) => form.querySelector(`[name="${name}"]`);
   const getName = () => (getField("name")?.value || "").trim();
@@ -58,42 +32,30 @@
   };
 
   const postForDescription = async (url) => {
-    try {
-      const params = new URLSearchParams();
-      params.set("name", getName());
-      params.set("description", getDescription());
-      for (const [k, v] of getObjectPairs()) {
-        params.append("object_key", k);
-        params.append("object_value", v);
-      }
+    const params = new URLSearchParams();
+    params.set("name", getName());
+    params.set("description", getDescription());
+    for (const [k, v] of getObjectPairs()) {
+      params.append("object_key", k);
+      params.append("object_value", v);
+    }
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-        },
-        credentials: "same-origin",
-        body: params.toString(),
-      });
-
-      const data = await res.json().catch(() => null);
-      if (window.AIBillingGuard?.handleBillingResponse(res, data)) {
-        return null;
-      }
-      if (!res.ok || !data || data.ok !== true) {
-        showMessage(data?.error || `Request failed (${res.status})`, "error");
-        return null;
-      }
-
-      const next = String(data?.suggestions?.description || "").trim();
-      return next || "";
-    } catch (e) {
-      showMessage(`Request failed: ${e?.message || e}`, "error");
+    const result = await ui.postFormUrlEncoded({
+      url,
+      params,
+      csrfToken,
+      failureLabel: "Request failed",
+    });
+    if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
       return null;
     }
+    if (!result.ok) {
+      ui.showMessage(result.error, "error");
+      return null;
+    }
+
+    const next = String(result.data?.suggestions?.description || "").trim();
+    return next || "";
   };
 
   const setOrAppendDescription = (addition) => {
@@ -115,11 +77,11 @@
     if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
 
     if (!getName()) {
-      showMessage("Add a location name first.", "warning");
+      ui.showMessage("Add a location name first.", "warning");
       return;
     }
     if (getDescription()) {
-      showMessage("Description already has content; Brainstorm only fills empty fields.", "info");
+      ui.showMessage("Description already has content; Brainstorm only fills empty fields.", "info");
       return;
     }
 
@@ -131,12 +93,11 @@
       const addition = await postForDescription(brainstormUrl);
       if (addition === null) return;
       if (!addition) {
-        showMessage("No suggestion returned.", "warning");
+        ui.showMessage("No suggestion returned.", "warning");
         return;
       }
-      const changed = setOrAppendDescription(addition);
-      if (!changed) showMessage("Nothing to update.", "warning");
-      else showMessage("Filled description.", "success");
+      if (!setOrAppendDescription(addition)) ui.showMessage("Nothing to update.", "warning");
+      else ui.showMessage("Filled description.", "success");
     } finally {
       brainstormBtn.disabled = false;
       brainstormBtn.textContent = originalText;
@@ -147,7 +108,7 @@
     if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
 
     if (!getName()) {
-      showMessage("Add a location name first.", "warning");
+      ui.showMessage("Add a location name first.", "warning");
       return;
     }
 
@@ -159,12 +120,11 @@
       const addition = await postForDescription(addDetailsUrl);
       if (addition === null) return;
       if (!addition) {
-        showMessage("No additional details returned.", "warning");
+        ui.showMessage("No additional details returned.", "warning");
         return;
       }
-      const changed = setOrAppendDescription(addition);
-      if (!changed) showMessage("No new details to add right now.", "warning");
-      else showMessage("Enhanced description.", "success");
+      if (!setOrAppendDescription(addition)) ui.showMessage("No new details to add right now.", "warning");
+      else ui.showMessage("Enhanced description.", "success");
     } finally {
       addDetailsBtn.disabled = false;
       addDetailsBtn.textContent = originalText;

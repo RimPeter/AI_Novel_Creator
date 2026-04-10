@@ -5,59 +5,25 @@
   const renameUrl = configEl.getAttribute("data-scene-rename-url");
   if (!renameUrl) return;
 
-  const getCookie = (name) => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(";").shift();
-    return null;
-  };
-
-  const csrfToken = getCookie("csrftoken");
-
-  const showMessage = (text, level = "info") => {
-    const list =
-      document.querySelector(".messages") ||
-      (() => {
-        const ul = document.createElement("ul");
-        ul.className = "messages";
-        const main = document.querySelector("main.wrap") || document.body;
-        main.insertBefore(ul, main.firstChild);
-        return ul;
-      })();
-
-    const li = document.createElement("li");
-    li.className = `message message-${level}`;
-    li.textContent = text;
-    list.appendChild(li);
-
-    window.setTimeout(() => {
-      li.remove();
-    }, 2200);
-  };
+  const ui = window.AppUI;
+  if (!ui) return;
+  const csrfToken = ui.getCsrfToken();
 
   const postRename = async (sceneId, title) => {
     const params = new URLSearchParams();
     params.set("scene_id", sceneId);
     params.set("title", title);
 
-    const res = await fetch(renameUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        Accept: "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-      },
-      credentials: "same-origin",
-      body: params.toString(),
+    const result = await ui.postFormUrlEncoded({
+      url: renameUrl,
+      params,
+      csrfToken,
+      failureLabel: "Rename failed",
     });
-
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data || data.ok !== true) {
-      const errorText = data?.error || `Rename failed (${res.status})`;
-      throw new Error(errorText);
+    if (!result.ok) {
+      throw new Error(result.error);
     }
-    return data.title ?? "";
+    return result.data?.title ?? "";
   };
 
   const wireInput = (input) => {
@@ -76,21 +42,21 @@
         const saved = await postRename(sceneId, next);
         input.value = saved;
         lastSaved = (saved || "").trim();
-        showMessage("Saved scene title.", "success");
-      } catch (e) {
+        ui.showMessage("Saved scene title.", "success", 2200);
+      } catch (error) {
         input.value = lastSaved;
-        showMessage(e?.message || "Rename failed.", "error");
+        ui.showMessage(error?.message || "Rename failed.", "error", 2200);
       } finally {
         input.disabled = false;
       }
     };
 
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
         input.blur();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
         input.value = lastSaved;
         input.blur();
       }
@@ -103,4 +69,3 @@
 
   document.querySelectorAll(".scene-title-input").forEach(wireInput);
 })();
-

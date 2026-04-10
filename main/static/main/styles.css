@@ -1105,6 +1105,27 @@ ul {
   letter-spacing: -0.03em;
 }
 
+.billing-plan-vat-badge {
+  display: inline-block;
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d9f3df;
+  border: 1px solid rgba(96, 213, 120, 0.55);
+  background: rgba(39, 116, 58, 0.45);
+}
+
+.billing-plan-vat-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(214, 228, 255, 0.84);
+}
+
 .billing-plan-card form {
   margin-top: 14px;
 }

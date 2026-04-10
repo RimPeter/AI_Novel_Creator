@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta, timezone as dt_timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 import stripe
@@ -13,14 +13,23 @@ from .models import BillingCompanyProfile, BillingInvoice, ProcessedStripeEvent,
 
 
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+VAT_RATE_PERCENT = Decimal("20")
+VAT_MULTIPLIER = Decimal("1.20")
 
 
 def billing_enabled() -> bool:
     return bool(getattr(settings, "STRIPE_BILLING_ENABLED", False))
 
 
+def _vat_breakdown_from_gross_minor(gross_minor: int) -> tuple[int, int]:
+    gross = Decimal(int(gross_minor or 0))
+    ex_vat = int((gross / VAT_MULTIPLIER).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    vat_amount = int(gross) - ex_vat
+    return ex_vat, vat_amount
+
+
 def get_price_options() -> list[dict[str, str]]:
-    return [
+    options: list[dict[str, str]] = [
         {
             "key": "monthly",
             "label": "Monthly subscription",
@@ -28,6 +37,7 @@ def get_price_options() -> list[dict[str, str]]:
             "interval": "month",
             "checkout_mode": "subscription",
             "description": "Recurring access billed every month.",
+            "gross_minor_amount": "1500",
             "price_id": getattr(settings, "STRIPE_PRICE_MONTHLY", ""),
         },
         {
@@ -37,6 +47,7 @@ def get_price_options() -> list[dict[str, str]]:
             "interval": "year",
             "checkout_mode": "subscription",
             "description": "Recurring access billed once per year.",
+            "gross_minor_amount": "10000",
             "price_id": getattr(settings, "STRIPE_PRICE_YEARLY", ""),
         },
         {
@@ -47,6 +58,7 @@ def get_price_options() -> list[dict[str, str]]:
             "checkout_mode": "payment",
             "description": "Single payment for 30 days of access.",
             "access_days": "30",
+            "gross_minor_amount": "2000",
             "price_id": getattr(settings, "STRIPE_PRICE_SINGLE_MONTH", ""),
         },
         {
@@ -57,9 +69,19 @@ def get_price_options() -> list[dict[str, str]]:
             "checkout_mode": "payment",
             "description": "Single payment for 7 days of access.",
             "access_days": "7",
+            "gross_minor_amount": "500",
             "price_id": getattr(settings, "STRIPE_PRICE_TRIAL_WEEK", ""),
         },
     ]
+    for option in options:
+        gross_minor = int(option.get("gross_minor_amount") or "0")
+        ex_vat_minor, vat_minor = _vat_breakdown_from_gross_minor(gross_minor)
+        option["vat_badge"] = f"{int(VAT_RATE_PERCENT)}% VAT included"
+        option["price_breakdown_display"] = (
+            f"inc VAT {format_minor_amount(gross_minor)} "
+            f"(ex VAT {format_minor_amount(ex_vat_minor)} + VAT {format_minor_amount(vat_minor)} ({int(VAT_RATE_PERCENT)}%))"
+        )
+    return options
 
 
 def get_price_option(plan_key: str) -> dict[str, str]:
@@ -420,6 +442,12 @@ def _sync_checkout_invoice(
 
     amount_total = _coerce_amount(session.get("amount_total"))
     amount_subtotal = _coerce_amount(session.get("amount_subtotal") or amount_total)
+    tax_amount = _coerce_amount(
+        session.get("total_details", {}).get("amount_tax") if isinstance(session.get("total_details"), dict) else 0
+    )
+    # Stripe can send amount_subtotal == amount_total with missing tax for inclusive prices.
+    if amount_total > 0 and tax_amount <= 0 and amount_subtotal >= amount_total:
+        amount_subtotal, tax_amount = _vat_breakdown_from_gross_minor(amount_total)
     payload = {
         "number": "",
         "status": "paid",
@@ -427,7 +455,7 @@ def _sync_checkout_invoice(
         "created": session.get("created"),
         "amount_total": amount_total,
         "subtotal": amount_subtotal,
-        "tax": _coerce_amount(session.get("total_details", {}).get("amount_tax") if isinstance(session.get("total_details"), dict) else 0),
+        "tax": tax_amount,
         "amount_paid": amount_total,
         "description": option.get("label") or option.get("description") or "Billing invoice",
         "customer_details": _as_dict(session.get("customer_details")),
@@ -570,8 +598,8 @@ def _sync_timeboxed_access_record(
         )
 
     record = get_or_create_subscription_record(user)
-    session_created = _timestamp_to_datetime(session.get("created")) or timezone.now()
-    period_end = session_created + timedelta(days=access_days)
+    period_start = timezone.now()
+    period_end = period_start + timedelta(days=access_days)
     record.stripe_customer_id = customer_id or record.stripe_customer_id
     record.stripe_subscription_id = ""
     record.stripe_product_id = ""
@@ -579,7 +607,7 @@ def _sync_timeboxed_access_record(
     record.billing_interval = option["interval"]
     record.status = "trialing" if option["key"] == "trial_week" else "active"
     record.cancel_at_period_end = True
-    record.current_period_start = session_created
+    record.current_period_start = period_start
     record.current_period_end = period_end
     record.trial_end = period_end if option["key"] == "trial_week" else None
     record.last_checkout_session_id = checkout_session_id
@@ -813,3 +841,4 @@ def process_webhook_event(event) -> bool:
         payload=_json_safe(event_dict),
     )
     return True
+

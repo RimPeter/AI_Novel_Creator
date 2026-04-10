@@ -534,6 +534,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Choose One month pass")
         self.assertContains(resp, "Choose One week trial")
         self.assertNotContains(resp, "Clear current status")
+        self.assertContains(resp, "20% VAT included")
+        self.assertContains(resp, "inc VAT GBP 15.00 (ex VAT GBP 12.50 + VAT GBP 2.50 (20%))")
 
     def test_ferdinand_superuser_sees_clear_status_option(self):
         self.user.username = "Ferdinand"
@@ -687,6 +689,7 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(resp.content.startswith(b"%PDF-"))
         self.assertIn(b"Example Books Ltd", resp.content)
         self.assertIn(b"accounts@example.com", resp.content)
+        self.assertIn(b"Total inc VAT", resp.content)
 
     def test_invoice_pdf_download_is_scoped_to_owner(self):
         other_user = get_user_model().objects.create_user(
@@ -1233,6 +1236,39 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(invoice.status, "paid")
         self.assertEqual(invoice.total_amount, 0)
         self.assertEqual(invoice.description, "One month pass")
+
+    def test_payment_checkout_webhook_derives_vat_breakdown_when_tax_missing(self):
+        created = process_webhook_event(
+            {
+                "id": "evt_payment_vat_123",
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "id": "cs_payment_vat_123",
+                        "created": 1735689600,
+                        "customer": "cus_123",
+                        "payment_status": "paid",
+                        "currency": "gbp",
+                        "amount_total": 1800,
+                        "amount_subtotal": 1800,
+                        "client_reference_id": str(self.user.id),
+                        "metadata": {
+                            "user_id": str(self.user.id),
+                            "plan_key": "monthly",
+                            "price_id": "price_monthly_123",
+                            "checkout_mode": "payment",
+                            "access_days": "30",
+                        },
+                    }
+                },
+            }
+        )
+
+        self.assertTrue(created)
+        invoice = BillingInvoice.objects.get(user=self.user, stripe_checkout_session_id="cs_payment_vat_123")
+        self.assertEqual(invoice.total_amount, 1800)
+        self.assertEqual(invoice.subtotal_amount, 1500)
+        self.assertEqual(invoice.tax_amount, 300)
 
 
 class StoryBibleUploadTests(AuthenticatedTestCase):

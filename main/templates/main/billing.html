@@ -119,6 +119,8 @@
               <div class="billing-plan-kicker">{{ option.interval|title }}</div>
               <h3 class="billing-plan-title">{{ option.label }}</h3>
               <p class="billing-plan-price">{{ option.price_display }}</p>
+              <div class="billing-plan-vat-badge">{{ option.vat_badge }}</div>
+              <p class="billing-plan-vat-note">{{ option.price_breakdown_display }}</p>
               <p class="muted">{{ option.description }}</p>
               <form method="post" action="{% url 'billing-checkout' %}">
                 {% csrf_token %}

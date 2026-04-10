@@ -1988,9 +1988,9 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     _pdf_stroke_rect(commands, 328, 322, 240, 98)
 
     totals = [
-        ("Subtotal", format_minor_amount(invoice.subtotal_amount, invoice.currency)),
-        ("Tax", format_minor_amount(invoice.tax_amount, invoice.currency)),
-        ("Total", format_minor_amount(invoice.total_amount, invoice.currency)),
+        ("Subtotal ex VAT", format_minor_amount(invoice.subtotal_amount, invoice.currency)),
+        ("VAT 20%", format_minor_amount(invoice.tax_amount, invoice.currency)),
+        ("Total inc VAT", format_minor_amount(invoice.total_amount, invoice.currency)),
         ("Paid", format_minor_amount(invoice.amount_paid, invoice.currency)),
         ("Amount due", format_minor_amount(invoice.amount_due, invoice.currency)),
     ]

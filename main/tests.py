@@ -193,9 +193,71 @@ class NavbarVisibilityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Home")
+        self.assertContains(response, "Contact")
         self.assertContains(response, "Sign in")
         self.assertNotContains(response, "<summary>Projects</summary>", html=False)
         self.assertNotContains(response, "<summary>More</summary>", html=False)
+
+    def test_authenticated_users_see_contact_in_more_dropdown(self):
+        user = get_user_model().objects.create_user(
+            username="writer",
+            email="writer@example.com",
+            password="password123",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<summary>More</summary>", html=False)
+        self.assertContains(response, '<a href="/contact/">Contact</a>', html=False)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    CONTACT_EMAIL="admin@example.com",
+)
+class ContactViewTests(TestCase):
+    def test_contact_page_renders(self):
+        response = self.client.get(reverse("contact"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Contact admin")
+        self.assertContains(response, "Send message")
+
+    def test_authenticated_contact_page_prefills_name_and_email(self):
+        user = get_user_model().objects.create_user(
+            username="writer",
+            email="writer@example.com",
+            password="password123",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("contact"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="writer"', html=False)
+        self.assertContains(response, 'value="writer@example.com"', html=False)
+
+    def test_contact_page_sends_email_to_admin(self):
+        response = self.client.post(
+            reverse("contact"),
+            data={
+                "name": "Test User",
+                "email": "tester@example.com",
+                "subject": "Broken billing page",
+                "message": "The billing page shows no invoice after payment.",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
+        self.assertEqual(mail.outbox[0].reply_to, ["tester@example.com"])
+        self.assertIn("Broken billing page", mail.outbox[0].subject)
+        self.assertIn("The billing page shows no invoice after payment.", mail.outbox[0].body)
+        self.assertContains(response, "Your message was sent to the admin.")
 
 
 class LLMTests(TestCase):

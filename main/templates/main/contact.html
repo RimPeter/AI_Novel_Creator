@@ -1,0 +1,55 @@
+{% extends "main/base.html" %}
+
+{% block title %}Contact | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Support</span>
+          <h1 class="page-title">Contact admin</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'home' %}">Home</a>
+        </div>
+      </div>
+      <p class="page-lead">Send a message about billing problems, broken actions, missing data, or anything else that needs admin attention.</p>
+    </section>
+
+    <section class="card page-panel">
+      <div class="header-row">
+        <div>
+          <h2 class="page-panel-title">Message</h2>
+          <p class="muted">Include what you clicked, what you expected, and what happened instead.</p>
+        </div>
+      </div>
+
+      <form method="post" class="form">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Send message</button>
+          <a class="btn btn-secondary" href="{% url 'home' %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

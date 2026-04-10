@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from email.utils import parseaddr
 import os
 import sys
 
@@ -179,6 +180,7 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "").strip()
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "AI Novel Creator <noreply@localhost>")
 SERVER_EMAIL = os.environ.get("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
+CONTACT_EMAIL = env_str("CONTACT_EMAIL", parseaddr(SERVER_EMAIL)[1] or parseaddr(DEFAULT_FROM_EMAIL)[1])
 EMAIL_FILE_PATH = BASE_DIR / os.environ.get("EMAIL_FILE_PATH", ".local_mail")
 if EMAIL_BACKEND == "django.core.mail.backends.filebased.EmailBackend":
     EMAIL_FILE_PATH.mkdir(parents=True, exist_ok=True)

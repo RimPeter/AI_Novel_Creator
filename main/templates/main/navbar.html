@@ -24,6 +24,7 @@
           <div class="nav-dropdown-menu">
             <a href="{% url 'token-usage' %}">Token Usage</a>
             <a href="{% url 'billing' %}">Billing</a>
+            <a href="{% url 'contact' %}">Contact</a>
             {% if user.is_superuser %}
               <a href="{% url 'home-update-create' %}">Post Update</a>
             {% endif %}
@@ -33,6 +34,8 @@
             <a href="{% url 'account_logout' %}">Sign out</a>
           </div>
         </details>
+      {% else %}
+        <a href="{% url 'contact' %}">Contact</a>
       {% endif %}
       {% if user.is_authenticated %}
         <a class="nav-model-badge" href="{% url 'token-usage' %}" title="Active text generation model">

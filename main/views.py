@@ -11,6 +11,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.mail import EmailMessage
 from django.db.utils import OperationalError, ProgrammingError
 from django.db import transaction
 from django.db.models import Count, Max, Q, ProtectedError, Sum
@@ -20,7 +21,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, FormView, ListView, TemplateView, UpdateView
 from django.views.decorators.http import require_GET, require_POST
 
 from .billing import (
@@ -42,6 +43,7 @@ from .billing import (
 from .forms import (
     BillingCompanyProfileForm,
     CharacterForm,
+    ContactForm,
     HomeUpdateForm,
     LocationForm,
     NovelProjectForm,
@@ -592,6 +594,55 @@ def _renumber_outline_for_project(project: NovelProject) -> None:
 def home(request):
     updates = HomeUpdate.objects.order_by("-date", "-created_at")
     return render(request, "main/home.html", {"updates": updates})
+
+
+class ContactView(FormView):
+    template_name = "main/contact.html"
+    form_class = ContactForm
+
+    def get_initial(self):
+        initial = super().get_initial()
+        user = self.request.user
+        if getattr(user, "is_authenticated", False):
+            initial.setdefault("name", str(user.get_username() or "").strip())
+            initial.setdefault("email", str(getattr(user, "email", "") or "").strip())
+        return initial
+
+    def form_valid(self, form):
+        user = self.request.user
+        name = form.cleaned_data["name"]
+        email = form.cleaned_data["email"]
+        subject = form.cleaned_data["subject"]
+        message = form.cleaned_data["message"]
+
+        body_lines = [
+            f"Name: {name}",
+            f"Email: {email}",
+        ]
+        if getattr(user, "is_authenticated", False):
+            body_lines.extend(
+                [
+                    f"Username: {user.get_username()}",
+                    f"User ID: {user.pk}",
+                ]
+            )
+        else:
+            body_lines.append("Username: anonymous")
+        body_lines.extend(["", "Message:", message])
+
+        EmailMessage(
+            subject=f"[{settings.SITE_NAME}] Contact: {subject}",
+            body="\n".join(body_lines).strip(),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[settings.CONTACT_EMAIL],
+            reply_to=[email],
+        ).send(fail_silently=False)
+
+        messages.success(self.request, "Your message was sent to the admin.")
+        return HttpResponseRedirect(self.get_success_url())
+
+    def get_success_url(self):
+        return reverse("contact")
 
 
 @require_POST

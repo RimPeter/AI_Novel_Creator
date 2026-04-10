@@ -219,6 +219,38 @@ class BillingCompanyProfileForm(forms.ModelForm):
         }
 
 
+class ContactForm(forms.Form):
+    name = forms.CharField(
+        max_length=120,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Your name"}),
+    )
+    email = forms.EmailField(
+        widget=forms.EmailInput(attrs={"class": "form-control", "placeholder": "you@example.com"}),
+    )
+    subject = forms.CharField(
+        max_length=160,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Short summary of the problem"}),
+    )
+    message = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 8,
+                "placeholder": "Describe the issue, what you were doing, and what went wrong.",
+            }
+        )
+    )
+
+    def clean_name(self):
+        return (self.cleaned_data.get("name") or "").strip()
+
+    def clean_subject(self):
+        return (self.cleaned_data.get("subject") or "").strip()
+
+    def clean_message(self):
+        return (self.cleaned_data.get("message") or "").strip()
+
+
 class OutlineChapterForm(forms.ModelForm):
     class Meta:
         model = OutlineNode

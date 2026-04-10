@@ -29,6 +29,9 @@
       data-location-add-details-url="{% url 'location-add-details' slug=project.slug %}"
       data-location-extract-objects-url="{% url 'location-extract-objects' slug=project.slug %}"
       data-location-image-url="{% if object %}{% url 'location-image' slug=project.slug pk=object.id %}{% endif %}"
+      data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
+      data-ai-billing-url="{{ ai_billing_url|default:'' }}"
+      data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
     >
       <p class="muted">Each project has a top-level root location created as "World" by default. You can rename it, but it cannot be nested.</p>
 
@@ -134,6 +137,7 @@
     </section>
   </div>
 
+  <script src="{% static 'main/ai_billing_guard.js' %}" defer></script>
   <script src="{% static 'main/location_objects.js' %}" defer></script>
   <script src="{% static 'main/location_description_ai.js' %}" defer></script>
   <script src="{% static 'main/location_extract_objects.js' %}" defer></script>

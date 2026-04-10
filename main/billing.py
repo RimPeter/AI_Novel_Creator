@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
+from decimal import Decimal
 from typing import Any
 
 import stripe
@@ -117,6 +118,13 @@ def user_has_active_subscription(user) -> bool:
     return bool(record and record.is_active)
 
 
+def user_has_active_plan(user) -> bool:
+    record = get_subscription_record(user)
+    if record is None:
+        return False
+    return bool(record.is_active and str(record.status or "").strip().lower() == "active")
+
+
 def get_subscription_display(user) -> dict[str, Any]:
     record = get_subscription_record(user)
     if record is None:
@@ -198,6 +206,23 @@ def _as_dict(value) -> dict[str, Any]:
     return dict(value)
 
 
+def _json_safe(value):
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return value
+
+
 def _get_nested_value(value, key: str, default=None):
     if isinstance(value, dict):
         return value.get(key, default)
@@ -220,11 +245,26 @@ def _get_first_price(subscription: dict[str, Any]) -> dict[str, Any]:
     return _as_dict(price)
 
 
+def _get_first_subscription_item(subscription: dict[str, Any]) -> dict[str, Any]:
+    items_container = _get_nested_value(subscription, "items", {}) or {}
+    items = _get_nested_value(items_container, "data", []) or []
+    if isinstance(items, dict):
+        items = items.get("data") or list(items.values())
+    elif not isinstance(items, (list, tuple)):
+        try:
+            items = list(items)
+        except TypeError:
+            items = [items]
+    if not items:
+        return {}
+    return _as_dict(items[0])
+
+
 def _timestamp_to_datetime(value) -> timezone.datetime | None:
     if not value:
         return None
     try:
-        return timezone.datetime.fromtimestamp(int(value), tz=timezone.utc)
+        return timezone.datetime.fromtimestamp(int(value), tz=dt_timezone.utc)
     except Exception:
         return None
 
@@ -306,7 +346,7 @@ def _upsert_invoice_record(
     if invoice is None:
         invoice = BillingInvoice(user=user)
 
-    payload = payload or {}
+    payload = _json_safe(payload or {})
     customer_details = _as_dict(payload.get("customer_details"))
     billing_reason = str(payload.get("billing_reason") or "").strip()
     created_issue_date = _timestamp_to_date(payload.get("created"))
@@ -543,7 +583,7 @@ def _sync_timeboxed_access_record(
     record.current_period_end = period_end
     record.trial_end = period_end if option["key"] == "trial_week" else None
     record.last_checkout_session_id = checkout_session_id
-    record.raw_data = session
+    record.raw_data = _json_safe(session)
     record.save()
     _sync_checkout_invoice(
         user=user,
@@ -640,6 +680,7 @@ def sync_subscription_record(*, user, subscription: dict[str, Any], checkout_ses
     record = get_or_create_subscription_record(user)
     subscription_dict = _as_dict(subscription)
     price = _get_first_price(subscription_dict)
+    first_item = _get_first_subscription_item(subscription_dict)
     product_id = str(price.get("product") or "").strip()
     recurring = price.get("recurring") or {}
     record.stripe_customer_id = str(subscription_dict.get("customer") or record.stripe_customer_id or "").strip()
@@ -649,12 +690,16 @@ def sync_subscription_record(*, user, subscription: dict[str, Any], checkout_ses
     record.billing_interval = str(recurring.get("interval") or "").strip()
     record.status = str(subscription_dict.get("status") or "").strip()
     record.cancel_at_period_end = bool(subscription_dict.get("cancel_at_period_end"))
-    record.current_period_start = _timestamp_to_datetime(subscription_dict.get("current_period_start"))
-    record.current_period_end = _timestamp_to_datetime(subscription_dict.get("current_period_end"))
+    record.current_period_start = _timestamp_to_datetime(
+        subscription_dict.get("current_period_start") or first_item.get("current_period_start")
+    )
+    record.current_period_end = _timestamp_to_datetime(
+        subscription_dict.get("current_period_end") or first_item.get("current_period_end")
+    )
     record.trial_end = _timestamp_to_datetime(subscription_dict.get("trial_end"))
     if checkout_session_id:
         record.last_checkout_session_id = checkout_session_id
-    record.raw_data = subscription_dict
+    record.raw_data = _json_safe(subscription_dict)
     record.save()
     return record
 
@@ -765,6 +810,6 @@ def process_webhook_event(event) -> bool:
     ProcessedStripeEvent.objects.create(
         stripe_event_id=stripe_event_id,
         event_type=event_type,
-        payload=event_dict,
+        payload=_json_safe(event_dict),
     )
     return True

@@ -35,6 +35,7 @@ from .billing import (
     get_subscription_display,
     sync_checkout_session,
     process_webhook_event,
+    user_has_active_plan,
     user_has_active_subscription,
     construct_webhook_event,
 )
@@ -78,21 +79,26 @@ def _get_project_redirect_url(request, fallback_url: str) -> str:
     return fallback_url
 
 
-def _get_billing_url(request) -> str:
+def _get_billing_url(request, *, reason: str = "") -> str:
     billing_url = reverse("billing")
     next_url = request.get_full_path()
+    params = {}
     if next_url:
-        billing_url = _add_query_params(billing_url, next=next_url)
+        params["next"] = next_url
+    if reason:
+        params["required"] = reason
+    if params:
+        billing_url = _add_query_params(billing_url, **params)
     return billing_url
 
 
 def _subscription_required_response(request, *, wants_json: bool = False):
     if not billing_enabled():
         return None
-    if user_has_active_subscription(request.user):
+    if user_has_active_plan(request.user):
         return None
-    error = "An active subscription is required to use AI features."
-    billing_url = _get_billing_url(request)
+    error = "An active plan is required to generate text and use tokens."
+    billing_url = _get_billing_url(request, reason="active-plan")
     if wants_json:
         return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
     messages.error(request, error)
@@ -1478,6 +1484,12 @@ class ProjectArchiveListView(LoginRequiredMixin, ListView):
 class TokenUsageView(LoginRequiredMixin, TemplateView):
     template_name = "main/token_usage.html"
 
+    def dispatch(self, request, *args, **kwargs):
+        blocked = _subscription_required_response(request)
+        if blocked is not None:
+            return blocked
+        return super().dispatch(request, *args, **kwargs)
+
     def post(self, request, *args, **kwargs):
         try:
             selected_model = save_user_text_model(request.user, request.POST.get("text_model_name") or "")
@@ -1550,6 +1562,10 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx["can_edit_company_details"] = bool(self.request.user.is_authenticated and self.request.user.is_superuser)
         ctx["checkout_status"] = (self.request.GET.get("checkout") or "").strip()
         ctx["checkout_session_id"] = (self.request.GET.get("session_id") or "").strip()
+        ctx["required_access"] = (self.request.GET.get("required") or "").strip()
+        ctx["access_notice"] = ""
+        if ctx["required_access"] == "active-plan":
+            ctx["access_notice"] = "An active plan is required to generate text and use tokens."
         ctx["checkout_sync_error"] = ""
         ctx["checkout_sync_notice"] = ""
         if (
@@ -2592,6 +2608,9 @@ class LocationCreateView(LoginRequiredMixin, CreateView):
         ctx["project"] = self.project
         ctx["object_rows"] = []
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
+        ctx["billing_enabled"] = billing_enabled()
+        ctx["has_active_plan"] = user_has_active_plan(self.request.user)
+        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
         return ctx
 
     def get_form_kwargs(self):
@@ -2639,6 +2658,9 @@ class LocationUpdateView(LoginRequiredMixin, UpdateView):
         ctx["project"] = self.project
         ctx["object_rows"] = sorted((self.object.objects_map or {}).items(), key=lambda kv: kv[0].lower())
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
+        ctx["billing_enabled"] = billing_enabled()
+        ctx["has_active_plan"] = user_has_active_plan(self.request.user)
+        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
         return ctx
 
     def form_valid(self, form):
@@ -3335,6 +3357,9 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
         ctx["parent_node"] = obj.parent
         ctx["node_kind"] = "chapter" if obj.node_type == OutlineNode.NodeType.CHAPTER else "scene"
         if obj.node_type == OutlineNode.NodeType.SCENE:
+            ctx["billing_enabled"] = billing_enabled()
+            ctx["has_active_plan"] = user_has_active_plan(self.request.user)
+            ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
             ctx["chapter_scenes"] = _get_chapter_scene_links(obj)
             ctx["character_list"] = Character.objects.filter(project=self.project).order_by("name")
             form = ctx.get("form")

@@ -80,6 +80,9 @@
       });
 
       const data = await res.json().catch(() => null);
+      if (window.AIBillingGuard?.handleBillingResponse(res, data)) {
+        return null;
+      }
       if (!res.ok || !data || data.ok !== true) {
         showMessage(data?.error || `Request failed (${res.status})`, "error");
         return null;
@@ -109,6 +112,8 @@
   };
 
   brainstormBtn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     if (!getName()) {
       showMessage("Add a location name first.", "warning");
       return;
@@ -139,6 +144,8 @@
   });
 
   addDetailsBtn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     if (!getName()) {
       showMessage("Add a location name first.", "warning");
       return;
@@ -164,4 +171,3 @@
     }
   });
 })();
-

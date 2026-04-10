@@ -103,6 +103,9 @@
                     data-draft-editor
                     data-regenerated-ranges="{{ request.GET.hl|default:'' }}"
                     data-synonyms-url="{% url 'scene-synonyms' slug=project.slug %}"
+                    data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
+                    data-ai-billing-url="{{ ai_billing_url|default:'' }}"
+                    data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
                   >
                     <div class="draft-highlight" aria-hidden="true"></div>
                     <textarea
@@ -252,6 +255,7 @@
   </div>
 
   {% if node_kind == "scene" %}
+    <script src="{% static 'main/ai_billing_guard.js' %}" defer></script>
     <script src="{% static 'main/scene_location_select.js' %}" defer></script>
     <script src="{% static 'main/scene_pov_from_characters.js' %}" defer></script>
     <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>

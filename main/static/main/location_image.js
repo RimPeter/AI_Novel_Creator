@@ -44,6 +44,8 @@
   const getFieldValue = (name) => (form.querySelector(`[name="${name}"]`)?.value || "").trim();
 
   btn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     if (!getFieldValue("name")) {
       showMessage("Add a name first, then create an image.", "warning");
       return;
@@ -68,6 +70,9 @@
       });
 
       const data = await res.json().catch(() => null);
+      if (window.AIBillingGuard?.handleBillingResponse(res, data)) {
+        return;
+      }
       if (!res.ok || !data || data.ok !== true) {
         const errorText = data?.error || `Image failed (${res.status})`;
         showMessage(errorText, "error");

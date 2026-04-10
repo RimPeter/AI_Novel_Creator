@@ -282,7 +282,12 @@
   const form = textarea.closest("form");
   if (form) {
     form.addEventListener("submit", (event) => {
-      if (event.submitter?.value !== "reshuffle") return;
+      const action = event.submitter?.value || "";
+      if (["structurize", "render", "reshuffle"].includes(action) && window.AIBillingGuard?.redirectToBillingIfNeeded(editor)) {
+        event.preventDefault();
+        return;
+      }
+      if (action !== "reshuffle") return;
       try {
         window.sessionStorage.setItem(
           scrollKey,

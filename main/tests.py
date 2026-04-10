@@ -2,6 +2,7 @@ import json
 import shutil
 import tempfile
 from datetime import datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
@@ -397,6 +398,16 @@ class BillingTests(AuthenticatedTestCase):
             owner=self.user,
         )
 
+    def _create_subscription(self, *, status="active", days=30):
+        now = timezone.now()
+        return UserSubscription.objects.create(
+            user=self.user,
+            billing_interval="month",
+            status=status,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=days),
+        )
+
     def test_billing_page_renders_subscription_controls(self):
         resp = self.client.get(reverse("billing"))
 
@@ -676,7 +687,7 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 402)
         self.assertEqual(resp.json()["ok"], False)
-        self.assertIn("subscription", resp.json()["error"].lower())
+        self.assertIn("active plan", resp.json()["error"].lower())
         self.assertIn(reverse("billing"), resp.json()["billing_url"])
 
     def test_dashboard_generation_redirects_to_billing_without_subscription(self):
@@ -687,6 +698,67 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 302)
         self.assertIn(reverse("billing"), resp["Location"])
+
+    def test_generation_endpoint_requires_status_active_when_plan_is_trialing(self):
+        self._create_subscription(status="trialing", days=7)
+
+        resp = self.client.post(
+            reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
+            data={},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 402)
+        self.assertEqual(resp.json()["ok"], False)
+        self.assertIn("active plan", resp.json()["error"].lower())
+        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+
+    def test_generation_endpoint_allows_status_active(self):
+        self._create_subscription(status="active", days=30)
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Speculative mystery"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
+                data={
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+
+    def test_token_usage_redirects_to_billing_when_plan_is_trialing(self):
+        self._create_subscription(status="trialing", days=7)
+
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("billing"), resp["Location"])
+
+    def test_token_usage_is_available_when_plan_is_active(self):
+        self._create_subscription(status="active", days=30)
+
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Token usage")
+
+    def test_billing_page_shows_active_plan_notice(self):
+        resp = self.client.get(reverse("billing") + "?required=active-plan")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "An active plan is required to generate text and use tokens.")
 
     @patch("main.billing.stripe.Subscription.retrieve")
     def test_checkout_webhook_syncs_subscription_record(self, mock_retrieve):
@@ -941,6 +1013,71 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(record.stripe_subscription_id, "sub_123")
         self.assertEqual(record.stripe_price_id, "price_monthly_123")
         self.assertEqual(record.billing_interval, "month")
+
+    def test_sync_subscription_record_uses_item_period_dates_when_top_level_missing(self):
+        record = sync_subscription_record(
+            user=self.user,
+            subscription={
+                "id": "sub_item_periods_123",
+                "customer": "cus_123",
+                "status": "active",
+                "cancel_at_period_end": False,
+                "current_period_start": None,
+                "current_period_end": None,
+                "trial_end": None,
+                "items": {
+                    "data": [
+                        {
+                            "current_period_start": 1735689600,
+                            "current_period_end": 1738368000,
+                            "price": {
+                                "id": "price_monthly_123",
+                                "product": "prod_123",
+                                "recurring": {"interval": "month"},
+                            },
+                        }
+                    ]
+                },
+            },
+            checkout_session_id="cs_123",
+        )
+
+        self.assertEqual(record.current_period_start, timezone.make_aware(datetime(2025, 1, 1, 0, 0)))
+        self.assertEqual(record.current_period_end, timezone.make_aware(datetime(2025, 2, 1, 0, 0)))
+
+    def test_sync_subscription_record_serializes_decimal_values_in_raw_data(self):
+        record = sync_subscription_record(
+            user=self.user,
+            subscription={
+                "id": "sub_decimal_123",
+                "customer": "cus_123",
+                "status": "active",
+                "cancel_at_period_end": False,
+                "current_period_start": 1735689600,
+                "current_period_end": 1738368000,
+                "trial_end": None,
+                "latest_invoice": {
+                    "amount_due": Decimal("100.00"),
+                    "amount_paid": Decimal("100"),
+                },
+                "items": {
+                    "data": [
+                        {
+                            "price": {
+                                "id": "price_monthly_123",
+                                "product": "prod_123",
+                                "recurring": {"interval": "month"},
+                            }
+                        }
+                    ]
+                },
+            },
+            checkout_session_id="cs_123",
+        )
+
+        self.assertEqual(record.status, "active")
+        self.assertEqual(record.raw_data["latest_invoice"]["amount_due"], 100)
+        self.assertEqual(record.raw_data["latest_invoice"]["amount_paid"], 100)
 
     def test_payment_checkout_webhook_grants_timeboxed_access(self):
         created = process_webhook_event(
@@ -1691,6 +1828,41 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         prompt = mock_call.call_args.kwargs["prompt"]
         self.assertIn("Full draft with marked target sections:", prompt)
         self.assertIn("Opening beat. !{Old line.}! Closing beat.", prompt)
+
+    @override_settings(
+        STRIPE_PUBLISHABLE_KEY="pk_test_123",
+        STRIPE_SECRET_KEY="sk_test_123",
+        STRIPE_WEBHOOK_SECRET="whsec_test_123",
+        STRIPE_PRICE_MONTHLY="price_monthly_123",
+        STRIPE_PRICE_YEARLY="price_yearly_123",
+        STRIPE_PRICE_SINGLE_MONTH="price_single_month_123",
+        STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
+        STRIPE_BILLING_ENABLED=True,
+    )
+    def test_reshuffle_redirects_to_billing_when_no_active_plan(self):
+        self.scene.structure_json = "{Protected only.}"
+        self.scene.save(update_fields=["structure_json"])
+
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.post(
+            url,
+            data={
+                "order": 1,
+                "title": self.scene.title,
+                "summary": self.scene.summary,
+                "pov": self.scene.pov,
+                "location": self.scene.location,
+                "structure_json": self.scene.structure_json,
+                "rendered_text": "",
+                "action": "reshuffle",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "An active plan is required to generate text and use tokens.")
+        self.assertContains(resp, "Billing")
+        self.assertNotContains(resp, "Reshuffle ignored protected text; kept the existing draft. Try again.")
 
     def test_edit_scene_shows_regenerate_marker_buttons(self):
         url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
@@ -2576,3 +2748,51 @@ class LocationViewsTests(AuthenticatedTestCase):
             resp.json(),
             {"ok": True, "objects": {"forklift": "rust-stained, idling near the bulkhead"}},
         )
+
+    @override_settings(
+        STRIPE_PUBLISHABLE_KEY="pk_test_123",
+        STRIPE_SECRET_KEY="sk_test_123",
+        STRIPE_WEBHOOK_SECRET="whsec_test_123",
+        STRIPE_PRICE_MONTHLY="price_monthly_123",
+        STRIPE_PRICE_YEARLY="price_yearly_123",
+        STRIPE_PRICE_SINGLE_MONTH="price_single_month_123",
+        STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
+        STRIPE_BILLING_ENABLED=True,
+    )
+    def test_extract_location_objects_requires_active_plan_when_billing_enabled(self):
+        url = reverse("location-extract-objects", kwargs={"slug": self.project_a.slug})
+        resp = self.client.post(
+            url,
+            data={
+                "name": "Docking Bay",
+                "description": "A cavernous bay of cold steel.",
+                "object_key": [],
+                "object_value": [],
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 402)
+        self.assertEqual(resp.json()["ok"], False)
+        self.assertIn("active plan", resp.json()["error"].lower())
+        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+
+    @override_settings(
+        STRIPE_PUBLISHABLE_KEY="pk_test_123",
+        STRIPE_SECRET_KEY="sk_test_123",
+        STRIPE_WEBHOOK_SECRET="whsec_test_123",
+        STRIPE_PRICE_MONTHLY="price_monthly_123",
+        STRIPE_PRICE_YEARLY="price_yearly_123",
+        STRIPE_PRICE_SINGLE_MONTH="price_single_month_123",
+        STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
+        STRIPE_BILLING_ENABLED=True,
+    )
+    def test_location_edit_page_exposes_billing_redirect_for_ai_actions(self):
+        url = reverse("location-edit", kwargs={"slug": self.project_a.slug, "pk": self.loc_a.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'data-billing-enabled="true"')
+        self.assertContains(resp, 'data-has-active-plan="false"')
+        self.assertContains(resp, 'data-ai-billing-url="')

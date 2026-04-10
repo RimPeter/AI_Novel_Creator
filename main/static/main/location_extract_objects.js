@@ -116,6 +116,9 @@
       });
 
       const data = await res.json().catch(() => null);
+      if (window.AIBillingGuard?.handleBillingResponse(res, data)) {
+        return null;
+      }
       if (!res.ok || !data || data.ok !== true) {
         showMessage(data?.error || `Extract failed (${res.status})`, "error");
         return null;
@@ -128,6 +131,8 @@
   };
 
   btn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     const description = getValue("description");
     if (!description) {
       showMessage("Add a description first, then click Extract details.", "warning");
@@ -177,4 +182,3 @@
     }
   });
 })();
-

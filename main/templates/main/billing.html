@@ -48,6 +48,8 @@
         {% endif %}
       {% elif checkout_status == "cancelled" %}
         <p class="muted">Checkout was cancelled. No billing changes were made.</p>
+      {% elif access_notice %}
+        <p class="muted">{{ access_notice }}</p>
       {% endif %}
       {% if billing_enabled %}
         <div class="billing-status-grid">

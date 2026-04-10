@@ -1779,6 +1779,90 @@ def _escape_pdf_text(value: str) -> str:
     return str(value or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
+def _pdf_wrap_lines(value: str, *, width: int) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return [""]
+    lines: list[str] = []
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        wrapped = textwrap.wrap(raw.strip(), width=width) if raw.strip() else [""]
+        lines.extend(wrapped or [""])
+    return lines or [""]
+
+
+def _pdf_set_fill(commands: list[str], r: float, g: float, b: float) -> None:
+    commands.append(f"{r:.3f} {g:.3f} {b:.3f} rg")
+
+
+def _pdf_set_stroke(commands: list[str], r: float, g: float, b: float) -> None:
+    commands.append(f"{r:.3f} {g:.3f} {b:.3f} RG")
+
+
+def _pdf_fill_rect(commands: list[str], x: float, y: float, w: float, h: float) -> None:
+    commands.append(f"{x:.2f} {y:.2f} {w:.2f} {h:.2f} re f")
+
+
+def _pdf_stroke_rect(commands: list[str], x: float, y: float, w: float, h: float) -> None:
+    commands.append(f"{x:.2f} {y:.2f} {w:.2f} {h:.2f} re S")
+
+
+def _pdf_draw_line(commands: list[str], x1: float, y1: float, x2: float, y2: float) -> None:
+    commands.append(f"{x1:.2f} {y1:.2f} m {x2:.2f} {y2:.2f} l S")
+
+
+def _pdf_draw_text(
+    commands: list[str],
+    *,
+    x: float,
+    y: float,
+    text: str,
+    font: str = "/F1",
+    size: float = 10.0,
+    color: tuple[float, float, float] = (0.1, 0.13, 0.18),
+) -> None:
+    r, g, b = color
+    commands.extend(
+        [
+            "BT",
+            f"{font} {size:.2f} Tf",
+            f"{r:.3f} {g:.3f} {b:.3f} rg",
+            f"{x:.2f} {y:.2f} Td",
+            f"({_escape_pdf_text(text)}) Tj",
+            "ET",
+        ]
+    )
+
+
+def _pdf_draw_text_lines(
+    commands: list[str],
+    *,
+    x: float,
+    y: float,
+    lines: list[str],
+    font: str = "/F1",
+    size: float = 10.0,
+    leading: float = 13.0,
+    color: tuple[float, float, float] = (0.1, 0.13, 0.18),
+) -> None:
+    if not lines:
+        return
+    r, g, b = color
+    commands.extend(
+        [
+            "BT",
+            f"{font} {size:.2f} Tf",
+            f"{leading:.2f} TL",
+            f"{r:.3f} {g:.3f} {b:.3f} rg",
+            f"{x:.2f} {y:.2f} Td",
+        ]
+    )
+    for index, line in enumerate(lines):
+        if index:
+            commands.append("T*")
+        commands.append(f"({_escape_pdf_text(line)}) Tj")
+    commands.append("ET")
+
+
 def _build_simple_pdf(lines: list[str]) -> bytes:
     wrapped_lines: list[str] = []
     for raw_line in lines:
@@ -1828,35 +1912,141 @@ def _build_simple_pdf(lines: list[str]) -> bytes:
 
 def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     company_profile = get_billing_company_profile()
-    lines = [
-        f"Invoice {invoice.public_number}",
-        "",
-        f"Status: {invoice.status or 'draft'}",
-        f"Issue date: {invoice.issue_date.isoformat() if invoice.issue_date else ''}",
-        f"Due date: {invoice.due_date.isoformat() if invoice.due_date else 'N/A'}",
-        f"Paid at: {timezone.localtime(invoice.paid_at).strftime('%Y-%m-%d %H:%M UTC') if invoice.paid_at else 'N/A'}",
-        "",
-        f"Seller: {company_profile.company_name}",
-        company_profile.company_email,
-        company_profile.company_address,
-        f"Tax ID: {company_profile.company_tax_id}" if company_profile.company_tax_id else "",
-        "",
-        f"Bill to: {invoice.buyer_name or invoice.user.get_username()}",
-        invoice.buyer_email,
-        invoice.buyer_address,
-        "",
-        "Description:",
-        invoice.description or "Billing invoice",
-        "",
-        f"Subtotal: {format_minor_amount(invoice.subtotal_amount, invoice.currency)}",
-        f"Tax: {format_minor_amount(invoice.tax_amount, invoice.currency)}",
-        f"Total: {format_minor_amount(invoice.total_amount, invoice.currency)}",
-        f"Paid: {format_minor_amount(invoice.amount_paid, invoice.currency)}",
-        f"Due: {format_minor_amount(invoice.amount_due, invoice.currency)}",
+    seller_name = company_profile.company_name or "AI Novel Creator"
+    seller_email = company_profile.company_email or ""
+    seller_address = company_profile.company_address or ""
+    seller_tax = company_profile.company_tax_id or ""
+
+    buyer_name = invoice.buyer_name or invoice.user.get_username()
+    buyer_email = invoice.buyer_email or ""
+    buyer_address = invoice.buyer_address or ""
+    issue_date = invoice.issue_date.isoformat() if invoice.issue_date else "N/A"
+    due_date = invoice.due_date.isoformat() if invoice.due_date else "N/A"
+    paid_at = timezone.localtime(invoice.paid_at).strftime("%Y-%m-%d %H:%M UTC") if invoice.paid_at else "N/A"
+    status_text = (invoice.status or "draft").upper()
+    description = invoice.description or "Billing invoice"
+    currency = (invoice.currency or "GBP").upper()
+
+    commands: list[str] = []
+    # Header bar
+    _pdf_set_fill(commands, 0.09, 0.16, 0.30)
+    _pdf_fill_rect(commands, 0, 718, 612, 74)
+    _pdf_draw_text(commands, x=44, y=764, text="INVOICE", font="/F2", size=24, color=(1.0, 1.0, 1.0))
+    _pdf_draw_text(commands, x=44, y=744, text=seller_name, font="/F2", size=11, color=(0.89, 0.94, 1.0))
+    _pdf_draw_text(commands, x=430, y=760, text=f"#{invoice.public_number}", font="/F2", size=12, color=(1.0, 1.0, 1.0))
+    _pdf_draw_text(commands, x=430, y=742, text=f"STATUS: {status_text}", font="/F2", size=9.5, color=(0.84, 0.90, 1.0))
+
+    # Meta details strip
+    _pdf_set_fill(commands, 0.96, 0.97, 0.99)
+    _pdf_fill_rect(commands, 44, 676, 524, 30)
+    _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
+    _pdf_stroke_rect(commands, 44, 676, 524, 30)
+    _pdf_draw_text(commands, x=52, y=688, text=f"Issue: {issue_date}", font="/F2", size=9.2)
+    _pdf_draw_text(commands, x=192, y=688, text=f"Due: {due_date}", font="/F2", size=9.2)
+    _pdf_draw_text(commands, x=330, y=688, text=f"Paid at: {paid_at}", font="/F2", size=9.2)
+    _pdf_draw_text(commands, x=505, y=688, text=f"Currency: {currency}", font="/F2", size=9.2, color=(0.22, 0.28, 0.38))
+
+    # Seller / Bill to cards
+    _pdf_set_fill(commands, 0.99, 0.99, 1.0)
+    _pdf_fill_rect(commands, 44, 560, 252, 104)
+    _pdf_fill_rect(commands, 316, 560, 252, 104)
+    _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
+    _pdf_stroke_rect(commands, 44, 560, 252, 104)
+    _pdf_stroke_rect(commands, 316, 560, 252, 104)
+
+    _pdf_draw_text(commands, x=56, y=648, text="FROM", font="/F2", size=9.5, color=(0.32, 0.39, 0.50))
+    seller_lines = [seller_name]
+    seller_lines.extend(_pdf_wrap_lines(seller_email, width=34) if seller_email else [])
+    seller_lines.extend(_pdf_wrap_lines(seller_address, width=34) if seller_address else [])
+    if seller_tax:
+        seller_lines.extend(_pdf_wrap_lines(f"Tax ID: {seller_tax}", width=34))
+    _pdf_draw_text_lines(commands, x=56, y=634, lines=seller_lines[:6], size=9.4, leading=12.0)
+
+    _pdf_draw_text(commands, x=328, y=648, text="BILL TO", font="/F2", size=9.5, color=(0.32, 0.39, 0.50))
+    buyer_lines = [buyer_name]
+    buyer_lines.extend(_pdf_wrap_lines(buyer_email, width=34) if buyer_email else [])
+    buyer_lines.extend(_pdf_wrap_lines(buyer_address, width=34) if buyer_address else [])
+    _pdf_draw_text_lines(commands, x=328, y=634, lines=buyer_lines[:6], size=9.4, leading=12.0)
+
+    # Description table
+    _pdf_set_fill(commands, 0.17, 0.25, 0.40)
+    _pdf_fill_rect(commands, 44, 530, 524, 24)
+    _pdf_draw_text(commands, x=54, y=538, text="Description", font="/F2", size=10, color=(1.0, 1.0, 1.0))
+    _pdf_draw_text(commands, x=516, y=538, text="Amount", font="/F2", size=10, color=(1.0, 1.0, 1.0))
+    _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
+    _pdf_stroke_rect(commands, 44, 430, 524, 100)
+    _pdf_draw_line(commands, 478, 430, 478, 530)
+
+    desc_lines = _pdf_wrap_lines(description, width=66)[:6]
+    _pdf_draw_text_lines(commands, x=54, y=514, lines=desc_lines, size=9.8, leading=12.5)
+    _pdf_draw_text(commands, x=492, y=514, text=format_minor_amount(invoice.total_amount, invoice.currency), font="/F2", size=10.2)
+
+    # Totals box
+    _pdf_set_fill(commands, 0.98, 0.99, 1.0)
+    _pdf_fill_rect(commands, 328, 322, 240, 98)
+    _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
+    _pdf_stroke_rect(commands, 328, 322, 240, 98)
+
+    totals = [
+        ("Subtotal", format_minor_amount(invoice.subtotal_amount, invoice.currency)),
+        ("Tax", format_minor_amount(invoice.tax_amount, invoice.currency)),
+        ("Total", format_minor_amount(invoice.total_amount, invoice.currency)),
+        ("Paid", format_minor_amount(invoice.amount_paid, invoice.currency)),
+        ("Amount due", format_minor_amount(invoice.amount_due, invoice.currency)),
     ]
-    if invoice.notes:
-        lines.extend(["", "Notes:", invoice.notes])
-    return _build_simple_pdf(lines)
+    y = 404.0
+    for label, value in totals:
+        is_key_total = label in {"Total", "Amount due"}
+        _pdf_draw_text(commands, x=340, y=y, text=label, font="/F2" if is_key_total else "/F1", size=9.6)
+        _pdf_draw_text(commands, x=500, y=y, text=value, font="/F2" if is_key_total else "/F1", size=9.6)
+        y -= 17.5
+
+    # Notes area
+    notes_title_y = 300.0
+    _pdf_draw_text(commands, x=44, y=notes_title_y, text="Notes", font="/F2", size=10.0, color=(0.32, 0.39, 0.50))
+    notes_lines = _pdf_wrap_lines(invoice.notes or "Thank you for your business.", width=94)[:6]
+    _pdf_set_fill(commands, 0.99, 0.99, 1.0)
+    _pdf_fill_rect(commands, 44, 212, 524, 82)
+    _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
+    _pdf_stroke_rect(commands, 44, 212, 524, 82)
+    _pdf_draw_text_lines(commands, x=54, y=277, lines=notes_lines, size=9.2, leading=11.8)
+
+    # Footer
+    _pdf_draw_line(commands, 44, 188, 568, 188)
+    _pdf_draw_text(
+        commands,
+        x=44,
+        y=174,
+        text=f"Generated by AI Novel Creator billing - Invoice {invoice.public_number}",
+        font="/F1",
+        size=8.4,
+        color=(0.44, 0.49, 0.57),
+    )
+
+    stream = "\n".join(commands).encode("latin-1", "replace")
+    objects = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /ProcSet [/PDF /Text] /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >> endobj\n",
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+        b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n",
+        f"6 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
+    ]
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
 
 
 @login_required

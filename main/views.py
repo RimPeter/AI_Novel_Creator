@@ -43,12 +43,13 @@ from .billing import (
 from .forms import (
     BillingCompanyProfileForm,
     CharacterForm,
-    ContactForm,
     HomeUpdateForm,
+    IssueContactForm,
     LocationForm,
     NovelProjectForm,
     OutlineChapterForm,
     OutlineSceneForm,
+    RequestContactForm,
     StoryBibleForm,
     StoryBiblePdfUploadForm,
 )
@@ -596,24 +597,19 @@ def home(request):
     return render(request, "main/home.html", {"updates": updates})
 
 
-class ContactView(FormView):
+class ContactView(TemplateView):
     template_name = "main/contact.html"
-    form_class = ContactForm
 
-    def get_initial(self):
-        initial = super().get_initial()
-        user = self.request.user
-        if getattr(user, "is_authenticated", False):
-            initial.setdefault("name", str(user.get_username() or "").strip())
-            initial.setdefault("email", str(getattr(user, "email", "") or "").strip())
-        return initial
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["issue_form"] = kwargs.get("issue_form") or IssueContactForm()
+        ctx["request_form"] = kwargs.get("request_form") or RequestContactForm()
+        return ctx
 
-    def form_valid(self, form):
+    def _get_contact_header_lines(self):
         user = self.request.user
-        name = form.cleaned_data["name"]
-        email = form.cleaned_data["email"]
-        subject = form.cleaned_data["subject"]
-        message = form.cleaned_data["message"]
+        name = str(user.get_username() or "").strip() if getattr(user, "is_authenticated", False) else "anonymous"
+        email = str(getattr(user, "email", "") or "").strip() if getattr(user, "is_authenticated", False) else ""
 
         body_lines = [
             f"Name: {name}",
@@ -628,18 +624,77 @@ class ContactView(FormView):
             )
         else:
             body_lines.append("Username: anonymous")
-        body_lines.extend(["", "Message:", message])
+        return body_lines, email
+
+    def _send_issue_email(self, form):
+        issue_subject = form.cleaned_data["issue_subject"]
+        issue_message = form.cleaned_data["issue_message"]
+        body_lines, email = self._get_contact_header_lines()
+        body_lines.extend(
+            [
+                "",
+                "Message:",
+                f"Subject: {issue_subject or '(none)'}",
+                issue_message or "(none)",
+            ]
+        )
 
         EmailMessage(
-            subject=f"[{settings.SITE_NAME}] Contact: {subject}",
+            subject=f"[{settings.SITE_NAME}] Contact: {issue_subject[:120]}",
             body="\n".join(body_lines).strip(),
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[settings.CONTACT_EMAIL],
-            reply_to=[email],
+            reply_to=[email] if email else [],
         ).send(fail_silently=False)
 
-        messages.success(self.request, "Your message was sent to the admin.")
-        return HttpResponseRedirect(self.get_success_url())
+    def _send_request_email(self, form):
+        request_want = form.cleaned_data["request_want"]
+        request_benefit = form.cleaned_data["request_benefit"]
+        additional_notes = form.cleaned_data["additional_notes"]
+        body_lines, email = self._get_contact_header_lines()
+        body_lines.extend(
+            [
+                "",
+                "Request:",
+                f"As a user I want: {request_want or '(none)'}",
+                f"So I can: {request_benefit or '(none)'}",
+                "",
+                "Additional notes:",
+                additional_notes or "(none)",
+            ]
+        )
+
+        EmailMessage(
+            subject=f"[{settings.SITE_NAME}] Contact: {request_want[:120]}",
+            body="\n".join(body_lines).strip(),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[settings.CONTACT_EMAIL],
+            reply_to=[email] if email else [],
+        ).send(fail_silently=False)
+
+    def post(self, request, *args, **kwargs):
+        form_type = str(request.POST.get("form_type") or "").strip().lower()
+
+        if form_type == "issue":
+            issue_form = IssueContactForm(request.POST)
+            request_form = RequestContactForm()
+            if issue_form.is_valid():
+                self._send_issue_email(issue_form)
+                messages.success(request, "Your message was sent to the admin.")
+                return HttpResponseRedirect(self.get_success_url())
+            return self.render_to_response(self.get_context_data(issue_form=issue_form, request_form=request_form))
+
+        if form_type == "request":
+            issue_form = IssueContactForm()
+            request_form = RequestContactForm(request.POST)
+            if request_form.is_valid():
+                self._send_request_email(request_form)
+                messages.success(request, "Your request was sent to the admin.")
+                return HttpResponseRedirect(self.get_success_url())
+            return self.render_to_response(self.get_context_data(issue_form=issue_form, request_form=request_form))
+
+        messages.error(request, "Choose a message or request form before sending.")
+        return self.render_to_response(self.get_context_data())
 
     def get_success_url(self):
         return reverse("contact")

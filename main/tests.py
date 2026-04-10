@@ -223,9 +223,21 @@ class ContactViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Contact admin")
+        self.assertContains(response, "User details")
+        self.assertContains(response, "You are not signed in")
+        self.assertContains(response, "Message")
+        self.assertContains(response, "Request")
+        self.assertContains(response, "Subject")
+        self.assertContains(response, "Use this section to report bugs")
+        self.assertContains(response, "As a user I want")
+        self.assertContains(response, "So I can")
+        self.assertContains(response, "Additional notes")
+        self.assertContains(response, 'value="issue"', html=False)
+        self.assertContains(response, 'value="request"', html=False)
         self.assertContains(response, "Send message")
+        self.assertContains(response, "Send request")
 
-    def test_authenticated_contact_page_prefills_name_and_email(self):
+    def test_authenticated_contact_page_shows_account_details(self):
         user = get_user_model().objects.create_user(
             username="writer",
             email="writer@example.com",
@@ -236,17 +248,24 @@ class ContactViewTests(TestCase):
         response = self.client.get(reverse("contact"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="writer"', html=False)
-        self.assertContains(response, 'value="writer@example.com"', html=False)
+        self.assertContains(response, "Username:")
+        self.assertContains(response, "writer")
+        self.assertContains(response, "writer@example.com")
 
-    def test_contact_page_sends_email_to_admin(self):
+    def test_contact_page_sends_issue_email_to_admin(self):
+        user = get_user_model().objects.create_user(
+            username="writer",
+            email="writer@example.com",
+            password="password123",
+        )
+        self.client.force_login(user)
+
         response = self.client.post(
             reverse("contact"),
             data={
-                "name": "Test User",
-                "email": "tester@example.com",
-                "subject": "Broken billing page",
-                "message": "The billing page shows no invoice after payment.",
+                "form_type": "issue",
+                "issue_subject": "Broken billing page",
+                "issue_message": "The billing page shows no invoice after payment.",
             },
             follow=True,
         )
@@ -254,10 +273,45 @@ class ContactViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
-        self.assertEqual(mail.outbox[0].reply_to, ["tester@example.com"])
+        self.assertEqual(mail.outbox[0].reply_to, ["writer@example.com"])
         self.assertIn("Broken billing page", mail.outbox[0].subject)
+        self.assertIn("Name: writer", mail.outbox[0].body)
+        self.assertIn("Email: writer@example.com", mail.outbox[0].body)
+        self.assertIn("Message:", mail.outbox[0].body)
+        self.assertIn("Subject: Broken billing page", mail.outbox[0].body)
         self.assertIn("The billing page shows no invoice after payment.", mail.outbox[0].body)
         self.assertContains(response, "Your message was sent to the admin.")
+
+    def test_contact_page_sends_request_email_to_admin(self):
+        user = get_user_model().objects.create_user(
+            username="writer",
+            email="writer@example.com",
+            password="password123",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("contact"),
+            data={
+                "form_type": "request",
+                "request_want": "a billing page that shows invoices after payment",
+                "request_benefit": "confirm that my payment was processed",
+                "additional_notes": "The billing page shows no invoice after payment.",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
+        self.assertEqual(mail.outbox[0].reply_to, ["writer@example.com"])
+        self.assertIn("Name: writer", mail.outbox[0].body)
+        self.assertIn("Email: writer@example.com", mail.outbox[0].body)
+        self.assertIn("a billing page that shows invoices after payment", mail.outbox[0].subject)
+        self.assertIn("As a user I want: a billing page that shows invoices after payment", mail.outbox[0].body)
+        self.assertIn("So I can: confirm that my payment was processed", mail.outbox[0].body)
+        self.assertIn("The billing page shows no invoice after payment.", mail.outbox[0].body)
+        self.assertContains(response, "Your request was sent to the admin.")
 
 
 class LLMTests(TestCase):

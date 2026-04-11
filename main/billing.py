@@ -684,6 +684,20 @@ def create_billing_portal_session(*, user, return_url: str):
     return session
 
 
+def cancel_recurring_subscription(*, user) -> UserSubscription | None:
+    record = get_subscription_record(user)
+    if record is None:
+        return None
+
+    subscription_id = str(record.stripe_subscription_id or "").strip()
+    if not subscription_id:
+        return None
+
+    _set_stripe_api_key()
+    subscription = stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+    return sync_subscription_record(user=user, subscription=subscription)
+
+
 def construct_webhook_event(*, payload: bytes, signature: str):
     return stripe.Webhook.construct_event(payload, signature, settings.STRIPE_WEBHOOK_SECRET)
 

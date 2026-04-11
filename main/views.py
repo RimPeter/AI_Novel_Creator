@@ -27,6 +27,7 @@ from django.views.decorators.http import require_GET, require_POST
 from .billing import (
     billing_enabled,
     clear_subscription_status,
+    cancel_recurring_subscription,
     create_billing_portal_session,
     create_checkout_session,
     format_minor_amount,
@@ -1751,6 +1752,27 @@ def create_billing_portal(request):
         messages.error(request, f"Could not open the billing portal: {e}")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
+
+
+@require_POST
+@login_required
+def cancel_billing_recurring(request):
+    if not billing_enabled():
+        messages.error(request, "Stripe billing is not configured yet.")
+        return HttpResponseRedirect(reverse("billing"))
+
+    try:
+        record = cancel_recurring_subscription(user=request.user)
+    except Exception as e:
+        messages.error(request, f"Could not cancel recurring payments: {e}")
+        return HttpResponseRedirect(reverse("billing"))
+
+    if record is None:
+        messages.error(request, "No recurring subscription was found to cancel.")
+        return HttpResponseRedirect(reverse("billing"))
+
+    messages.success(request, "Recurring payments cancelled. Access remains active until the current period ends.")
+    return HttpResponseRedirect(reverse("billing"))
 
 
 @require_POST

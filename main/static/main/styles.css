@@ -1157,6 +1157,11 @@ ul {
   margin-top: 18px;
 }
 
+.billing-status-actions {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
 .billing-invoice-card {
   display: flex;
   align-items: flex-start;

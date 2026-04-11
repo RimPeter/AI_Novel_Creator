@@ -71,6 +71,15 @@
             <span>{% if subscription.cancel_at_period_end %}At period end{% else %}No cancellation scheduled{% endif %}</span>
           </article>
         </div>
+        {% if subscription.has_subscription and not subscription.cancel_at_period_end %}
+          <div class="actions billing-status-actions">
+            <form method="post" action="{% url 'billing-cancel-recurring' %}">
+              {% csrf_token %}
+              <button class="btn btn-secondary" type="submit">Cancel recurring payments</button>
+            </form>
+          </div>
+          <p class="muted">Cancellation applies at period end. You keep access until then.</p>
+        {% endif %}
       {% else %}
         <p class="muted">Stripe billing is not configured yet. Add the Stripe keys, webhook secret, and all four price IDs in the environment to enable checkout.</p>
       {% endif %}

@@ -1127,7 +1127,28 @@ ul {
 }
 
 .billing-plan-card form {
+  display: grid;
+  gap: 10px;
   margin-top: 14px;
+}
+
+.billing-plan-terms-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.billing-plan-terms-check input[type="checkbox"] {
+  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+}
+
+.billing-plan-terms-check a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .billing-invoice-list {

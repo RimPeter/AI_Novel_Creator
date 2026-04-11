@@ -1688,6 +1688,15 @@ class BillingView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class BillingTermsView(LoginRequiredMixin, TemplateView):
+    template_name = "main/billing_terms.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["price_options"] = get_price_options()
+        return ctx
+
+
 @require_POST
 @login_required
 def create_billing_checkout(request):
@@ -1703,6 +1712,13 @@ def create_billing_checkout(request):
     option = next((item for item in get_price_options() if item["key"] == plan and item["price_id"]), None)
     if option is None:
         messages.error(request, "Choose a valid billing plan.")
+        return HttpResponseRedirect(reverse("billing"))
+    accepted_terms = str(request.POST.get("accepted_terms") or "").strip().lower()
+    if accepted_terms not in {"1", "true", "yes", "on"}:
+        messages.error(
+            request,
+            "Accept the plan purchase terms and conditions before continuing to checkout.",
+        )
         return HttpResponseRedirect(reverse("billing"))
 
     success_url = _build_stripe_checkout_success_url(request)

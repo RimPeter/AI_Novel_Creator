@@ -1,0 +1,70 @@
+{% extends "main/base.html" %}
+
+{% block title %}Billing Terms and Conditions | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Plan purchases</span>
+          <h1 class="page-title">Terms and Conditions</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Back to billing</a>
+        </div>
+      </div>
+      <p class="page-lead">These terms apply to all plan purchases made from the billing page.</p>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">1. Plan options and pricing</h2>
+      <p class="muted">All payments are processed by Stripe. Prices shown on the billing page include VAT unless stated otherwise.</p>
+      <ul>
+        {% for option in price_options %}
+          <li><strong>{{ option.label }}</strong>: {{ option.price_display }} ({{ option.description }})</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">2. Renewals and cancellations</h2>
+      <ul>
+        <li>Monthly and yearly plans are recurring subscriptions until cancelled.</li>
+        <li>Recurring plans can be cancelled in the Stripe billing portal from the billing page.</li>
+        <li>One-off passes (one month pass and one week trial) do not auto-renew.</li>
+      </ul>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">3. Access period</h2>
+      <ul>
+        <li>Access starts after successful payment confirmation.</li>
+        <li>For one-off passes, access expires automatically at the end of the purchased period.</li>
+        <li>For recurring plans, access continues while the subscription is active and paid.</li>
+      </ul>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">4. Refunds and disputes</h2>
+      <ul>
+        <li>Unless required by law, payments are non-refundable once access has been granted.</li>
+        <li>If you believe there was an error, contact support through the contact page with your invoice details.</li>
+        <li>Chargebacks or payment disputes may result in temporary account restrictions while reviewed.</li>
+      </ul>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">5. Invoices and company details</h2>
+      <ul>
+        <li>Invoices are available on the billing page after successful payment.</li>
+        <li>Company details used on invoices come from the shared company details profile.</li>
+      </ul>
+    </section>
+
+    <section class="card page-panel">
+      <h2 class="page-panel-title">6. Acceptance</h2>
+      <p class="muted">By selecting a plan and continuing to checkout, you confirm you have read and accepted these Terms and Conditions.</p>
+    </section>
+  </div>
+{% endblock %}

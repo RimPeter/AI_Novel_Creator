@@ -12,6 +12,7 @@
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'project-list' %}">Projects</a>
+          <a class="btn btn-secondary" href="{% url 'billing-terms' %}">Terms and conditions</a>
           {% if can_edit_company_details %}
             <a class="btn btn-secondary" href="{% url 'billing-company-details' %}">Company details</a>
           {% endif %}
@@ -125,6 +126,10 @@
               <form method="post" action="{% url 'billing-checkout' %}">
                 {% csrf_token %}
                 <input type="hidden" name="plan" value="{{ option.key }}" />
+                <label class="billing-plan-terms-check">
+                  <input type="checkbox" name="accepted_terms" value="1" required />
+                  <span>I agree to the <a href="{% url 'billing-terms' %}">Terms and Conditions</a> for plan purchases.</span>
+                </label>
                 <button class="btn btn-primary" type="submit">Choose {{ option.label }}</button>
               </form>
             </article>

@@ -81,7 +81,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-a@59m%nsxzedimgx*61t!
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["127.0.0.1", "localhost", "local", "ai-novel-manager-80ede991eb1d.herokuapp.com", "http://novelmanager.com/"])
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["127.0.0.1", "localhost", "local", "ai-novel-manager-80ede991eb1d.herokuapp.com", "http://www.novel-manager.com/"])
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", [])
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG and not RUNNING_TESTS)

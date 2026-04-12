@@ -22,7 +22,11 @@
       </div>
     </section>
 
-    <section class="card page-panel" data-bible-brainstorm-url="{% url 'bible-brainstorm' slug=project.slug %}">
+    <section
+      class="card page-panel"
+      data-bible-brainstorm-url="{% url 'bible-brainstorm' slug=project.slug %}"
+      data-bible-add-details-url="{% url 'bible-add-details' slug=project.slug %}"
+    >
       <form method="post" class="form">
         {% csrf_token %}
 
@@ -46,6 +50,7 @@
         <div class="actions">
           <button class="btn btn-primary" type="submit" name="action" value="save">Save</button>
           <button class="btn btn-secondary" type="button" id="bible-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="bible-add-details-btn">Add details</button>
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
         </div>
       </form>

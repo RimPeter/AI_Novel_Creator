@@ -53,6 +53,7 @@ urlpatterns = [
     path("projects/<slug:slug>/full-novel/", views.FullNovelView.as_view(), name="full-novel"),
     path("projects/<slug:slug>/bible/edit/", views.StoryBibleUpdateView.as_view(), name="bible-edit"),
     path("projects/<slug:slug>/bible/brainstorm/", views.brainstorm_story_bible, name="bible-brainstorm"),
+    path("projects/<slug:slug>/bible/add-details/", views.add_story_bible_details, name="bible-add-details"),
     path("projects/<slug:slug>/bible/pdfs/<uuid:pk>/", views.StoryBibleDocumentDetailView.as_view(), name="bible-document-detail"),
     path("projects/<slug:slug>/bible/pdfs/<uuid:pk>/delete/", views.delete_story_bible_document, name="bible-document-delete"),
     path(

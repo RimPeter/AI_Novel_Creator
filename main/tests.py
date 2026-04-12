@@ -1387,7 +1387,9 @@ class StoryBibleUploadTests(AuthenticatedTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "bible-brainstorm-btn")
+        self.assertContains(response, "bible-add-details-btn")
         self.assertContains(response, reverse("bible-brainstorm", kwargs={"slug": self.project.slug}))
+        self.assertContains(response, reverse("bible-add-details", kwargs={"slug": self.project.slug}))
 
     def test_brainstorm_story_bible_returns_suggestions_for_empty_fields_only(self):
         url = reverse("bible-brainstorm", kwargs={"slug": self.project.slug})
@@ -1461,6 +1463,71 @@ class StoryBibleUploadTests(AuthenticatedTestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_add_story_bible_details_requires_existing_content(self):
+        response = self.client.post(
+            reverse("bible-add-details", kwargs={"slug": self.project.slug}),
+            data={"summary_md": "", "constraints": "", "facts": ""},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["ok"], False)
+
+    def test_add_story_bible_details_returns_additive_suggestions(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary_md":"Add dynastic pressure from rival houses.","constraints":"No resurrection technology.","facts":"Biosynths are property by imperial law."}',
+                usage={"ok": True},
+            ),
+        ):
+            response = self.client.post(
+                reverse("bible-add-details", kwargs={"slug": self.project.slug}),
+                data={
+                    "summary_md": "Empire spans charted space.",
+                    "constraints": "",
+                    "facts": "Earth leads the federation.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "summary_md": "Add dynastic pressure from rival houses.",
+                    "constraints": "No resurrection technology.",
+                    "facts": "Biosynths are property by imperial law.",
+                },
+            },
+        )
+
+    def test_add_story_bible_details_drops_duplicate_additions(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary_md":"Empire spans charted space."}',
+                usage={"ok": True},
+            ),
+        ):
+            response = self.client.post(
+                reverse("bible-add-details", kwargs={"slug": self.project.slug}),
+                data={
+                    "summary_md": "Empire spans charted space.",
+                    "constraints": "",
+                    "facts": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "suggestions": {}})
 
 
 class HomePageTests(TestCase):

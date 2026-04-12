@@ -858,6 +858,93 @@ def brainstorm_story_bible(request, slug):
 
 @require_POST
 @login_required
+def add_story_bible_details(request, slug):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    allowed_fields = [
+        "summary_md",
+        "constraints",
+        "facts",
+    ]
+
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    if not any(current.values()):
+        return JsonResponse({"ok": False, "error": "Add at least one story bible detail first."}, status=400)
+
+    prompt_lines = [
+        "You are a novelist's story bible development assistant.",
+        "Goal: add helpful additional detail that expands (but does not repeat) what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- For fields that already have text, return ONLY additional text to append (do not rewrite).",
+        "- For fields that are empty, provide a concise starter value when useful.",
+        "- Use plain prose. No bullet points.",
+        "",
+        "Project title: " + (project.title or ""),
+        "Project slug: " + (project.slug or ""),
+        "",
+        "Current story bible fields (JSON):",
+        json.dumps(current, ensure_ascii=False),
+    ]
+    prompt = "\n".join(prompt_lines).strip()
+
+    try:
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 700}
+        result = _call_tracked_llm(
+            project=project,
+            action_label="Story Bible Add Details",
+            prompt=prompt,
+            model_name=model_name,
+            params=params,
+            run_type=GenerationRun.RunType.BIBLE,
+        )
+        data = _extract_story_bible_suggestions(result.text)
+
+        if not data:
+            repair_prompt = "\n".join(
+                [
+                    "Convert the following text into STRICT JSON only.",
+                    "Output one object with optional keys: summary_md, constraints, facts.",
+                    "Do not include markdown, code fences, or commentary.",
+                    "If a key has no usable value, omit it.",
+                    "",
+                    "Text to convert:",
+                    (result.text or "").strip(),
+                ]
+            ).strip()
+            repair_result = _call_tracked_llm(
+                project=project,
+                action_label="Story Bible Add Details JSON Repair",
+                prompt=repair_prompt,
+                model_name=model_name,
+                params={"temperature": 0.0, "max_tokens": 450},
+                run_type=GenerationRun.RunType.BIBLE,
+            )
+            data = _extract_story_bible_suggestions(repair_result.text)
+
+        filtered = {}
+        for key, value in data.items():
+            if key not in allowed_fields:
+                continue
+            text = str(value or "").strip()
+            if not text:
+                continue
+            if current.get(key) and text in current[key]:
+                continue
+            filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception:
+        return _json_internal_error()
+
+
+@require_POST
+@login_required
 def brainstorm_scene(request, slug, pk):
     scene = _get_scene_for_user(request, slug=slug, pk=pk)
     blocked = _ensure_json_ai_request(request)
@@ -2535,6 +2622,51 @@ def _dedupe_appended_text(existing: str, addition: str) -> str:
             return trim_overlap(addition_text[overlap:])
 
     return addition_text
+
+
+def _extract_story_bible_suggestions(raw_text: str) -> dict[str, str]:
+    text = (raw_text or "").strip()
+    if not text:
+        return {}
+
+    try:
+        payload = _extract_json_object(text)
+        data = json.loads(payload) if payload else {}
+        if isinstance(data, dict):
+            out = {}
+            for key in ("summary_md", "constraints", "facts"):
+                value = str(data.get(key) or "").strip()
+                if value:
+                    out[key] = value
+            if out:
+                return out
+    except Exception:
+        pass
+
+    label_map = {
+        "summary": "summary_md",
+        "summary_md": "summary_md",
+        "summary md": "summary_md",
+        "constraints": "constraints",
+        "facts": "facts",
+    }
+    pattern = re.compile(
+        r"(?ims)(?:^|\n)\s*(summary(?:[_\s]?md)?|constraints|facts)\s*:?\s*(.+?)(?=\n\s*(?:summary(?:[_\s]?md)?|constraints|facts)\s*:|\Z)"
+    )
+    labeled = {}
+    for match in pattern.finditer(text):
+        raw_label = re.sub(r"\s+", " ", (match.group(1) or "").replace("_", " ").strip().lower())
+        key = label_map.get(raw_label)
+        if not key:
+            continue
+        value = (match.group(2) or "").strip()
+        value = re.sub(r"^\s*[-*]\s*", "", value)
+        if value:
+            labeled[key] = value
+    if labeled:
+        return labeled
+
+    return {}
 
 
 _BRACE_SEGMENT_RE = re.compile(r"\{[^{}]*\}")

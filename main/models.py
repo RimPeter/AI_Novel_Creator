@@ -30,7 +30,7 @@ class NovelProject(TimeStampedModel):
         null=True,
     )
     title = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=120, unique=True)
+    slug = models.SlugField(max_length=120)
     is_archived = models.BooleanField(default=False, db_index=True)
 
     seed_idea = models.TextField(blank=True, default="")
@@ -43,6 +43,11 @@ class NovelProject(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.title
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "slug"], name="uniq_project_owner_slug"),
+        ]
 
 
 class StoryBible(TimeStampedModel):

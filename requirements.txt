@@ -15,6 +15,7 @@ distro==1.9.0
 dj-database-url>=2.2,<3
 Django==5.2.9
 django-allauth==65.13.1
+django-storages==1.14.4
 gunicorn>=23,<24
 h11==0.16.0
 httpcore==1.0.9
@@ -47,3 +48,4 @@ urllib3==2.6.3
 vine==5.1.0
 wcwidth==0.2.14
 whitenoise>=6.8,<7
+boto3==1.40.58

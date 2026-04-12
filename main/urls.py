@@ -4,7 +4,6 @@ from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
-    path("contact/", views.ContactView.as_view(), name="contact"),
     path("token-usage/", views.TokenUsageView.as_view(), name="token-usage"),
     path("billing/", views.BillingView.as_view(), name="billing"),
     path("billing/terms-and-conditions/", views.BillingTermsView.as_view(), name="billing-terms"),
@@ -14,7 +13,6 @@ urlpatterns = [
     path("billing/invoices/<uuid:pk>/pdf/", views.download_billing_invoice_pdf, name="billing-invoice-pdf"),
     path("billing/portal/", views.create_billing_portal, name="billing-portal"),
     path("billing/cancel-recurring/", views.cancel_billing_recurring, name="billing-cancel-recurring"),
-    path("billing/webhook/", views.stripe_webhook, name="billing-webhook"),
     path("updates/new/", views.HomeUpdateCreateView.as_view(), name="home-update-create"),
     path("updates/regenerate/", views.regenerate_home_update, name="home-update-regenerate"),
     path("projects/", views.ProjectListView.as_view(), name="project-list"),

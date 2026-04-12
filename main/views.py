@@ -7,13 +7,10 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-import stripe
 from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.core.cache import cache
-from django.core.mail import EmailMessage
 from django.db.utils import OperationalError, ProgrammingError
 from django.db import transaction
 from django.db.models import Count, Max, Q, ProtectedError, Sum
@@ -22,7 +19,6 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from django.views.decorators.http import require_GET, require_POST
 
@@ -38,21 +34,17 @@ from .billing import (
     get_price_options,
     get_subscription_display,
     sync_checkout_session,
-    process_webhook_event,
     user_has_active_plan,
     user_has_active_subscription,
-    construct_webhook_event,
 )
 from .forms import (
     BillingCompanyProfileForm,
     CharacterForm,
     HomeUpdateForm,
-    IssueContactForm,
     LocationForm,
     NovelProjectForm,
     OutlineChapterForm,
     OutlineSceneForm,
-    RequestContactForm,
     StoryBibleForm,
     StoryBiblePdfUploadForm,
 )
@@ -67,8 +59,6 @@ STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS = 12_000
 STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
 STRIPE_CHECKOUT_SESSION_PLACEHOLDER = "{CHECKOUT_SESSION_ID}"
 BILLING_STATUS_RESET_SUPERUSER = "ferdinand"
-CONTACT_RATE_WINDOW_SECONDS = int(getattr(settings, "CONTACT_RATE_WINDOW_SECONDS", 60 * 60))
-CONTACT_RATE_LIMIT = int(getattr(settings, "CONTACT_RATE_LIMIT", 20))
 logger = logging.getLogger(__name__)
 
 
@@ -132,8 +122,12 @@ def _ensure_json_ai_request(request):
 
 
 def _json_internal_error() -> JsonResponse:
-    logger.exception("Request processing failed.")
+    _log_exception("Request processing failed.")
     return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
+
+
+def _log_exception(message: str, *args) -> None:
+    logger.error(message, *args, exc_info=not getattr(settings, "RUNNING_TESTS", False))
 
 
 def _call_tracked_llm_json_object(
@@ -175,30 +169,6 @@ def _get_annotated_projects_queryset(user):
         ),
         run_count=Count("runs", distinct=True),
     )
-
-
-def _contact_rate_limit_key(request) -> str:
-    if getattr(request.user, "is_authenticated", False):
-        return f"contact-rate:user:{request.user.pk}"
-    forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", "") or "").strip()
-    ip_address = forwarded_for.split(",")[0].strip() if forwarded_for else str(request.META.get("REMOTE_ADDR", "") or "").strip()
-    return f"contact-rate:ip:{ip_address or 'unknown'}"
-
-
-def _is_contact_rate_limited(request) -> bool:
-    key = _contact_rate_limit_key(request)
-    current_count = cache.get(key)
-    if current_count is None:
-        cache.set(key, 1, timeout=CONTACT_RATE_WINDOW_SECONDS)
-        return False
-
-    try:
-        updated_count = cache.incr(key)
-    except ValueError:
-        updated_count = int(current_count) + 1
-        cache.set(key, updated_count, timeout=CONTACT_RATE_WINDOW_SECONDS)
-
-    return updated_count > CONTACT_RATE_LIMIT
 
 
 def _get_scene_for_user(request, slug: str, pk) -> OutlineNode:
@@ -675,114 +645,6 @@ def _renumber_outline_for_project(project: NovelProject) -> None:
 def home(request):
     updates = HomeUpdate.objects.order_by("-date", "-created_at")
     return render(request, "main/home.html", {"updates": updates})
-
-
-class ContactView(TemplateView):
-    template_name = "main/contact.html"
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx["issue_form"] = kwargs.get("issue_form") or IssueContactForm()
-        ctx["request_form"] = kwargs.get("request_form") or RequestContactForm()
-        return ctx
-
-    def _get_contact_header_lines(self):
-        user = self.request.user
-        name = str(user.get_username() or "").strip() if getattr(user, "is_authenticated", False) else "anonymous"
-        email = str(getattr(user, "email", "") or "").strip() if getattr(user, "is_authenticated", False) else ""
-
-        body_lines = [
-            f"Name: {name}",
-            f"Email: {email}",
-        ]
-        if getattr(user, "is_authenticated", False):
-            body_lines.extend(
-                [
-                    f"Username: {user.get_username()}",
-                    f"User ID: {user.pk}",
-                ]
-            )
-        else:
-            body_lines.append("Username: anonymous")
-        return body_lines, email
-
-    def _send_issue_email(self, form):
-        issue_subject = form.cleaned_data["issue_subject"]
-        issue_message = form.cleaned_data["issue_message"]
-        body_lines, email = self._get_contact_header_lines()
-        body_lines.extend(
-            [
-                "",
-                "Message:",
-                f"Subject: {issue_subject or '(none)'}",
-                issue_message or "(none)",
-            ]
-        )
-
-        EmailMessage(
-            subject=f"[{settings.SITE_NAME}] Contact: {issue_subject[:120]}",
-            body="\n".join(body_lines).strip(),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[settings.CONTACT_EMAIL],
-            reply_to=[email] if email else [],
-        ).send(fail_silently=False)
-
-    def _send_request_email(self, form):
-        request_want = form.cleaned_data["request_want"]
-        request_benefit = form.cleaned_data["request_benefit"]
-        additional_notes = form.cleaned_data["additional_notes"]
-        body_lines, email = self._get_contact_header_lines()
-        body_lines.extend(
-            [
-                "",
-                "Request:",
-                f"As a user I want: {request_want or '(none)'}",
-                f"So I can: {request_benefit or '(none)'}",
-                "",
-                "Additional notes:",
-                additional_notes or "(none)",
-            ]
-        )
-
-        EmailMessage(
-            subject=f"[{settings.SITE_NAME}] Contact: {request_want[:120]}",
-            body="\n".join(body_lines).strip(),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[settings.CONTACT_EMAIL],
-            reply_to=[email] if email else [],
-        ).send(fail_silently=False)
-
-    def post(self, request, *args, **kwargs):
-        if _is_contact_rate_limited(request):
-            logger.warning("Contact form rate limit exceeded for key=%s", _contact_rate_limit_key(request))
-            messages.error(request, "Too many contact requests. Please wait a while and try again.")
-            return self.render_to_response(self.get_context_data(), status=429)
-
-        form_type = str(request.POST.get("form_type") or "").strip().lower()
-
-        if form_type == "issue":
-            issue_form = IssueContactForm(request.POST)
-            request_form = RequestContactForm()
-            if issue_form.is_valid():
-                self._send_issue_email(issue_form)
-                messages.success(request, "Your message was sent to the admin.")
-                return HttpResponseRedirect(self.get_success_url())
-            return self.render_to_response(self.get_context_data(issue_form=issue_form, request_form=request_form))
-
-        if form_type == "request":
-            issue_form = IssueContactForm()
-            request_form = RequestContactForm(request.POST)
-            if request_form.is_valid():
-                self._send_request_email(request_form)
-                messages.success(request, "Your request was sent to the admin.")
-                return HttpResponseRedirect(self.get_success_url())
-            return self.render_to_response(self.get_context_data(issue_form=issue_form, request_form=request_form))
-
-        messages.error(request, "Choose a message or request form before sending.")
-        return self.render_to_response(self.get_context_data())
-
-    def get_success_url(self):
-        return reverse("contact")
 
 
 @require_POST
@@ -1732,7 +1594,7 @@ class BillingView(LoginRequiredMixin, TemplateView):
                         session_id=ctx["checkout_session_id"],
                     )
                 except Exception as e:
-                    logger.exception("Failed to sync Stripe checkout session id=%s", ctx["checkout_session_id"])
+                    _log_exception("Failed to sync Stripe checkout session id=%s", ctx["checkout_session_id"])
                     ctx["checkout_sync_error"] = "Could not refresh account status immediately. Webhook sync will retry shortly."
         ctx["subscription"] = get_subscription_display(self.request.user)
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
@@ -1782,7 +1644,7 @@ def create_billing_checkout(request):
             cancel_url=cancel_url,
         )
     except Exception as e:
-        logger.exception("Failed to create Stripe checkout session for user_id=%s", request.user.pk)
+        _log_exception("Failed to create Stripe checkout session for user_id=%s", request.user.pk)
         messages.error(request, "Could not start Stripe Checkout right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
@@ -1800,7 +1662,7 @@ def create_billing_portal(request):
             return_url=request.build_absolute_uri(reverse("billing")),
         )
     except Exception as e:
-        logger.exception("Failed to create Stripe billing portal session for user_id=%s", request.user.pk)
+        _log_exception("Failed to create Stripe billing portal session for user_id=%s", request.user.pk)
         messages.error(request, "Could not open the billing portal right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
@@ -1816,7 +1678,7 @@ def cancel_billing_recurring(request):
     try:
         record = cancel_recurring_subscription(user=request.user)
     except Exception as e:
-        logger.exception("Failed to cancel recurring subscription for user_id=%s", request.user.pk)
+        _log_exception("Failed to cancel recurring subscription for user_id=%s", request.user.pk)
         messages.error(request, "Could not cancel recurring payments right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
 
@@ -1839,24 +1701,6 @@ def clear_billing_status(request):
     else:
         messages.success(request, "Billing status cleared for test checkout.")
     return HttpResponseRedirect(reverse("billing"))
-
-
-@csrf_exempt
-@require_POST
-def stripe_webhook(request):
-    if not billing_enabled():
-        return JsonResponse({"ok": False, "error": "Stripe billing is not configured."}, status=404)
-
-    signature = request.headers.get("Stripe-Signature", "")
-    try:
-        event = construct_webhook_event(payload=request.body, signature=signature)
-    except ValueError:
-        return JsonResponse({"ok": False, "error": "Invalid payload."}, status=400)
-    except stripe.error.SignatureVerificationError:
-        return JsonResponse({"ok": False, "error": "Invalid signature."}, status=400)
-
-    process_webhook_event(event)
-    return JsonResponse({"ok": True})
 
 
 def _get_billing_invoice_for_request(request, pk) -> BillingInvoice:
@@ -3557,7 +3401,7 @@ def regenerate_home_update(request):
             )
         return JsonResponse({"ok": True, "title": title, "body": rewritten_body})
     except Exception as e:
-        logger.exception("Failed to regenerate home update title/body.")
+        _log_exception("Failed to regenerate home update title/body.")
         fallback_title, fallback_body = _build_home_update_fallback(body)
         return JsonResponse(
             {

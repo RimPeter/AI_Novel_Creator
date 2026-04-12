@@ -115,6 +115,21 @@ SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
 CSRF_COOKIE_SAMESITE = os.environ.get("CSRF_COOKIE_SAMESITE", "Lax")
 CONTACT_RATE_LIMIT = int(os.environ.get("CONTACT_RATE_LIMIT", "20"))
 CONTACT_RATE_WINDOW_SECONDS = int(os.environ.get("CONTACT_RATE_WINDOW_SECONDS", "3600"))
+CONTACT_SPIKE_ALERT_THRESHOLD = int(os.environ.get("CONTACT_SPIKE_ALERT_THRESHOLD", "100"))
+PROJECT_404_ALERT_THRESHOLD = int(os.environ.get("PROJECT_404_ALERT_THRESHOLD", "25"))
+WEBHOOK_SIGNATURE_ALERT_THRESHOLD = int(os.environ.get("WEBHOOK_SIGNATURE_ALERT_THRESHOLD", "20"))
+SECURITY_RATE_LIMIT_RULES = {
+    "account_login": (10, 900),
+    "account_request_login_code": (8, 900),
+    "account_reset_password": (8, 900),
+    "contact": (CONTACT_RATE_LIMIT, CONTACT_RATE_WINDOW_SECONDS),
+    "billing-checkout": (20, 3600),
+    "billing-portal": (30, 3600),
+    "billing-cancel-recurring": (12, 3600),
+    "billing-clear-status": (12, 3600),
+    "billing-webhook": (120, 60),
+}
+USE_S3_MEDIA = env_bool("USE_S3_MEDIA", False)
 
 
 
@@ -131,12 +146,16 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
+    'security',
     'main',
 ]
+if USE_S3_MEDIA:
+    INSTALLED_APPS.append("storages")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'security.middleware.SecurityRateLimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -304,8 +323,25 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 WHITENOISE_USE_FINDERS = DEBUG or RUNNING_TESTS
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+if RUNNING_TESTS:
+    STATIC_ROOT.mkdir(parents=True, exist_ok=True)
+
+if USE_S3_MEDIA:
+    AWS_ACCESS_KEY_ID = env_str("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = env_str("AWS_SECRET_ACCESS_KEY")
+    AWS_STORAGE_BUCKET_NAME = env_str("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_REGION_NAME = env_str("AWS_S3_REGION_NAME")
+    AWS_S3_CUSTOM_DOMAIN = env_str("AWS_S3_CUSTOM_DOMAIN")
+    AWS_QUERYSTRING_AUTH = env_bool("AWS_QUERYSTRING_AUTH", True)
+    _media_domain = AWS_S3_CUSTOM_DOMAIN or (f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com" if AWS_STORAGE_BUCKET_NAME else "")
+    MEDIA_URL = f"https://{_media_domain}/media/" if _media_domain else "/media/"
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {"location": "media"}},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    }
+else:
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

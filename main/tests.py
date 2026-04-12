@@ -193,7 +193,7 @@ class NavbarVisibilityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Home")
-        self.assertContains(response, "Contact")
+        self.assertNotContains(response, "Contact")
         self.assertContains(response, "Sign in")
         self.assertNotContains(response, "<summary>Projects</summary>", html=False)
         self.assertNotContains(response, "<summary>More</summary>", html=False)
@@ -587,7 +587,7 @@ class BillingTests(AuthenticatedTestCase):
 
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session", side_effect=KeyError(0))
-    def test_billing_page_shows_exception_type_for_sync_failure(self, mock_sync_checkout, mock_get_subscription_display):
+    def test_billing_page_shows_safe_message_for_sync_failure(self, mock_sync_checkout, mock_get_subscription_display):
         mock_get_subscription_display.return_value = {
             "has_subscription": False,
             "is_active": False,
@@ -601,7 +601,7 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
         mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
-        self.assertContains(resp, "Error: KeyError: 0")
+        self.assertContains(resp, "Error: Could not refresh account status immediately. Webhook sync will retry shortly.")
 
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
@@ -625,7 +625,7 @@ class BillingTests(AuthenticatedTestCase):
     def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
         mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
 
-        resp = self.client.post(reverse("billing-checkout"), data={"plan": "monthly"})
+        resp = self.client.post(reverse("billing-checkout"), data={"plan": "monthly", "accepted_terms": "1"})
 
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
@@ -640,7 +640,7 @@ class BillingTests(AuthenticatedTestCase):
     def test_one_time_checkout_redirects_to_stripe_checkout(self, mock_create_session):
         mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_456")
 
-        resp = self.client.post(reverse("billing-checkout"), data={"plan": "single_month"})
+        resp = self.client.post(reverse("billing-checkout"), data={"plan": "single_month", "accepted_terms": "1"})
 
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_456")
@@ -1559,7 +1559,7 @@ class HomeUpdateCreateViewTests(TestCase):
                 "ok": True,
                 "title": "Fixed dashboard overflow",
                 "body": "Fixed issues around dashboard overflow so the workflow behaves more reliably.",
-                "warning": "Model response was empty.",
+                "warning": "Model regeneration failed; used fallback generation.",
             },
         )
 
@@ -2279,7 +2279,7 @@ class CharacterViewsTests(AuthenticatedTestCase):
         )
 
 
-class ProjectSharedAccessTests(AuthenticatedTestCase):
+class ProjectAccessControlTests(AuthenticatedTestCase):
     def setUp(self):
         super().setUp()
         self.other_user = get_user_model().objects.create_user(
@@ -2287,24 +2287,55 @@ class ProjectSharedAccessTests(AuthenticatedTestCase):
             email="project-owner@example.com",
             password="password123",
         )
-        self.project = NovelProject.objects.create(
-            title="Shared Project",
-            slug="shared-project",
+        self.other_project = NovelProject.objects.create(
+            title="Other User Project",
+            slug="other-user-project",
             target_word_count=1000,
             owner=self.other_user,
         )
 
-    def test_project_list_shows_projects_owned_by_other_users(self):
+    def test_project_list_hides_projects_owned_by_other_users(self):
         url = reverse("project-list")
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Shared Project")
+        self.assertNotContains(resp, "Other User Project")
 
-    def test_project_detail_allows_shared_access(self):
-        url = reverse("project-detail", kwargs={"slug": self.project.slug})
+    def test_project_detail_denies_access_to_other_users_project(self):
+        url = reverse("project-detail", kwargs={"slug": self.other_project.slug})
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Shared Project")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_project_update_denies_access_to_other_users_project(self):
+        url = reverse("project-edit", kwargs={"slug": self.other_project.slug})
+        resp = self.client.post(
+            url,
+            data={
+                "title": "Updated by intruder",
+                "slug": self.other_project.slug,
+                "seed_idea": "",
+                "genre": "",
+                "tone": "",
+                "style_notes": "",
+                "target_word_count": 1000,
+            },
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_project_delete_denies_access_to_other_users_project(self):
+        url = reverse("project-delete", kwargs={"slug": self.other_project.slug})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(NovelProject.objects.filter(pk=self.other_project.pk).exists())
+
+    def test_archive_and_restore_denies_access_to_other_users_project(self):
+        archive_url = reverse("project-archive", kwargs={"slug": self.other_project.slug})
+        restore_url = reverse("project-restore", kwargs={"slug": self.other_project.slug})
+
+        archive_resp = self.client.post(archive_url)
+        restore_resp = self.client.post(restore_url)
+
+        self.assertEqual(archive_resp.status_code, 404)
+        self.assertEqual(restore_resp.status_code, 404)
 
 
 class FullNovelViewTests(AuthenticatedTestCase):
@@ -2574,6 +2605,39 @@ class TokenUsageViewTests(AuthenticatedTestCase):
         self.assertContains(resp, "195")
         self.assertContains(resp, "200")
 
+    def test_token_usage_excludes_runs_from_other_users_projects(self):
+        other_user = get_user_model().objects.create_user(
+            username="token-other",
+            email="token-other@example.com",
+            password="password123",
+        )
+        other_project = NovelProject.objects.create(
+            title="Other User Project",
+            slug="token-other-project",
+            target_word_count=1000,
+            owner=other_user,
+        )
+        self._create_run(
+            project=self.project_a,
+            run_type=GenerationRun.RunType.BIBLE,
+            created_at=timezone.make_aware(datetime(2026, 3, 24, 9, 0)),
+            usage={"total_tokens": 100},
+        )
+        self._create_run(
+            project=other_project,
+            run_type=GenerationRun.RunType.BIBLE,
+            created_at=timezone.make_aware(datetime(2026, 3, 24, 10, 0)),
+            usage={"total_tokens": 999},
+        )
+
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Project A")
+        self.assertNotContains(resp, "Other User Project")
+        self.assertContains(resp, "100")
+        self.assertNotContains(resp, "999")
+
     def test_project_brainstorm_records_token_usage_for_report(self):
         with patch(
             "main.views.call_llm",
@@ -2675,11 +2739,10 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertContains(resp, "Docking Bay")
         self.assertNotContains(resp, "Garden")
 
-    def test_shared_access_allows_opening_other_users_location_pages(self):
+    def test_shared_access_blocks_opening_other_users_location_pages(self):
         url = reverse("location-list", kwargs={"slug": self.project_b.slug})
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Garden")
+        self.assertEqual(resp.status_code, 404)
 
     def test_create_parses_object_pairs(self):
         url = reverse("location-create", kwargs={"slug": self.project_a.slug})

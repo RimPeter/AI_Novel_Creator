@@ -80,6 +80,8 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-a@59m%nsxzedimgx*61t!
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DEBUG", True)
+if not DEBUG and not RUNNING_TESTS and SECRET_KEY.startswith("django-insecure-"):
+    raise RuntimeError("Refusing to start with an insecure default SECRET_KEY while DEBUG is False.")
 
 default_allowed_hosts = [
     "127.0.0.1",
@@ -103,6 +105,16 @@ SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG and not RUNNING_
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG and not RUNNING_TESTS)
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG and not RUNNING_TESTS)
 SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0" if DEBUG or RUNNING_TESTS else "3600"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", not DEBUG and not RUNNING_TESTS)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", not DEBUG and not RUNNING_TESTS)
+SECURE_CONTENT_TYPE_NOSNIFF = env_bool("SECURE_CONTENT_TYPE_NOSNIFF", True)
+X_FRAME_OPTIONS = os.environ.get("X_FRAME_OPTIONS", "DENY")
+SECURE_REFERRER_POLICY = os.environ.get("SECURE_REFERRER_POLICY", "strict-origin-when-cross-origin")
+SESSION_COOKIE_HTTPONLY = env_bool("SESSION_COOKIE_HTTPONLY", True)
+SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = os.environ.get("CSRF_COOKIE_SAMESITE", "Lax")
+CONTACT_RATE_LIMIT = int(os.environ.get("CONTACT_RATE_LIMIT", "20"))
+CONTACT_RATE_WINDOW_SECONDS = int(os.environ.get("CONTACT_RATE_WINDOW_SECONDS", "3600"))
 
 
 

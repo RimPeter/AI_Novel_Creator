@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import textwrap
 from collections import defaultdict
@@ -11,6 +12,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.cache import cache
 from django.core.mail import EmailMessage
 from django.db.utils import OperationalError, ProgrammingError
 from django.db import transaction
@@ -65,10 +67,19 @@ STORY_BIBLE_DOCUMENT_PROMPT_TOTAL_CHARS = 12_000
 STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
 STRIPE_CHECKOUT_SESSION_PLACEHOLDER = "{CHECKOUT_SESSION_ID}"
 BILLING_STATUS_RESET_SUPERUSER = "ferdinand"
+CONTACT_RATE_WINDOW_SECONDS = int(getattr(settings, "CONTACT_RATE_WINDOW_SECONDS", 60 * 60))
+CONTACT_RATE_LIMIT = int(getattr(settings, "CONTACT_RATE_LIMIT", 20))
+logger = logging.getLogger(__name__)
+
+
+def _project_queryset_for_user(user):
+    if getattr(user, "is_superuser", False):
+        return NovelProject.objects.all()
+    return NovelProject.objects.filter(owner=user)
 
 
 def _get_project_for_user(request, slug: str) -> NovelProject:
-    return get_object_or_404(NovelProject, slug=slug)
+    return get_object_or_404(_project_queryset_for_user(request.user), slug=slug)
 
 
 def _get_project_redirect_url(request, fallback_url: str) -> str:
@@ -120,6 +131,11 @@ def _ensure_json_ai_request(request):
     return None
 
 
+def _json_internal_error() -> JsonResponse:
+    logger.exception("Request processing failed.")
+    return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
+
+
 def _call_tracked_llm_json_object(
     *,
     project: NovelProject,
@@ -148,8 +164,8 @@ def _call_tracked_llm_json_object(
     return data
 
 
-def _get_annotated_projects_queryset():
-    return NovelProject.objects.annotate(
+def _get_annotated_projects_queryset(user):
+    return _project_queryset_for_user(user).annotate(
         character_count=Count("characters", distinct=True),
         outline_count=Count("outline_nodes", distinct=True),
         scene_count=Count(
@@ -159,6 +175,30 @@ def _get_annotated_projects_queryset():
         ),
         run_count=Count("runs", distinct=True),
     )
+
+
+def _contact_rate_limit_key(request) -> str:
+    if getattr(request.user, "is_authenticated", False):
+        return f"contact-rate:user:{request.user.pk}"
+    forwarded_for = str(request.META.get("HTTP_X_FORWARDED_FOR", "") or "").strip()
+    ip_address = forwarded_for.split(",")[0].strip() if forwarded_for else str(request.META.get("REMOTE_ADDR", "") or "").strip()
+    return f"contact-rate:ip:{ip_address or 'unknown'}"
+
+
+def _is_contact_rate_limited(request) -> bool:
+    key = _contact_rate_limit_key(request)
+    current_count = cache.get(key)
+    if current_count is None:
+        cache.set(key, 1, timeout=CONTACT_RATE_WINDOW_SECONDS)
+        return False
+
+    try:
+        updated_count = cache.incr(key)
+    except ValueError:
+        updated_count = int(current_count) + 1
+        cache.set(key, updated_count, timeout=CONTACT_RATE_WINDOW_SECONDS)
+
+    return updated_count > CONTACT_RATE_LIMIT
 
 
 def _get_scene_for_user(request, slug: str, pk) -> OutlineNode:
@@ -713,6 +753,11 @@ class ContactView(TemplateView):
         ).send(fail_silently=False)
 
     def post(self, request, *args, **kwargs):
+        if _is_contact_rate_limited(request):
+            logger.warning("Contact form rate limit exceeded for key=%s", _contact_rate_limit_key(request))
+            messages.error(request, "Too many contact requests. Please wait a while and try again.")
+            return self.render_to_response(self.get_context_data(), status=429)
+
         form_type = str(request.POST.get("form_type") or "").strip().lower()
 
         if form_type == "issue":
@@ -811,7 +856,7 @@ def brainstorm_project(request, slug):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -883,7 +928,7 @@ def add_project_details(request, slug):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -960,7 +1005,7 @@ def brainstorm_scene(request, slug, pk):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -1034,7 +1079,7 @@ def add_scene_details(request, slug, pk):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -1192,7 +1237,7 @@ def move_location(request, slug):
         location.save(update_fields=["parent", "updated_at"])
     except Exception as e:
         if wants_json:
-            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+            return _json_internal_error()
         messages.error(request, str(e))
         return HttpResponseRedirect(reverse("location-list", kwargs={"slug": project.slug}))
 
@@ -1356,7 +1401,7 @@ def brainstorm_character(request, slug):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -1446,7 +1491,7 @@ def add_character_details(request, slug):
 
         return JsonResponse({"ok": True, "suggestions": filtered})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -1535,7 +1580,7 @@ def generate_character_portrait(request, slug, pk):
                     status=400,
                 )
         else:
-            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+            return _json_internal_error()
 
     character.portrait_data_url = data_url
     character.save(update_fields=["portrait_data_url", "updated_at"])
@@ -1549,7 +1594,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
     ordering = ["title"]
 
     def get_queryset(self):
-        return _get_annotated_projects_queryset().filter(is_archived=False).order_by(*self.ordering)
+        return _get_annotated_projects_queryset(self.request.user).filter(is_archived=False).order_by(*self.ordering)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1559,7 +1604,7 @@ class ProjectListView(LoginRequiredMixin, ListView):
         ctx["recently_updated_count"] = projects.filter(
             updated_at__gte=timezone.now() - timedelta(days=7)
         ).count()
-        ctx["archived_count"] = NovelProject.objects.filter(is_archived=True).count()
+        ctx["archived_count"] = _project_queryset_for_user(self.request.user).filter(is_archived=True).count()
         return ctx
 
 
@@ -1570,7 +1615,7 @@ class ProjectArchiveListView(LoginRequiredMixin, ListView):
     ordering = ["title"]
 
     def get_queryset(self):
-        return _get_annotated_projects_queryset().filter(is_archived=True).order_by(*self.ordering)
+        return _get_annotated_projects_queryset(self.request.user).filter(is_archived=True).order_by(*self.ordering)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1600,7 +1645,11 @@ class TokenUsageView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        runs = list(GenerationRun.objects.select_related("project").order_by("-created_at"))
+        runs = list(
+            GenerationRun.objects.select_related("project")
+            .filter(project__in=_project_queryset_for_user(self.request.user))
+            .order_by("-created_at")
+        )
         daily_totals = defaultdict(lambda: {"date": None, "action_label": "", "total_tokens": 0, "run_count": 0})
         project_totals = defaultdict(lambda: {"project": None, "total_tokens": 0, "run_count": 0})
 
@@ -1683,7 +1732,8 @@ class BillingView(LoginRequiredMixin, TemplateView):
                         session_id=ctx["checkout_session_id"],
                     )
                 except Exception as e:
-                    ctx["checkout_sync_error"] = f"{type(e).__name__}: {e}"
+                    logger.exception("Failed to sync Stripe checkout session id=%s", ctx["checkout_session_id"])
+                    ctx["checkout_sync_error"] = "Could not refresh account status immediately. Webhook sync will retry shortly."
         ctx["subscription"] = get_subscription_display(self.request.user)
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
         return ctx
@@ -1732,7 +1782,8 @@ def create_billing_checkout(request):
             cancel_url=cancel_url,
         )
     except Exception as e:
-        messages.error(request, f"Could not start Stripe Checkout: {e}")
+        logger.exception("Failed to create Stripe checkout session for user_id=%s", request.user.pk)
+        messages.error(request, "Could not start Stripe Checkout right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
 
@@ -1749,7 +1800,8 @@ def create_billing_portal(request):
             return_url=request.build_absolute_uri(reverse("billing")),
         )
     except Exception as e:
-        messages.error(request, f"Could not open the billing portal: {e}")
+        logger.exception("Failed to create Stripe billing portal session for user_id=%s", request.user.pk)
+        messages.error(request, "Could not open the billing portal right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
     return HttpResponseRedirect(session.url)
 
@@ -1764,7 +1816,8 @@ def cancel_billing_recurring(request):
     try:
         record = cancel_recurring_subscription(user=request.user)
     except Exception as e:
-        messages.error(request, f"Could not cancel recurring payments: {e}")
+        logger.exception("Failed to cancel recurring subscription for user_id=%s", request.user.pk)
+        messages.error(request, "Could not cancel recurring payments right now. Please try again.")
         return HttpResponseRedirect(reverse("billing"))
 
     if record is None:
@@ -2125,7 +2178,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset()
+        return _project_queryset_for_user(self.request.user)
 
 
 class CharacterListView(LoginRequiredMixin, ListView):
@@ -2627,7 +2680,7 @@ def brainstorm_location_description(request, slug):
     try:
         objects_map = _parse_location_objects(request.POST)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
     prompt_lines = [
         "You are a worldbuilding assistant for a novelist.",
@@ -2662,7 +2715,7 @@ def brainstorm_location_description(request, slug):
             return JsonResponse({"ok": True, "suggestions": {}})
         return JsonResponse({"ok": True, "suggestions": {"description": text}})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -2681,7 +2734,7 @@ def add_location_details(request, slug):
     try:
         objects_map = _parse_location_objects(request.POST)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
     prompt_lines = [
         "You are a worldbuilding assistant for a novelist.",
@@ -2724,7 +2777,7 @@ def add_location_details(request, slug):
             return JsonResponse({"ok": True, "suggestions": {}})
         return JsonResponse({"ok": True, "suggestions": {"description": text}})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -2748,7 +2801,7 @@ def extract_location_objects(request, slug):
     try:
         existing_objects = _parse_location_objects(request.POST)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
     existing_keys_lower = {k.lower() for k in (existing_objects or {}).keys() if isinstance(k, str)}
 
@@ -2803,7 +2856,7 @@ def extract_location_objects(request, slug):
 
         return JsonResponse({"ok": True, "objects": extracted})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _json_internal_error()
 
 
 @require_POST
@@ -2871,7 +2924,7 @@ def generate_location_image(request, slug, pk):
             except Exception as fallback_error:
                 return JsonResponse({"ok": False, "error": str(fallback_error)}, status=400)
         else:
-            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+            return _json_internal_error()
 
     location.image_data_url = data_url
     location.save(update_fields=["image_data_url", "updated_at"])
@@ -3053,7 +3106,7 @@ class ProjectUpdateView(LoginRequiredMixin, UpdateView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset()
+        return _project_queryset_for_user(self.request.user)
 
     def form_valid(self, form):
         messages.success(self.request, "Project saved.")
@@ -3070,7 +3123,7 @@ class ProjectDeleteView(LoginRequiredMixin, DeleteView):
     slug_url_kwarg = "slug"
 
     def get_queryset(self):
-        return super().get_queryset()
+        return _project_queryset_for_user(self.request.user)
 
     def get_success_url(self):
         return reverse_lazy("project-list")
@@ -3088,7 +3141,7 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
     context_object_name = "project"
 
     def get_queryset(self):
-        return super().get_queryset()
+        return _project_queryset_for_user(self.request.user)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -3195,7 +3248,7 @@ class FullNovelView(LoginRequiredMixin, DetailView):
     context_object_name = "project"
 
     def get_queryset(self):
-        return super().get_queryset()
+        return _project_queryset_for_user(self.request.user)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -3504,8 +3557,16 @@ def regenerate_home_update(request):
             )
         return JsonResponse({"ok": True, "title": title, "body": rewritten_body})
     except Exception as e:
+        logger.exception("Failed to regenerate home update title/body.")
         fallback_title, fallback_body = _build_home_update_fallback(body)
-        return JsonResponse({"ok": True, "title": fallback_title, "body": fallback_body, "warning": str(e)})
+        return JsonResponse(
+            {
+                "ok": True,
+                "title": fallback_title,
+                "body": fallback_body,
+                "warning": "Model regeneration failed; used fallback generation.",
+            }
+        )
 
 
 class OutlineChapterCreateView(LoginRequiredMixin, CreateView):

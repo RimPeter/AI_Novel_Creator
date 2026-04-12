@@ -152,6 +152,12 @@ Sync home updates from the committed JSON source:
 python manage.py sync_home_updates
 ```
 
+This sync is non-destructive by default. To remove JSON-managed DB rows that are no longer in the file:
+
+```powershell
+python manage.py sync_home_updates --prune-missing
+```
+
 JSON schema for each entry in `main/data/home_updates.json`:
 
 ```json

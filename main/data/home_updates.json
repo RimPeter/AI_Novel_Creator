@@ -1,5 +1,209 @@
 [
   {
+    "source_key": "legacy-1",
+    "date": "2026-03-20",
+    "title": "Improved AI Drafting and Editing Features",
+    "body": "This update enhances the AI drafting process by providing more context for scenes, including character details and the previous scene in the chapter. We've also fixed issues with duplicate character details and improved the editing experience by making controls easier to use."
+  },
+  {
+    "source_key": "legacy-2",
+    "date": "2026-03-20",
+    "title": "New Home Updates Board and Superuser Features",
+    "body": "We've introduced a new updates board on the home page where you can see important announcements and updates. This board includes dated posts and a clean design. Additionally, superusers now have access to a special page for posting updates, which allows them to easily create and edit announcements with the help of AI that simplifies the text."
+  },
+  {
+    "source_key": "legacy-3",
+    "date": "2026-03-20",
+    "title": "Improved Character Portraits",
+    "body": "We've enhanced the way character portraits are generated. The new system now creates more realistic images, similar to passport or ID photos. This update ensures that each character looks unique, avoiding duplicates and mirrored images. Enjoy the improved visuals in your stories!"
+  },
+  {
+    "source_key": "legacy-4",
+    "date": "2026-03-25",
+    "title": "User Interface Redesign and Improvements",
+    "body": "We've updated the look and feel of the login and project navigation screens. The new login screen is more polished and user-friendly. The projects page now features better stats, improved project cards, and collapsible sections for easier navigation. On mobile, the navigation menu has been simplified into a burger menu, making it more convenient to access project metrics."
+  },
+  {
+    "source_key": "legacy-5",
+    "date": "2026-03-25",
+    "title": "Improved Project Card Display",
+    "body": "We've made some enhancements to how project cards look. When a project card is collapsed, only the project title will be shown. This change helps prevent nearby cards from stretching and keeps the layout neat."
+  },
+  {
+    "source_key": "legacy-6",
+    "date": "2026-03-25",
+    "title": "New Project Archiving Feature",
+    "body": "We have added a new feature that allows you to archive projects. You can now easily archive and restore projects through a dedicated archive page, with options available on project cards and in the navigation menu."
+  },
+  {
+    "source_key": "legacy-7",
+    "date": "2026-03-25",
+    "title": "Improved Project Dashboard Navigation",
+    "body": "We've redesigned the project dashboard to make it easier to use. The new layout features clear sections for progress and stats, and we've simplified navigation by standardizing it around a single Dashboard link. This means fewer buttons and a more organized workspace."
+  },
+  {
+    "source_key": "legacy-8",
+    "date": "2026-03-25",
+    "title": "New Character Portrait Previews",
+    "body": "You can now see a floating preview of character portraits when you hover over character cards on the characters page. This makes it easier to view details without clicking on each card."
+  },
+  {
+    "source_key": "legacy-9",
+    "date": "2026-03-25",
+    "title": "Updated App Design and Email Management",
+    "body": "We've improved the overall look of the app by unifying the design across all main pages. The email management section has also been updated to match this new design, with better styling and spacing for the email actions."
+  },
+  {
+    "source_key": "legacy-10",
+    "date": "2026-03-25",
+    "title": "Navigation and Account Enhancements",
+    "body": "We've improved the look and feel of the account management section and made it easier to navigate on mobile devices. The email input field now has better styling, and there's more space between the email list and action buttons. The mobile navigation menu has also been updated to match our new design."
+  },
+  {
+    "source_key": "legacy-11",
+    "date": "2026-03-25",
+    "title": "Improved Project Editor and Dashboard",
+    "body": "We've made some enhancements to the project editor and dashboard. The Seed Idea text area now automatically expands as you type, and we've renamed the story bible summary field to 'Summary' for clarity. Additionally, the dashboard's story bible section is now easier to navigate with collapsible sections and improved mobile styling."
+  },
+  {
+    "source_key": "legacy-12",
+    "date": "2026-03-25",
+    "title": "Improved Project Card Actions",
+    "body": "We have simplified the way you interact with project cards. Now, you will find a single, easy-to-use button on the Dashboard for all your project actions. Additionally, we've made adjustments to the layout to ensure everything fits nicely and looks consistent."
+  },
+  {
+    "source_key": "legacy-13",
+    "date": "2026-03-25",
+    "title": "Added AI model selector",
+    "body": "In this update, we've introduced a new feature that allows each user to select their preferred text generation model directly from the token usage page. You will now see your chosen model displayed prominently in the navigation bar, making it easy to identify. We've also made some adjustments to ensure that longer model names fit nicely and look good on the screen."
+  },
+  {
+    "source_key": "legacy-14",
+    "date": "2026-03-25",
+    "title": "Improved Update Composer",
+    "body": "The update composer now includes separate fields for Title, Date, and Body, making it easier to create clear and organized updates. When you paste in raw git notes, the system automatically generates a user-friendly title and summary. This streamlines the process of sharing updates and enhances readability."
+  },
+  {
+    "source_key": "legacy-15",
+    "date": "2026-03-25",
+    "title": "Improved Novel Navigation",
+    "body": "The table of contents is now aligned with the dashboard outline, making it easier to navigate your full novel. You can quickly jump to acts, chapters, and scenes with improved manuscript anchors."
+  },
+  {
+    "source_key": "legacy-16",
+    "date": "2026-03-26",
+    "title": "Improved Scene Drafting",
+    "body": "Scene drafts now omit metadata and produce cleaner, more readable text. Drafts are less verbose with reasoning and spend more of their output on actual scene prose, with fewer metadata-only fallbacks."
+  },
+  {
+    "source_key": "legacy-17",
+    "date": "2026-03-26",
+    "title": "Chapter Scenes Menu",
+    "body": "A new Chapter Scenes menu in the scene editor lets you quickly jump between scenes in the current chapter from the edit page. The menu displays above surrounding panels so it is easy to use and only shows scenes from the same chapter."
+  },
+  {
+    "source_key": "legacy-18",
+    "date": "2026-03-26",
+    "title": "Nested Location Tree",
+    "body": "Locations are now shown as a nested parent-child tree so child sites appear inside their parent containers. You can drag and drop location cards to move them between parents for faster reorganization. This makes it easier to see structure and manage location groups."
+  },
+  {
+    "source_key": "legacy-19",
+    "date": "2026-03-26",
+    "title": "Unified Locations Page",
+    "body": "All locations are now combined on a single Locations page so you can view and manage the full hierarchy in one place. Improved hover and pop-out styling on location cards makes nested items easier to explore and interact with."
+  },
+  {
+    "source_key": "legacy-20",
+    "date": "2026-04-05",
+    "title": "New Synonym Hover Feature",
+    "body": "You can now hover over words in the scene draft editor to see synonyms, enhancing your writing experience. A new toggle in the toolbar allows you to easily access this feature, making it simpler to find alternative words."
+  },
+  {
+    "source_key": "legacy-21",
+    "date": "2026-04-05",
+    "title": "Simplified Navbar Dropdowns",
+    "body": "Navigation links are now grouped into Projects and More dropdowns to make finding items faster. Dropdowns use consistent styling across desktop and mobile and automatically close when you open another, click outside, or press Escape."
+  },
+  {
+    "source_key": "legacy-22",
+    "date": "2026-04-05",
+    "title": "Enhanced Email Authentication",
+    "body": "Email authentication is now enabled, requiring users to verify their accounts while allowing existing users to retain access. Legacy accounts have been updated to ensure a smooth transition, and new email configurations have been added to improve the user experience."
+  },
+  {
+    "source_key": "legacy-23",
+    "date": "2026-04-08",
+    "title": "Improved Scene Edit Form",
+    "body": "The scene edit form has been polished for better clarity. The scene summary field is now labeled as Scene Outline, and helpful placeholder guidance has been added to assist with scene writing."
+  },
+  {
+    "source_key": "legacy-24",
+    "date": "2026-04-08",
+    "title": "Enhanced Scene Draft Prompts",
+    "body": "Scene draft prompts now include selected location descriptions from your project. This improvement ensures better continuity and relevance, making it easier to create cohesive scenes."
+  },
+  {
+    "source_key": "legacy-25",
+    "date": "2026-04-08",
+    "title": "In-app PDF Reading Added",
+    "body": "You can now read uploaded story bible PDFs directly within the app. New options to read, download, and delete these documents have also been added for better management."
+  },
+  {
+    "source_key": "legacy-26",
+    "date": "2026-04-09",
+    "title": "Enhanced Stripe Billing Support",
+    "body": "We've expanded our Stripe billing options to include monthly, yearly, and short-term plans with an updated user interface. Additionally, improvements to checkout processes ensure faster account updates and clearer error reporting."
+  },
+  {
+    "source_key": "legacy-27",
+    "date": "2026-04-09",
+    "title": "Improved Billing Admin Flow",
+    "body": "The billing admin flow has been refined for a smoother experience. Users can now manage seller information for all invoices from a shared company details page, and completed payments will appear on the billing page more quickly."
+  },
+  {
+    "source_key": "legacy-28",
+    "date": "2026-04-10",
+    "title": "Enhanced Billing Management",
+    "body": "We've improved the billing process for AI tools to ensure that active plans are required for token usage and AI generation. Users will see clearer billing notices and experience smoother handling of subscription updates and invoices."
+  },
+  {
+    "source_key": "legacy-29",
+    "date": "2026-04-10",
+    "title": "New Admin Contact Page",
+    "body": "Users can now report billing, access, and workflow issues directly through a new contact page. This feature streamlines communication with the admin and ensures timely support."
+  },
+  {
+    "source_key": "legacy-30",
+    "date": "2026-04-10",
+    "title": "Improved Contact Page",
+    "body": "The contact page has been redesigned to feature separate forms for submitting messages and requests. This change enhances user experience by allowing for clearer communication and streamlined issue reporting."
+  },
+  {
+    "source_key": "legacy-31",
+    "date": "2026-04-10",
+    "title": "Improved AI Workflow Efficiency",
+    "body": "We've streamlined the AI workflow by reducing duplicated code, making it more efficient and easier to maintain. This update enhances the performance of various features, ensuring a smoother user experience."
+  },
+  {
+    "source_key": "legacy-32",
+    "date": "2026-04-10",
+    "title": "Enhanced Billing Invoice Design",
+    "body": "The billing invoice PDFs have been redesigned with a professional layout. Users will now see a more visually appealing one-page invoice that includes a branded header and organized information, making it easier to read and understand."
+  },
+  {
+    "source_key": "legacy-33",
+    "date": "2026-04-11",
+    "title": "New Billing Terms Acceptance",
+    "body": "Users must now accept the billing plan terms before completing their purchase. A dedicated Terms and Conditions page has been created for better clarity and compliance."
+  },
+  {
+    "source_key": "legacy-34",
+    "date": "2026-04-12",
+    "title": "Enhanced Security Features",
+    "body": "We have introduced a dedicated security app to improve platform-wide security controls. This includes new rate limiting, security monitoring alerts, and enhanced media storage options, ensuring a safer experience for all users."
+  },
+  {
     "source_key": "2026-04-12-home-updates-json-sync",
     "date": "2026-04-12",
     "title": "Home memo board now deploy-syncs from JSON",

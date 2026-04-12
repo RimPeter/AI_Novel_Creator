@@ -21,9 +21,9 @@ class Command(BaseCommand):
             help="Path to JSON file. Defaults to <BASE_DIR>/main/data/home_updates.json.",
         )
         parser.add_argument(
-            "--keep-missing",
+            "--prune-missing",
             action="store_true",
-            help="Do not delete DB rows that have a source_key missing from JSON.",
+            help="Delete DB rows with non-empty source_key missing from JSON.",
         )
 
     def handle(self, *args, **options):
@@ -35,7 +35,7 @@ class Command(BaseCommand):
             raise CommandError(f"JSON file not found: {file_path}")
 
         updates = self._load_updates(file_path)
-        keep_missing = bool(options.get("keep_missing"))
+        prune_missing = bool(options.get("prune_missing"))
 
         created = 0
         updated = 0
@@ -59,7 +59,7 @@ class Command(BaseCommand):
                     updated += 1
 
             deleted = 0
-            if not keep_missing:
+            if prune_missing:
                 deleted, _ = HomeUpdate.objects.exclude(source_key="").exclude(source_key__in=source_keys).delete()
 
         kept = len(updates)

@@ -1401,7 +1401,7 @@ class HomePageTests(TestCase):
 
 
 class SyncHomeUpdatesCommandTests(TestCase):
-    def test_sync_home_updates_upserts_and_prunes_json_managed_rows(self):
+    def test_sync_home_updates_upserts_without_pruning_by_default(self):
         HomeUpdate.objects.create(
             source_key="legacy-row",
             date="2026-03-01",
@@ -1446,7 +1446,7 @@ class SyncHomeUpdatesCommandTests(TestCase):
         finally:
             os.unlink(path)
 
-        self.assertFalse(HomeUpdate.objects.filter(source_key="legacy-row").exists())
+        self.assertTrue(HomeUpdate.objects.filter(source_key="legacy-row").exists())
         self.assertTrue(HomeUpdate.objects.filter(title="Manual admin post").exists())
 
         updated = HomeUpdate.objects.get(source_key="existing-json")
@@ -1458,6 +1458,37 @@ class SyncHomeUpdatesCommandTests(TestCase):
         self.assertEqual(str(created.date), "2026-04-02")
         self.assertEqual(created.title, "New JSON title")
         self.assertEqual(created.body, "New JSON body")
+
+    def test_sync_home_updates_prunes_when_explicitly_requested(self):
+        HomeUpdate.objects.create(
+            source_key="remove-me",
+            date="2026-03-01",
+            title="Legacy",
+            body="Should be removed",
+        )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    [
+                        {
+                            "source_key": "keep-me",
+                            "date": "2026-04-01",
+                            "title": "Keep title",
+                            "body": "Keep body",
+                        },
+                    ]
+                )
+            )
+            path = fh.name
+
+        try:
+            call_command("sync_home_updates", path=path, prune_missing=True)
+        finally:
+            os.unlink(path)
+
+        self.assertFalse(HomeUpdate.objects.filter(source_key="remove-me").exists())
+        self.assertTrue(HomeUpdate.objects.filter(source_key="keep-me").exists())
 
     def test_sync_home_updates_rejects_duplicate_source_keys(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as fh:

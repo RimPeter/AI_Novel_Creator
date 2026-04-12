@@ -2972,6 +2972,55 @@ class TokenUsageViewTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(mock_call.call_args.kwargs["model_name"], "gpt-5-mini")
 
+    def test_project_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"seed_idea":"Humanity spread across the galaxy under one empire. Tensions surge at the frontier."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-add-details", kwargs={"slug": self.project_a.slug}),
+                data={
+                    "seed_idea": "Humanity spread across the galaxy under one empire.",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {"ok": True, "suggestions": {"seed_idea": "Tensions surge at the frontier."}},
+        )
+
+    def test_project_add_details_drops_exact_duplicate_addition(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"seed_idea":"Humanity spread across the galaxy under one empire."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-add-details", kwargs={"slug": self.project_a.slug}),
+                data={
+                    "seed_idea": "Humanity spread across the galaxy under one empire.",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True, "suggestions": {}})
+
     def test_navbar_shows_active_text_model_badge(self):
         UserTextModelPreference.objects.create(user=self.user, text_model_name="gpt-5-mini")
 
@@ -3195,6 +3244,32 @@ class LocationViewsTests(AuthenticatedTestCase):
             )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"ok": True, "suggestions": {}})
+
+    def test_add_location_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        url = reverse("location-add-details", kwargs={"slug": self.project_a.slug})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"description": "A cavernous bay of cold steel. Overhead, warning lights stutter red."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "name": "Docking Bay",
+                    "description": "A cavernous bay of cold steel.",
+                    "object_key": ["crate"],
+                    "object_value": ["sealed"],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {"ok": True, "suggestions": {"description": "Overhead, warning lights stutter red."}},
+        )
 
     def test_extract_location_objects_requires_description(self):
         url = reverse("location-extract-objects", kwargs={"slug": self.project_a.slug})

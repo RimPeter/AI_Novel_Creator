@@ -62,14 +62,40 @@
     const el = getField("description");
     if (!el) return false;
 
+    const dedupeAppendedText = (existing, incoming) => {
+      const existingText = String(existing || "").trim();
+      const additionText = String(incoming || "").trim();
+      if (!additionText) return "";
+      if (!existingText) return additionText;
+
+      const existingLower = existingText.toLowerCase();
+      const additionLower = additionText.toLowerCase();
+      if (existingLower.includes(additionLower)) return "";
+
+      const trimOverlap = (text) => text.replace(/^[\s;,:.-]+/, "").trim();
+      if (additionLower.startsWith(existingLower)) {
+        return trimOverlap(additionText.slice(existingText.length));
+      }
+
+      const maxOverlap = Math.min(existingText.length, additionText.length);
+      for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+        if (existingLower.slice(-overlap) === additionLower.slice(0, overlap)) {
+          return trimOverlap(additionText.slice(overlap));
+        }
+      }
+
+      return additionText;
+    };
+
     const existing = (el.value || "").trim();
     if (!existing) {
       el.value = addition.trim();
       return true;
     }
 
-    if (!addition.trim() || existing.includes(addition.trim())) return false;
-    el.value = `${existing}\n\n${addition.trim()}`.trim();
+    const extra = dedupeAppendedText(existing, addition);
+    if (!extra) return false;
+    el.value = `${existing}\n\n${extra}`.trim();
     return true;
   };
 

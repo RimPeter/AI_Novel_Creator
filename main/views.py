@@ -781,10 +781,9 @@ def add_project_details(request, slug):
                 continue
             if key in {"genre", "tone"} and current.get(key):
                 continue
-            text = str(value or "").strip()
+            existing = (current.get(key) or "").strip()
+            text = _dedupe_appended_text(existing, str(value))
             if not text:
-                continue
-            if current.get(key) and text in current[key]:
                 continue
             filtered[key] = text
 
@@ -2809,10 +2808,8 @@ def add_location_details(request, slug):
             model_name=model_name,
             params=params,
         )
-        text = str(data.get("description") or "").strip()
+        text = _dedupe_appended_text(description, str(data.get("description") or ""))
         if not text:
-            return JsonResponse({"ok": True, "suggestions": {}})
-        if description and text in description:
             return JsonResponse({"ok": True, "suggestions": {}})
         return JsonResponse({"ok": True, "suggestions": {"description": text}})
     except Exception as e:

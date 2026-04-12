@@ -5,8 +5,8 @@ from .models import BillingCompanyProfile, BillingInvoice, HomeUpdate, Processed
 
 @admin.register(HomeUpdate)
 class HomeUpdateAdmin(admin.ModelAdmin):
-    list_display = ("date", "title", "updated_at")
-    search_fields = ("title", "body")
+    list_display = ("date", "title", "source_key", "updated_at")
+    search_fields = ("title", "body", "source_key")
     ordering = ("-date", "-updated_at")
 
 

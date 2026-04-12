@@ -92,12 +92,20 @@ class StoryBibleDocument(TimeStampedModel):
 
 
 class HomeUpdate(TimeStampedModel):
+    source_key = models.CharField(max_length=120, blank=True, default="", db_index=True)
     date = models.DateField(default=timezone.localdate)
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["-date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_key"],
+                condition=~models.Q(source_key=""),
+                name="uniq_homeupdate_source_key_nonempty",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.date}: {self.title}"

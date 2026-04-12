@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import tempfile
 from datetime import datetime, timedelta
@@ -8,6 +9,8 @@ from types import SimpleNamespace
 from allauth.account.models import EmailAddress
 from stripe._stripe_object import StripeObject
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -1395,6 +1398,94 @@ class HomePageTests(TestCase):
         self.assertContains(resp, "2026-03-20")
         self.assertContains(resp, "Targeted scene regeneration")
         self.assertContains(resp, "Added !{...}! markers and post-regenerate highlight support.")
+
+
+class SyncHomeUpdatesCommandTests(TestCase):
+    def test_sync_home_updates_upserts_and_prunes_json_managed_rows(self):
+        HomeUpdate.objects.create(
+            source_key="legacy-row",
+            date="2026-03-01",
+            title="Legacy",
+            body="Should be removed",
+        )
+        HomeUpdate.objects.create(
+            date="2026-03-02",
+            title="Manual admin post",
+            body="Should remain",
+        )
+        HomeUpdate.objects.create(
+            source_key="existing-json",
+            date="2026-03-03",
+            title="Old JSON title",
+            body="Old JSON body",
+        )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    [
+                        {
+                            "source_key": "existing-json",
+                            "date": "2026-04-01",
+                            "title": "Updated JSON title",
+                            "body": "Updated JSON body",
+                        },
+                        {
+                            "source_key": "new-json-row",
+                            "date": "2026-04-02",
+                            "title": "New JSON title",
+                            "body": "New JSON body",
+                        },
+                    ]
+                )
+            )
+            path = fh.name
+
+        try:
+            call_command("sync_home_updates", path=path)
+        finally:
+            os.unlink(path)
+
+        self.assertFalse(HomeUpdate.objects.filter(source_key="legacy-row").exists())
+        self.assertTrue(HomeUpdate.objects.filter(title="Manual admin post").exists())
+
+        updated = HomeUpdate.objects.get(source_key="existing-json")
+        self.assertEqual(str(updated.date), "2026-04-01")
+        self.assertEqual(updated.title, "Updated JSON title")
+        self.assertEqual(updated.body, "Updated JSON body")
+
+        created = HomeUpdate.objects.get(source_key="new-json-row")
+        self.assertEqual(str(created.date), "2026-04-02")
+        self.assertEqual(created.title, "New JSON title")
+        self.assertEqual(created.body, "New JSON body")
+
+    def test_sync_home_updates_rejects_duplicate_source_keys(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    [
+                        {
+                            "source_key": "dupe-key",
+                            "date": "2026-04-01",
+                            "title": "Title A",
+                            "body": "Body A",
+                        },
+                        {
+                            "source_key": "dupe-key",
+                            "date": "2026-04-02",
+                            "title": "Title B",
+                            "body": "Body B",
+                        },
+                    ]
+                )
+            )
+            path = fh.name
+
+        try:
+            with self.assertRaises(CommandError):
+                call_command("sync_home_updates", path=path)
+        finally:
+            os.unlink(path)
 
 
 class HomeUpdateCreateViewTests(TestCase):

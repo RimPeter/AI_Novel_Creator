@@ -35,6 +35,7 @@ Routes:
 - Checkout start: `/billing/checkout/`
 - Billing portal: `/billing/portal/`
 - Webhook endpoint: `/billing/webhook/`
+- Home memo board source: `main/data/home_updates.json`
 
 Local webhook forwarding with the Stripe CLI:
 
@@ -145,8 +146,26 @@ Run migrations on the app:
 heroku run -a ai-novel-manager -- python manage.py migrate
 ```
 
+Sync home updates from the committed JSON source:
+
+```powershell
+python manage.py sync_home_updates
+```
+
+JSON schema for each entry in `main/data/home_updates.json`:
+
+```json
+{
+  "source_key": "stable-unique-key",
+  "date": "2026-04-12",
+  "title": "Short user-facing title",
+  "body": "Optional details shown on the home page."
+}
+```
+
 Deployment notes:
 
 - The `release` process runs `python manage.py migrate`.
+- The `release` process then runs `python manage.py sync_home_updates`.
 - The `web` process runs `gunicorn novel_creator.wsgi`.
 - Static files are served with WhiteNoise, so `DISABLE_COLLECTSTATIC` should be unset on Heroku.

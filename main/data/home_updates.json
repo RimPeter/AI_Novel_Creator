@@ -1,0 +1,8 @@
+[
+  {
+    "source_key": "2026-04-12-home-updates-json-sync",
+    "date": "2026-04-12",
+    "title": "Home memo board now deploy-syncs from JSON",
+    "body": "The home page update board is now synced from this file during deploy, so pushing commits updates production automatically."
+  }
+]

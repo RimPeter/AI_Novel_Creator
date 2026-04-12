@@ -236,11 +236,14 @@ if EMAIL_BACKEND == "django.core.mail.backends.filebased.EmailBackend":
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 default_sqlite_url = f"sqlite:///{(BASE_DIR / 'db.sqlite3').as_posix()}"
+database_url = os.environ.get("DATABASE_URL", default_sqlite_url)
+database_ssl_required = database_url.startswith(("postgres://", "postgresql://")) and not DEBUG and not RUNNING_TESTS
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.environ.get("DATABASE_URL", default_sqlite_url),
+    "default": dj_database_url.config(
+        default=database_url,
         conn_max_age=600,
         conn_health_checks=True,
+        ssl_require=database_ssl_required,
     )
 }
 

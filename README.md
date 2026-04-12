@@ -125,6 +125,26 @@ Optional but recommended:
 - `DATABASE_URL` for Heroku Postgres
 - SMTP settings if you want real account emails instead of the file backend
 
+Attach Heroku Postgres and verify:
+
+```powershell
+heroku addons:create heroku-postgresql:essential-0 -a ai-novel-manager
+heroku config:get DATABASE_URL -a ai-novel-manager
+heroku pg:info -a ai-novel-manager
+```
+
+Important for static files on Heroku:
+
+```powershell
+heroku config:unset DISABLE_COLLECTSTATIC -a ai-novel-manager
+```
+
+Run migrations on the app:
+
+```powershell
+heroku run -a ai-novel-manager -- python manage.py migrate
+```
+
 Deployment notes:
 
 - The `release` process runs `python manage.py migrate`.

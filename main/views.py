@@ -795,6 +795,69 @@ def add_project_details(request, slug):
 
 @require_POST
 @login_required
+def brainstorm_story_bible(request, slug):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    allowed_fields = [
+        "summary_md",
+        "constraints",
+        "facts",
+    ]
+
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    empty_fields = [k for k in allowed_fields if not current.get(k)]
+    if not empty_fields:
+        return JsonResponse({"ok": True, "suggestions": {}})
+
+    prompt_lines = [
+        "You are a novelist's story bible assistant.",
+        "Goal: fill in ONLY the currently-empty story bible fields with coherent canon notes.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- Keep each field concise and useful.",
+        "- Use plain prose. No bullet points.",
+        "",
+        "Project title: " + (project.title or ""),
+        "Project slug: " + (project.slug or ""),
+        "",
+        "Existing story bible fields (JSON):",
+        json.dumps(current, ensure_ascii=False),
+    ]
+    prompt = "\n".join(prompt_lines).strip()
+
+    try:
+        model_name = get_user_text_model(request.user)
+        params = {"temperature": 0.7, "max_tokens": 650}
+        data = _call_tracked_llm_json_object(
+            project=project,
+            action_label="Story Bible Brainstorm",
+            prompt=prompt,
+            model_name=model_name,
+            params=params,
+            run_type=GenerationRun.RunType.BIBLE,
+        )
+
+        filtered = {}
+        for key, value in data.items():
+            if key not in empty_fields:
+                continue
+            text = str(value or "").strip()
+            if not text:
+                continue
+            filtered[key] = text
+
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception:
+        return _json_internal_error()
+
+
+@require_POST
+@login_required
 def brainstorm_scene(request, slug, pk):
     scene = _get_scene_for_user(request, slug=slug, pk=pk)
     blocked = _ensure_json_ai_request(request)

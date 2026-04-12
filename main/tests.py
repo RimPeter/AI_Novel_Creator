@@ -1382,6 +1382,86 @@ class StoryBibleUploadTests(AuthenticatedTestCase):
         self.assertContains(response, "Download")
         self.assertContains(response, document.file.url)
 
+    def test_story_bible_edit_page_shows_brainstorm_button(self):
+        response = self.client.get(reverse("bible-edit", kwargs={"slug": self.project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "bible-brainstorm-btn")
+        self.assertContains(response, reverse("bible-brainstorm", kwargs={"slug": self.project.slug}))
+
+    def test_brainstorm_story_bible_returns_suggestions_for_empty_fields_only(self):
+        url = reverse("bible-brainstorm", kwargs={"slug": self.project.slug})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary_md":"A dynastic empire spans charted space.","constraints":"No time travel.","facts":"Earth governs the federation."}',
+                usage={"ok": True},
+            ),
+        ):
+            response = self.client.post(
+                url,
+                data={
+                    "summary_md": "",
+                    "constraints": "Existing constraints text.",
+                    "facts": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "summary_md": "A dynastic empire spans charted space.",
+                    "facts": "Earth governs the federation.",
+                },
+            },
+        )
+
+    def test_brainstorm_story_bible_skips_when_all_fields_filled(self):
+        url = reverse("bible-brainstorm", kwargs={"slug": self.project.slug})
+        with patch("main.views.call_llm") as mocked:
+            response = self.client.post(
+                url,
+                data={
+                    "summary_md": "Filled",
+                    "constraints": "Filled",
+                    "facts": "Filled",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "suggestions": {}})
+        mocked.assert_not_called()
+
+    def test_brainstorm_story_bible_denies_other_users_project(self):
+        other_user = get_user_model().objects.create_user(
+            username="bible-other",
+            email="bible-other@example.com",
+            password="password123",
+        )
+        other_project = NovelProject.objects.create(
+            title="Other Bible Project",
+            slug="other-bible-project",
+            target_word_count=1000,
+            owner=other_user,
+        )
+        StoryBible.objects.create(project=other_project, summary_md="Other summary")
+
+        response = self.client.post(
+            reverse("bible-brainstorm", kwargs={"slug": other_project.slug}),
+            data={"summary_md": "", "constraints": "", "facts": ""},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
 
 class HomePageTests(TestCase):
     def test_home_page_displays_updates_board(self):

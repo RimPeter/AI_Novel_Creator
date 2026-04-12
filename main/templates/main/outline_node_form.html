@@ -227,6 +227,24 @@
                   <div class="field-error">{{ error }}</div>
                 {% endfor %}
               </div>
+            {% elif node_kind == "scene" and field.name == "summary" %}
+              <div class="form-row">
+                <div class="form-label-row">
+                  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {% if object %}
+                    <div class="actions">
+                      <button class="btn btn-secondary btn-sm" type="button" id="scene-brainstorm-btn">Brainstorm</button>
+                    </div>
+                  {% endif %}
+                </div>
+                {{ field }}
+                {% if field.help_text %}
+                  <div class="muted">{{ field.help_text }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
             {% else %}
               <div class="form-row">
                 <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -245,7 +263,6 @@
         <div class="actions">
           <button class="btn btn-primary" type="submit">Save</button>
           {% if object and node_kind == "scene" %}
-            <button class="btn btn-secondary" type="button" id="scene-brainstorm-btn">Brainstorm</button>
             <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
           {% endif %}
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>

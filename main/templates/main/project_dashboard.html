@@ -27,7 +27,7 @@
       </div>
 
       <div class="actions dashboard-actions">
-        <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a>
+        {% comment %} <a class="btn btn-secondary" href="{% url 'project-detail' slug=project.slug %}">Details</a> {% endcomment %}
         <a class="btn btn-secondary" href="{% url 'full-novel' slug=project.slug %}">Full novel</a>
         <a class="btn btn-secondary" href="{% url 'character-list' slug=project.slug %}">Characters</a>
         <a class="btn btn-secondary" href="{% url 'location-list' slug=project.slug %}">Locations</a>
@@ -38,7 +38,7 @@
           <button class="btn btn-secondary" type="submit">Archive it!</button>
         </form>
         <a class="btn btn-secondary" href="{% url 'project-delete' slug=project.slug %}">Delete</a>
-        <a class="btn btn-secondary" href="{% url 'project-list' %}">All projects</a>
+        {% comment %} <a class="btn btn-secondary" href="{% url 'project-list' %}">All projects</a> {% endcomment %}
       </div>
     </div>
 

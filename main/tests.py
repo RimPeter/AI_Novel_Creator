@@ -2757,6 +2757,78 @@ class FullNovelViewTests(AuthenticatedTestCase):
         self.assertContains(resp, "First chapter closing.")
         self.assertContains(resp, "Second chapter opening.")
 
+    def test_full_novel_page_includes_pdf_download_link(self):
+        resp = self.client.get(reverse("full-novel", kwargs={"slug": self.project.slug}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+
+    def test_full_novel_pdf_download_returns_pdf(self):
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertIn(f'{self.project.slug}-full-novel.pdf', resp["Content-Disposition"])
+        self.assertTrue(resp.content.startswith(b"%PDF-1.4"))
+        self.assertIn(b"Arrival at Blackwater", resp.content)
+        self.assertIn(b"First chapter opening.", resp.content)
+
+    def test_full_novel_pdf_download_is_scoped_to_owner(self):
+        other_user = get_user_model().objects.create_user(
+            username="novel_intruder",
+            email="novel_intruder@example.com",
+            password="password123",
+        )
+        other_project = NovelProject.objects.create(
+            title="Other Full Novel",
+            slug="other-full-novel",
+            target_word_count=500,
+            owner=other_user,
+        )
+        OutlineNode.objects.create(
+            project=other_project,
+            node_type=OutlineNode.NodeType.ACT,
+            parent=None,
+            order=1,
+            title="Act X",
+        )
+
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": other_project.slug}))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_full_novel_pdf_download_normalizes_smart_quotes(self):
+        OutlineNode.objects.create(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+            parent=self.chapter_two,
+            order=3,
+            title="Scene 5",
+            rendered_text='He whispered “Infinite Genesys” and smiled.',
+        )
+
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'He whispered "Infinite Genesys" and smiled.', resp.content)
+
+    def test_full_novel_pdf_download_includes_table_of_contents(self):
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Table of contents", resp.content)
+        self.assertIn(b"ACT: Act I", resp.content)
+        self.assertIn(b"CHAPTER: Arrival at Blackwater", resp.content)
+        self.assertIn(b"SCENE: Scene 1", resp.content)
+
+    def test_full_novel_pdf_download_starts_each_chapter_on_new_page(self):
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+        self.assertEqual(resp.status_code, 200)
+        # Front matter (title/toc) plus one page per chapter.
+        self.assertGreaterEqual(resp.content.count(b"/Type /Page"), 3)
+
+    def test_full_novel_pdf_download_uses_larger_act_and_chapter_fonts(self):
+        resp = self.client.get(reverse("full-novel-pdf", kwargs={"slug": self.project.slug}))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"/F2 16.00 Tf", resp.content)
+        self.assertIn(b"/F2 14.00 Tf", resp.content)
+
 
 class ProjectArchiveTests(AuthenticatedTestCase):
     def setUp(self):

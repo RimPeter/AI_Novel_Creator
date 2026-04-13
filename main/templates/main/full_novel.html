@@ -11,6 +11,7 @@
           <h1 class="page-title">Full novel</h1>
         </div>
         <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'full-novel-pdf' slug=project.slug %}">Download PDF</a>
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Dashboard</a>
         </div>
       </div>

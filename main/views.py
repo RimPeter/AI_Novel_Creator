@@ -1860,7 +1860,26 @@ def _get_billing_invoice_for_request(request, pk) -> BillingInvoice:
 
 
 def _escape_pdf_text(value: str) -> str:
-    return str(value or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    text = str(value or "")
+    text = text.translate(
+        {
+            ord("\u2018"): "'",
+            ord("\u2019"): "'",
+            ord("\u201a"): "'",
+            ord("\u201b"): "'",
+            ord("\u201c"): '"',
+            ord("\u201d"): '"',
+            ord("\u201e"): '"',
+            ord("\u201f"): '"',
+            ord("\u2032"): "'",
+            ord("\u2033"): '"',
+            ord("\u2013"): "-",
+            ord("\u2014"): "-",
+            ord("\u2026"): "...",
+            ord("\u00a0"): " ",
+        }
+    )
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def _pdf_wrap_lines(value: str, *, width: int) -> list[str]:
@@ -1977,6 +1996,140 @@ def _build_simple_pdf(lines: list[str]) -> bytes:
         b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
         f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
     ]
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
+
+
+def _build_paginated_text_pdf(
+    lines: list[str],
+    *,
+    wrap_width: int = 72,
+    lines_per_page: int = 52,
+    page_break_token: str | None = None,
+    heading_token: str | None = None,
+    act_heading_token: str | None = None,
+    chapter_heading_token: str | None = None,
+) -> bytes:
+    page_chunks: list[list[tuple[str, str]]] = []
+    current_page: list[tuple[str, str]] = []
+
+    def _append_line(line: str, style: str) -> None:
+        nonlocal current_page
+        if len(current_page) >= lines_per_page:
+            page_chunks.append(current_page)
+            current_page = []
+        current_page.append((line, style))
+
+    for raw_line in lines:
+        line_value = str(raw_line or "")
+        if page_break_token is not None and line_value == page_break_token:
+            if current_page:
+                page_chunks.append(current_page)
+                current_page = []
+            continue
+
+        style = "body"
+        line_wrap_width = wrap_width
+        if act_heading_token is not None and line_value.startswith(act_heading_token):
+            style = "act"
+            line_value = line_value[len(act_heading_token) :]
+            line_wrap_width = 50
+        elif chapter_heading_token is not None and line_value.startswith(chapter_heading_token):
+            style = "chapter"
+            line_value = line_value[len(chapter_heading_token) :]
+            line_wrap_width = 58
+        if heading_token is not None and line_value.startswith(heading_token):
+            style = "heading"
+            line_value = line_value[len(heading_token) :]
+
+        text = line_value.strip()
+        if not text:
+            _append_line("", "body")
+            continue
+        for wrapped_line in textwrap.wrap(text, width=line_wrap_width) or [""]:
+            _append_line(wrapped_line, style)
+
+    if current_page:
+        page_chunks.append(current_page)
+    if not page_chunks:
+        page_chunks = [[("", "body")]]
+
+    objects: list[bytes] = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n",
+        b"3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> endobj\n",
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n",
+    ]
+    page_refs: list[str] = []
+
+    for idx, chunk in enumerate(page_chunks):
+        page_object_id = 5 + idx * 2
+        stream_object_id = page_object_id + 1
+        page_refs.append(f"{page_object_id} 0 R")
+
+        y = 756.0
+        line_step = 14.0
+        content_lines: list[str] = []
+        for line, style in chunk:
+            if style == "act":
+                font_name = "/F2"
+                font_size = 16.0
+                centered = True
+            elif style == "chapter":
+                font_name = "/F2"
+                font_size = 14.0
+                centered = True
+            elif style == "heading":
+                font_name = "/F2"
+                font_size = 11.0
+                centered = False
+            else:
+                font_name = "/F1"
+                font_size = 11.0
+                centered = False
+
+            x = 36.0
+            if centered and line:
+                approx_width = len(line) * font_size * 0.56
+                x = max(36.0, (612.0 - approx_width) / 2.0)
+
+            content_lines.extend(
+                [
+                    "BT",
+                    f"{font_name} {font_size:.2f} Tf",
+                    f"{x:.2f} {y:.2f} Td",
+                    f"({_escape_pdf_text(line)}) Tj",
+                    "ET",
+                ]
+            )
+            y -= line_step
+        stream = "\n".join(content_lines).encode("latin-1", "replace")
+
+        objects.append(
+            f"{page_object_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {stream_object_id} 0 R >> endobj\n".encode("ascii")
+        )
+        objects.append(
+            f"{stream_object_id} 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
+            + stream
+            + b"\nendstream endobj\n"
+        )
+
+    pages_object = f"2 0 obj << /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >> endobj\n".encode("ascii")
+    objects[1] = pages_object
 
     pdf = bytearray(b"%PDF-1.4\n")
     offsets = [0]
@@ -2139,6 +2292,74 @@ def download_billing_invoice_pdf(request, pk):
     response = HttpResponse(_build_invoice_pdf(invoice), content_type="application/pdf")
     filename = re.sub(r"[^A-Za-z0-9._-]+", "-", invoice.public_number or "invoice").strip("-") or "invoice"
     response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+    return response
+
+
+@login_required
+def download_full_novel_pdf(request, slug):
+    project = _get_project_for_user(request, slug)
+    full_novel_context = _build_full_novel_context(project)
+    heading_token = "[[H]]"
+    act_heading_token = "[[ACT]]"
+    chapter_heading_token = "[[CHAPTER]]"
+
+    pdf_lines: list[str] = []
+    title = (project.title or "").strip() or "Untitled project"
+    pdf_lines.append(f"{heading_token}{title} - Full novel")
+    pdf_lines.append("")
+    pdf_lines.append(f"{heading_token}Table of contents")
+    pdf_lines.append("")
+
+    outline_tree = full_novel_context["outline_tree"]
+    if outline_tree:
+        for act_item in outline_tree:
+            act_title = (act_item["act"]["title"] or "").strip() or "Untitled act"
+            pdf_lines.append(f"{heading_token}ACT: {act_title}")
+            for chapter in act_item["chapters"]:
+                chapter_title = (chapter["title"] or "").strip() or "Untitled chapter"
+                pdf_lines.append(f"{heading_token}CHAPTER: {chapter_title}")
+                for scene in chapter["scenes"]:
+                    scene_title = (scene["title"] or "").strip() or "Untitled scene"
+                    pdf_lines.append(f"{heading_token}SCENE: {scene_title}")
+            pdf_lines.append("")
+    else:
+        pdf_lines.append("No outline entries yet.")
+        pdf_lines.append("")
+
+    pdf_lines.append(f"{heading_token}Manuscript")
+    pdf_lines.append("")
+
+    manuscript_acts = full_novel_context["manuscript_acts"]
+    if manuscript_acts:
+        for act in manuscript_acts:
+            for chapter in act["chapters"]:
+                pdf_lines.append("\f")
+                pdf_lines.append(f"{act_heading_token}Act: {act['title']}")
+                pdf_lines.append(f"{chapter_heading_token}{chapter['title']}")
+                pdf_lines.append("")
+                for scene in chapter["scenes"]:
+                    scene_title = (scene["title"] or "").strip()
+                    if scene_title:
+                        pdf_lines.append(f"{heading_token}{scene_title}")
+                    text = (scene["text"] or "").strip()
+                    if text:
+                        pdf_lines.extend(text.splitlines())
+                    pdf_lines.append("")
+    else:
+        pdf_lines.append("No final text yet. Render scenes first.")
+
+    response = HttpResponse(
+        _build_paginated_text_pdf(
+            pdf_lines,
+            page_break_token="\f",
+            heading_token=heading_token,
+            act_heading_token=act_heading_token,
+            chapter_heading_token=chapter_heading_token,
+        ),
+        content_type="application/pdf",
+    )
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", project.slug or "full-novel").strip("-") or "full-novel"
+    response["Content-Disposition"] = f'attachment; filename="{filename}-full-novel.pdf"'
     return response
 
 
@@ -3276,6 +3497,114 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         return HttpResponseRedirect(reverse("project-dashboard", kwargs={"slug": project.slug}))
 
 
+def _build_full_novel_context(project: NovelProject) -> dict:
+    nodes = (
+        OutlineNode.objects.filter(project=project)
+        .only("id", "node_type", "parent_id", "order", "created_at", "title", "rendered_text", "pov", "location")
+        .order_by("parent_id", "order", "created_at")
+    )
+
+    acts = []
+    chapters_by_act = {}
+    scenes_by_chapter = {}
+
+    for n in nodes:
+        if n.node_type == OutlineNode.NodeType.ACT:
+            acts.append(n)
+            chapters_by_act.setdefault(n.id, [])
+        elif n.node_type == OutlineNode.NodeType.CHAPTER and n.parent_id:
+            chapters_by_act.setdefault(n.parent_id, []).append(n)
+            scenes_by_chapter.setdefault(n.id, [])
+        elif n.node_type == OutlineNode.NodeType.SCENE and n.parent_id:
+            scenes_by_chapter.setdefault(n.parent_id, []).append(n)
+
+    outline_tree = []
+    manuscript_acts = []
+    for act in acts:
+        act_title = (act.title or "").strip() or "Untitled act"
+        toc_chapters = []
+        manuscript_chapters = []
+
+        for chapter in chapters_by_act.get(act.id, []):
+            chapter_title = (chapter.title or "").strip() or "Untitled chapter"
+            toc_scenes = []
+            manuscript_scenes = []
+
+            for scene in scenes_by_chapter.get(chapter.id, []):
+                text = (scene.rendered_text or "").strip()
+                scene_title = (scene.title or "").strip() or "Untitled scene"
+                scene_anchor = f"scene-{scene.id}" if text else ""
+                toc_scenes.append(
+                    {
+                        "title": scene_title,
+                        "anchor": scene_anchor,
+                        "pov": (scene.pov or "").strip(),
+                        "location": (scene.location or "").strip(),
+                    }
+                )
+                if text:
+                    manuscript_scenes.append(
+                        {
+                            "title": scene_title,
+                            "anchor": scene_anchor,
+                            "text": text,
+                        }
+                    )
+
+            chapter_anchor = f"chapter-{chapter.id}" if manuscript_scenes else ""
+            toc_chapters.append(
+                {
+                    "title": chapter_title,
+                    "anchor": chapter_anchor,
+                    "scenes": toc_scenes,
+                }
+            )
+            if manuscript_scenes:
+                manuscript_chapters.append(
+                    {
+                        "title": chapter_title,
+                        "anchor": chapter_anchor,
+                        "scenes": manuscript_scenes,
+                    }
+                )
+
+        act_anchor = f"act-{act.id}" if manuscript_chapters else ""
+        outline_tree.append(
+            {
+                "act": {
+                    "title": act_title,
+                    "anchor": act_anchor,
+                },
+                "chapters": toc_chapters,
+            }
+        )
+        if manuscript_chapters:
+            manuscript_acts.append(
+                {
+                    "title": act_title,
+                    "anchor": act_anchor,
+                    "chapters": manuscript_chapters,
+                }
+            )
+
+    chapter_sections = [
+        {
+            "title": chapter["title"],
+            "anchor": chapter["anchor"],
+            "text": "\n\n".join(scene["text"] for scene in chapter["scenes"]),
+        }
+        for act in manuscript_acts
+        for chapter in act["chapters"]
+    ]
+
+    return {
+        "outline_tree": outline_tree,
+        "manuscript_acts": manuscript_acts,
+        "chapter_sections": chapter_sections,
+        "full_text": "\n\n".join(chapter["text"] for chapter in chapter_sections),
+    }
+
+
 class FullNovelView(LoginRequiredMixin, DetailView):
     model = NovelProject
     template_name = "main/full_novel.html"
@@ -3288,110 +3617,7 @@ class FullNovelView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        project = self.object
-
-        nodes = (
-            OutlineNode.objects.filter(project=project)
-            .only("id", "node_type", "parent_id", "order", "created_at", "title", "rendered_text", "pov", "location")
-            .order_by("parent_id", "order", "created_at")
-        )
-
-        acts = []
-        chapters_by_act = {}
-        scenes_by_chapter = {}
-
-        for n in nodes:
-            if n.node_type == OutlineNode.NodeType.ACT:
-                acts.append(n)
-                chapters_by_act.setdefault(n.id, [])
-            elif n.node_type == OutlineNode.NodeType.CHAPTER and n.parent_id:
-                chapters_by_act.setdefault(n.parent_id, []).append(n)
-                scenes_by_chapter.setdefault(n.id, [])
-            elif n.node_type == OutlineNode.NodeType.SCENE and n.parent_id:
-                scenes_by_chapter.setdefault(n.parent_id, []).append(n)
-
-        outline_tree = []
-        manuscript_acts = []
-        for act in acts:
-            act_title = (act.title or "").strip() or "Untitled act"
-            toc_chapters = []
-            manuscript_chapters = []
-
-            for chapter in chapters_by_act.get(act.id, []):
-                chapter_title = (chapter.title or "").strip() or "Untitled chapter"
-                toc_scenes = []
-                manuscript_scenes = []
-
-                for scene in scenes_by_chapter.get(chapter.id, []):
-                    text = (scene.rendered_text or "").strip()
-                    scene_title = (scene.title or "").strip() or "Untitled scene"
-                    scene_anchor = f"scene-{scene.id}" if text else ""
-                    toc_scenes.append(
-                        {
-                            "title": scene_title,
-                            "anchor": scene_anchor,
-                            "pov": (scene.pov or "").strip(),
-                            "location": (scene.location or "").strip(),
-                        }
-                    )
-                    if text:
-                        manuscript_scenes.append(
-                            {
-                                "title": scene_title,
-                                "anchor": scene_anchor,
-                                "text": text,
-                            }
-                        )
-
-                chapter_anchor = f"chapter-{chapter.id}" if manuscript_scenes else ""
-                toc_chapters.append(
-                    {
-                        "title": chapter_title,
-                        "anchor": chapter_anchor,
-                        "scenes": toc_scenes,
-                    }
-                )
-                if manuscript_scenes:
-                    manuscript_chapters.append(
-                        {
-                            "title": chapter_title,
-                            "anchor": chapter_anchor,
-                            "scenes": manuscript_scenes,
-                        }
-                    )
-
-            act_anchor = f"act-{act.id}" if manuscript_chapters else ""
-            outline_tree.append(
-                {
-                    "act": {
-                        "title": act_title,
-                        "anchor": act_anchor,
-                    },
-                    "chapters": toc_chapters,
-                }
-            )
-            if manuscript_chapters:
-                manuscript_acts.append(
-                    {
-                        "title": act_title,
-                        "anchor": act_anchor,
-                        "chapters": manuscript_chapters,
-                    }
-                )
-
-        chapter_sections = [
-            {
-                "title": chapter["title"],
-                "anchor": chapter["anchor"],
-                "text": "\n\n".join(scene["text"] for scene in chapter["scenes"]),
-            }
-            for act in manuscript_acts
-            for chapter in act["chapters"]
-        ]
-        ctx["outline_tree"] = outline_tree
-        ctx["manuscript_acts"] = manuscript_acts
-        ctx["chapter_sections"] = chapter_sections
-        ctx["full_text"] = "\n\n".join(chapter["text"] for chapter in chapter_sections)
+        ctx.update(_build_full_novel_context(self.object))
         return ctx
 
 

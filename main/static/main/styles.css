@@ -112,7 +112,7 @@ a:hover {
 .navbar-inner {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 14px 20px;
+  padding: 0px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -124,6 +124,13 @@ a:hover {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.03em;
+}
+
+.navbar-brand-logo {
+  display: block;
+  height: 60px;
+  width: auto;
+  border-radius: 15px;
 }
 
 .navbar-toggle-input {

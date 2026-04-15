@@ -99,6 +99,11 @@ urlpatterns = [
         name="scene-add-details",
     ),
     path(
+        "projects/<slug:slug>/outline/node/<uuid:pk>/critic-review/",
+        views.SceneDraftReviewView.as_view(),
+        name="scene-draft-review",
+    ),
+    path(
         "projects/<slug:slug>/outline/node/<uuid:pk>/delete/",
         views.OutlineNodeDeleteView.as_view(),
         name="outline-node-delete",

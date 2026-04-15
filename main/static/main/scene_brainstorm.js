@@ -43,6 +43,25 @@
     return true;
   };
 
+  const setOrReplace = (name, value) => {
+    const el = getFieldEl(name);
+    if (!el) return false;
+    const next = String(value || "").trim();
+    if (!next) return false;
+
+    if (el.tagName === "SELECT") {
+      const hasOption = Array.from(el.options || []).some((opt) => opt.value === next);
+      if (!hasOption) return false;
+      if ((el.value || "").trim() === next) return false;
+      el.value = next;
+      return true;
+    }
+
+    if ((el.value || "").trim() === next) return false;
+    el.value = next;
+    return true;
+  };
+
   const appendOrSet = (name, value) => {
     const el = getFieldEl(name);
     if (!el) return false;
@@ -68,6 +87,27 @@
     return true;
   };
 
+  const appendSceneOutline = (value) => {
+    const el = getFieldEl("summary");
+    if (!el) return false;
+    const incomingLines = String(value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!incomingLines.length) return false;
+
+    const existingLines = String(el.value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const existingSet = new Set(existingLines);
+    const linesToAdd = incomingLines.filter((line) => !existingSet.has(line));
+    if (!linesToAdd.length) return false;
+
+    el.value = [...existingLines, ...linesToAdd].join("\n");
+    return true;
+  };
+
   const postForSuggestions = async (postUrl) => {
     const current = getCurrentValues();
     const params = new URLSearchParams();
@@ -90,13 +130,6 @@
   };
 
   brainstormBtn.addEventListener("click", async () => {
-    const current = getCurrentValues();
-    const empties = FIELD_NAMES.filter((name) => !current[name]);
-    if (!empties.length) {
-      ui.showMessage("Nothing to fill - all fields already have values.", "info");
-      return;
-    }
-
     brainstormBtn.disabled = true;
     const originalText = brainstormBtn.textContent;
     brainstormBtn.textContent = "Brainstorming...";
@@ -104,12 +137,16 @@
     try {
       const suggestions = await postForSuggestions(brainstormUrl);
       if (!suggestions) return;
-      let filled = 0;
+      let changed = 0;
       for (const [name, value] of Object.entries(suggestions)) {
-        if (setIfEmpty(name, value)) filled += 1;
+        if (name === "summary") {
+          if (setOrReplace(name, value)) changed += 1;
+        } else if (setIfEmpty(name, value)) {
+          changed += 1;
+        }
       }
-      if (!filled) ui.showMessage("No suggestions returned for empty fields.", "warning");
-      else ui.showMessage(`Filled ${filled} field(s).`, "success");
+      if (!changed) ui.showMessage("No updated scene outline details were returned.", "warning");
+      else ui.showMessage(`Updated ${changed} field(s).`, "success");
     } finally {
       brainstormBtn.disabled = false;
       brainstormBtn.textContent = originalText;
@@ -133,7 +170,7 @@
       let changed = 0;
       for (const [name, value] of Object.entries(suggestions)) {
         if (name === "summary") {
-          if (appendOrSet(name, value)) changed += 1;
+          if (appendSceneOutline(value)) changed += 1;
         } else if (setIfEmpty(name, value)) {
           changed += 1;
         }

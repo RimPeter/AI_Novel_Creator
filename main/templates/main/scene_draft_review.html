@@ -1,0 +1,52 @@
+{% extends "main/base.html" %}
+
+{% block title %}Draft Critic Review | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Draft review</span>
+          <h1 class="page-title">Critic/Review</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{{ back_url }}">Back to scene</a>
+        </div>
+      </div>
+      <p class="page-lead">
+        Project: <strong>{{ project.title }}</strong>
+        {% if object.title %} / Scene: {{ object.title }}{% endif %}
+      </p>
+    </section>
+
+    <section class="card page-panel">
+      {% if review_error %}
+        <div class="form-errors">{{ review_error }}</div>
+      {% else %}
+        <div class="form-row">
+          <label class="form-label">Findings</label>
+          <ul>
+            {% for item in review.findings %}
+              <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Overall Assessment</label>
+          <p>{{ review.overall_assessment }}</p>
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Recommendations</label>
+          <ul>
+            {% for item in review.recommendations %}
+              <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

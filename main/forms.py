@@ -308,7 +308,13 @@ class OutlineSceneForm(forms.ModelForm):
         widgets = {
             "order": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
             "title": forms.TextInput(attrs={"class": "form-control"}),
-            "summary": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "summary": forms.Textarea(
+                attrs={
+                    "class": "form-control auto-grow",
+                    "rows": 4,
+                    "data-autogrow": "true",
+                }
+            ),
             "pov": forms.TextInput(attrs={"class": "form-control"}),
             "rendered_text": forms.Textarea(
                 attrs={

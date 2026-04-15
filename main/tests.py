@@ -333,6 +333,7 @@ class LLMTests(TestCase):
             result.usage,
             {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
         )
+        self.assertEqual(result.finish_reason, "")
         kwargs = mocked.call_args.kwargs
         messages = kwargs["messages"]
         self.assertEqual(messages[0], {"role": "system", "content": SYSTEM_PROMPT})
@@ -377,6 +378,31 @@ class LLMTests(TestCase):
         self.assertEqual(kwargs["reasoning"], {"effort": "low"})
         self.assertEqual(result.text, "Plain text.")
         self.assertEqual(result.usage, {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13})
+        self.assertEqual(result.finish_reason, "")
+
+    def test_call_llm_captures_chat_completion_finish_reason(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Plain text."), finish_reason="length")],
+            usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.chat.completions.create", return_value=fake_response):
+            result = call_llm(prompt="Test prompt", model_name="test-model", params={"max_tokens": 64})
+
+        self.assertEqual(result.finish_reason, "length")
+
+    def test_call_llm_captures_responses_api_incomplete_reason(self):
+        fake_response = SimpleNamespace(
+            output_text="Plain text.",
+            usage=SimpleNamespace(input_tokens=9, output_tokens=4, total_tokens=13),
+            status="incomplete",
+            incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response):
+            result = call_llm(prompt="Test prompt", model_name="gpt-5-mini", params={"max_tokens": 64})
+
+        self.assertEqual(result.finish_reason, "max_output_tokens")
 
     def test_call_llm_keeps_temperature_for_4x_models(self):
         fake_response = SimpleNamespace(
@@ -2083,6 +2109,13 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Scene Outline")
         self.assertContains(resp, "Draft from Scene Outline")
+        self.assertContains(resp, "Critic/Review")
+        self.assertContains(resp, reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
+        self.assertContains(resp, 'id="scene-add-details-btn"', html=False)
+        self.assertContains(resp, "Add Detail")
+        self.assertContains(resp, 'name="summary"', html=False)
+        self.assertContains(resp, 'data-autogrow="true"', html=False)
+        self.assertContains(resp, 'class="form-control auto-grow"', html=False)
         self.assertNotContains(resp, ">Summary<", html=False)
         self.assertContains(
             resp,
@@ -2161,6 +2194,9 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertIn("description=Keeps emotional distance until pressured.", prompt)
         self.assertIn("secret=Smuggling evidence in her jacket lining", prompt)
         self.assertNotIn("- Zed:", prompt)
+        self.assertIn("Treat the Scene Outline as a mandatory beat list.", prompt)
+        self.assertIn("Cover every Scene Outline bullet in order.", prompt)
+        self.assertIn("Do not omit any bullet, and do not merge away distinct bullets.", prompt)
 
     def test_structurize_includes_previous_scene_from_same_chapter_only(self):
         Location.objects.create(
@@ -2264,6 +2300,153 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertContains(resp, "2. Scene 2")
         self.assertNotContains(resp, "Other chapter scene")
 
+    def test_scene_brainstorm_requests_bullet_point_summary(self):
+        self.scene.summary = ""
+        self.scene.pov = ""
+        self.scene.location = ""
+        self.scene.save(update_fields=["summary", "pov", "location"])
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"- Ava corners the informant.\\n- A lie slips out.","pov":"Ava","location":"Docking bay"}',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": "",
+                    "pov": "",
+                    "location": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["suggestions"]["summary"],
+            "- Ava corners the informant.\n- A lie slips out.",
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("For 'summary': write concise bullet points, one idea per line.", prompt)
+
+    def test_scene_brainstorm_regenerates_existing_summary_with_expanded_detail(self):
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"- Ava corners the informant in the docking bay. - The informant slips and exposes the hidden buyer. - Ava leaves with a sharper lead and a new risk."}',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["suggestions"]["summary"],
+            "- Ava corners the informant in the docking bay.\n- The informant slips and exposes the hidden buyer.\n- Ava leaves with a sharper lead and a new risk.",
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn(
+            "If 'summary' already has text, regenerate it as a stronger expanded version with added useful detail.",
+            prompt,
+        )
+        self.assertIn(
+            "If 'summary' already has text, preserve its core beats while expanding it with fresh, non-repetitive detail.",
+            prompt,
+        )
+
+    def test_scene_brainstorm_normalizes_list_style_summary_into_bullets(self):
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text=r'''{"summary":"['Claire Thompson interrogates Unit X-9, a biosynth connected to the murder case.', 'The sterile environment of Kuros Headquarters amplifies the tension in the room.', 'Unit X-9 exhibits an unnerving calmness, providing information devoid of emotion.']"}''',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["suggestions"]["summary"],
+            "- Claire Thompson interrogates Unit X-9, a biosynth connected to the murder case.\n- The sterile environment of Kuros Headquarters amplifies the tension in the room.\n- Unit X-9 exhibits an unnerving calmness, providing information devoid of emotion.",
+        )
+
+    def test_scene_brainstorm_strips_duplicate_bullet_markers(self):
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text=r'''{"summary":"['- Claire Thompson interrogates Unit X-9.', '- The sterile environment amplifies the tension.']"}''',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["suggestions"]["summary"],
+            "- Claire Thompson interrogates Unit X-9.\n- The sterile environment amplifies the tension.",
+        )
+
+    def test_scene_add_details_returns_bullet_point_summary_lines(self):
+        url = reverse("scene-add-details", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text=r'''{"summary":"['A new clue ties the biosynth to Kuros internal security.', 'Claire notices a contradiction in the interview transcript.']"}''',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["suggestions"]["summary"],
+            "- A new clue ties the biosynth to Kuros internal security.\n- Claire notices a contradiction in the interview transcript.",
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("For 'summary': provide only additive bullet points, one bullet per line.", prompt)
+
     def test_render_uses_llm_when_available(self):
         self.scene.structure_json = (
             '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "x",\n  "pov": "Ava",\n  "location": "Docking bay",\n  "beats": []\n}'
@@ -2288,6 +2471,104 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         self.scene.refresh_from_db()
         self.assertIn("Prose text.", self.scene.rendered_text)
+
+    def test_scene_draft_review_page_renders_review_and_back_link(self):
+        self.scene.structure_json = "Draft text."
+        self.scene.save(update_fields=["structure_json"])
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text="{\"findings\":[\"A concrete evidence beat is missing.\"],\"overall_assessment\":\"Readable but too generalized.\",\"recommendations\":[\"Show the contradiction in Unit X-9's testimony directly.\"]}",
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Critic/Review")
+        self.assertContains(resp, "Findings")
+        self.assertContains(resp, "A concrete evidence beat is missing.")
+        self.assertContains(resp, "Readable but too generalized.")
+        self.assertContains(resp, "Show the contradiction in Unit X-9&#x27;s testimony directly.", html=False)
+        self.assertContains(resp, reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Scene Outline:", prompt)
+        self.assertIn("Draft:", prompt)
+        self.assertIn("focus on missed outline beats", prompt.lower())
+
+    def test_scene_draft_review_page_shows_error_when_outline_or_draft_missing(self):
+        self.scene.structure_json = ""
+        self.scene.save(update_fields=["structure_json"])
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Add both a Scene Outline and a Draft before requesting a critic review.")
+
+    def test_structurize_continues_when_generation_hits_length_limit(self):
+        self.scene.summary = "- Ava corners the informant.\n- The hidden buyer is exposed."
+        self.scene.save(update_fields=["summary"])
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            side_effect=[
+                LLMResult(text="First paragraph ends abruptly", usage={"ok": True}, finish_reason="length"),
+                LLMResult(text="Second paragraph completes the scene.", usage={"ok": True}, finish_reason="stop"),
+            ],
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "order": 1,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "action": "structurize",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(mock_call.call_count, 2)
+        self.scene.refresh_from_db()
+        self.assertEqual(self.scene.structure_json, "First paragraph ends abruptly\nSecond paragraph completes the scene.")
+        continuation_prompt = mock_call.call_args_list[1].kwargs["prompt"]
+        self.assertIn("The prior response stopped because of output length.", continuation_prompt)
+        self.assertIn("Continue from exactly where it stopped.", continuation_prompt)
+
+    def test_render_continues_when_generation_hits_length_limit(self):
+        self.scene.structure_json = "Opening beat. Escalation beat. Resolution beat."
+        self.scene.save(update_fields=["structure_json"])
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            side_effect=[
+                LLMResult(text="Rendered opening paragraph trails off", usage={"ok": True}, finish_reason="length"),
+                LLMResult(text="Rendered ending paragraph closes cleanly.", usage={"ok": True}, finish_reason="stop"),
+            ],
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "order": 1,
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "structure_json": self.scene.structure_json,
+                    "rendered_text": "",
+                    "action": "render",
+                },
+            )
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(mock_call.call_count, 2)
+        self.scene.refresh_from_db()
+        self.assertEqual(
+            self.scene.rendered_text,
+            "Rendered opening paragraph trails off\nRendered ending paragraph closes cleanly.\n",
+        )
 
     def test_regenerate_targeted_text_uses_full_draft_context(self):
         self.scene.structure_json = "Opening beat. !{Old line.}! Closing beat."

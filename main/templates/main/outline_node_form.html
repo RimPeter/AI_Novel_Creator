@@ -71,6 +71,12 @@
                         Draft from Scene Outline
                       </button>
                       <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
+                      <a
+                        class="btn btn-secondary btn-sm"
+                        href="{% url 'scene-draft-review' slug=project.slug pk=object.id %}"
+                      >
+                        Critic/Review
+                      </a>
                       <span class="tooltip-wrap">
                         <button class="btn btn-secondary btn-sm" type="button" id="draft-target-btn">!{...}!</button>
                         <span class="tooltip-bubble" role="tooltip">
@@ -233,6 +239,7 @@
                   <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                   {% if object %}
                     <div class="actions">
+                      <button class="btn btn-secondary btn-sm" type="button" id="scene-add-details-btn">Add Detail</button>
                       <button class="btn btn-secondary btn-sm" type="button" id="scene-brainstorm-btn">Brainstorm</button>
                     </div>
                   {% endif %}
@@ -262,9 +269,6 @@
 
         <div class="actions">
           <button class="btn btn-primary" type="submit">Save</button>
-          {% if object and node_kind == "scene" %}
-            <button class="btn btn-secondary" type="button" id="scene-add-details-btn">Add details</button>
-          {% endif %}
           <a class="btn btn-secondary" href="{% url 'project-dashboard' slug=project.slug %}">Cancel</a>
         </div>
       </form>

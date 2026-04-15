@@ -1,3 +1,4 @@
+import ast
 import json
 import logging
 import re
@@ -477,6 +478,43 @@ def _normalize_image_detail(text: str, limit: int = 220) -> str:
     return value[: limit - 3].rstrip() + "..."
 
 
+def _normalize_scene_outline_bullets(text: str) -> str:
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return ""
+
+    def _coerce_bullet_line(value: str) -> str:
+        item_text = re.sub(r"^(?:[-*•]\s+|\d+\.\s+)+", "", str(value or "").strip()).strip()
+        if not item_text:
+            return ""
+        return f"- {item_text}"
+
+    if normalized.startswith("[") and normalized.endswith("]"):
+        try:
+            parsed = ast.literal_eval(normalized)
+        except (SyntaxError, ValueError):
+            parsed = None
+        if isinstance(parsed, list):
+            lines = []
+            for item in parsed:
+                item_text = _coerce_bullet_line(item)
+                if item_text:
+                    lines.append(item_text)
+            if lines:
+                return "\n".join(lines)
+
+    bullet_splitter = re.compile(r"\s+(?=(?:[-*•]\s+|\d+\.\s+))")
+    lines: list[str] = []
+    for raw_line in normalized.split("\n"):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        parts = [part.strip() for part in bullet_splitter.split(stripped) if part.strip()]
+        normalized_parts = [_coerce_bullet_line(part) for part in (parts or [stripped])]
+        lines.extend([part for part in normalized_parts if part])
+    return "\n".join(lines)
+
+
 def _append_detail_line(lines: list[str], label: str, value: str, limit: int = 220) -> None:
     text = _normalize_image_detail(value, limit=limit)
     if text:
@@ -563,6 +601,76 @@ def _call_tracked_llm(
         usage=usage,
     )
     return result
+
+
+def _llm_result_hit_length_limit(result) -> bool:
+    reason = str(getattr(result, "finish_reason", "") or "").strip().lower()
+    return reason in {"length", "max_tokens", "max_output_tokens", "token_limit"}
+
+
+def _merge_scene_continuation(existing_text: str, continuation_text: str) -> str:
+    existing = str(existing_text or "").rstrip()
+    continuation = str(continuation_text or "").strip()
+    if not continuation:
+        return existing
+    if not existing:
+        return continuation
+    if existing.endswith(("\n", " ", '"', "'", "(", "[", "{")):
+        return f"{existing}{continuation}"
+    return f"{existing}\n{continuation}"
+
+
+def _generate_scene_text_with_continuation(
+    *,
+    project: NovelProject,
+    outline_node: OutlineNode,
+    action_label: str,
+    prompt: str,
+    model_name: str,
+    params: dict,
+    max_continuations: int = 2,
+):
+    result = _call_tracked_llm(
+        project=project,
+        action_label=action_label,
+        prompt=prompt,
+        model_name=model_name,
+        params=params,
+        outline_node=outline_node,
+    )
+    combined_text = (result.text or "").strip()
+
+    for attempt in range(max_continuations):
+        if not _llm_result_hit_length_limit(result) or not combined_text:
+            break
+        continuation_prompt = "\n".join(
+            [
+                prompt,
+                "",
+                "The prior response stopped because of output length.",
+                "Continue from exactly where it stopped.",
+                "Rules:",
+                "- Do not restart the scene.",
+                "- Do not repeat earlier sentences or paragraphs.",
+                "- Continue seamlessly in the same voice, POV, and tense.",
+                "- Complete the unfinished sentence first if needed, then continue.",
+                "- End on a complete paragraph if possible.",
+                "",
+                "Existing generated text:",
+                combined_text,
+            ]
+        ).strip()
+        result = _call_tracked_llm(
+            project=project,
+            action_label=f"{action_label} Continuation {attempt + 1}",
+            prompt=continuation_prompt,
+            model_name=model_name,
+            params=params,
+            outline_node=outline_node,
+        )
+        combined_text = _merge_scene_continuation(combined_text, result.text)
+
+    return combined_text, result
 
 
 def _get_previous_scene_context(scene: OutlineNode) -> list[str]:
@@ -1119,18 +1227,23 @@ def brainstorm_scene(request, slug, pk):
         for k in rejected:
             current[k] = ""
     empty_fields = [k for k in allowed_fields if not current.get(k)]
-    if not empty_fields:
+    target_fields = list(empty_fields)
+    if current.get("summary") and "summary" not in target_fields:
+        target_fields.append("summary")
+    if not target_fields:
         return JsonResponse({"ok": True, "suggestions": {}})
 
     prompt_lines = [
         "You are a novelist's scene brainstorming assistant.",
-        "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
+        "Goal: fill in currently-empty fields with strong, coherent ideas.",
+        "If 'summary' already has text, regenerate it as a stronger expanded version with added useful detail.",
         "Rules:",
         "- Return STRICT JSON only (no markdown, no extra text).",
         "- Output an object with only keys from: " + ", ".join(allowed_fields),
-        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- Only include keys for these targets: " + ", ".join(target_fields),
         "- For 'title': keep it short and specific.",
-        "- For 'summary': write concise prose (no bullet points).",
+        "- For 'summary': write concise bullet points, one idea per line.",
+        "- If 'summary' already has text, preserve its core beats while expanding it with fresh, non-repetitive detail.",
         "- For 'pov': provide a character name or short POV tag.",
         "- For 'location': provide a short place name.",
         "",
@@ -1163,11 +1276,15 @@ def brainstorm_scene(request, slug, pk):
 
         filtered = {}
         for key, value in data.items():
-            if key not in empty_fields:
+            if key not in target_fields:
                 continue
             text = str(value or "").strip()
             if not text:
                 continue
+            if key == "summary":
+                text = _normalize_scene_outline_bullets(text)
+                if not text:
+                    continue
             filtered[key] = text
 
         return JsonResponse({"ok": True, "suggestions": filtered})
@@ -1202,7 +1319,8 @@ def add_scene_details(request, slug, pk):
         "- Output an object with only keys from: " + ", ".join(allowed_fields),
         "- For 'title': only include if currently blank.",
         "- For 'pov'/'location': only include if currently blank.",
-        "- For 'summary': provide an additive paragraph (no bullet points).",
+        "- For 'summary': provide only additive bullet points, one bullet per line.",
+        "- For 'summary': keep the existing outline beats intact and add fresh, non-repetitive bullets only.",
         "",
         "Project title: " + (scene.project.title or ""),
         "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
@@ -1240,6 +1358,10 @@ def add_scene_details(request, slug, pk):
             text = str(value or "").strip()
             if not text:
                 continue
+            if key == "summary":
+                text = _normalize_scene_outline_bullets(text)
+                if not text:
+                    continue
             if current.get(key) and text in current[key]:
                 continue
             filtered[key] = text
@@ -3238,6 +3360,54 @@ def add_location_details(request, slug):
         return _json_internal_error()
 
 
+def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
+    summary = (scene.summary or "").strip()
+    draft = (scene.structure_json or "").strip()
+    if not summary or not draft:
+        raise ValueError("Add both a Scene Outline and a Draft before requesting a critic review.")
+
+    prompt = "\n".join(
+        [
+            "You are a rigorous fiction editor reviewing how well a scene draft executes its scene outline.",
+            "Return STRICT JSON only.",
+            "Output one object with exactly these keys: findings, overall_assessment, recommendations.",
+            "Rules:",
+            "- 'findings' must be a JSON array of concise strings ordered by severity.",
+            "- Focus on missed outline beats, weak execution, repetition, vague evidence, pacing drift, and awkward prose.",
+            "- Be concrete and critical. Do not soften weak points with filler praise.",
+            "- Reference the actual outline and draft content, not generic writing advice.",
+            "- 'overall_assessment' must be one concise paragraph.",
+            "- 'recommendations' must be a JSON array of specific revision actions.",
+            "- Prefer actionable edits over abstract theory.",
+            "",
+            "Scene Outline:",
+            summary,
+            "",
+            "Draft:",
+            draft,
+        ]
+    ).strip()
+    model_name = get_user_text_model(user)
+    params = {"temperature": 0.3, "max_tokens": 1200}
+    data = _call_tracked_llm_json_object(
+        project=scene.project,
+        action_label="Scene Draft Critic Review",
+        prompt=prompt,
+        model_name=model_name,
+        params=params,
+        outline_node=scene,
+    )
+
+    findings = [str(item).strip() for item in (data.get("findings") or []) if str(item).strip()]
+    recommendations = [str(item).strip() for item in (data.get("recommendations") or []) if str(item).strip()]
+    overall_assessment = str(data.get("overall_assessment") or "").strip()
+    return {
+        "findings": findings,
+        "overall_assessment": overall_assessment,
+        "recommendations": recommendations,
+    }
+
+
 @require_POST
 @login_required
 def extract_location_objects(request, slug):
@@ -4263,7 +4433,13 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     "Write a rough scene draft in prose (no bullet points, no JSON, no markdown headings).",
                     "Write in continuous prose with paragraphs; do not include section headers.",
                     "Keep it grounded in the provided summary, POV, location, selected location details, previous-scene continuity, and selected character details when available.",
+                    "Treat the Scene Outline as a mandatory beat list.",
+                    "Cover every Scene Outline bullet in order.",
+                    "Do not omit any bullet, and do not merge away distinct bullets.",
+                    "Make each bullet appear as a distinct beat in the draft, even when you expand it into prose.",
+                    "Ensure the final story state reaches the last Scene Outline bullet.",
                     "Avoid meta commentary and avoid explaining what you are doing.",
+                    "If you cannot finish within one response, stop only at the end of a complete paragraph.",
                     "",
                     "Title: " + (scene.title or ""),
                     "POV: " + (scene.pov or ""),
@@ -4290,16 +4466,16 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
 
                 try:
                     model_name = get_user_text_model(request.user)
-                    params = {"temperature": 0.7, "max_tokens": 900}
-                    result = _call_tracked_llm(
+                    params = {"temperature": 0.7, "max_tokens": 2200}
+                    generated_text, _ = _generate_scene_text_with_continuation(
                         project=scene.project,
+                        outline_node=scene,
                         action_label="Scene Draft from Scene Outline",
                         prompt=prompt,
                         model_name=model_name,
                         params=params,
-                        outline_node=scene,
                     )
-                    scene.structure_json = (result.text or "").strip()
+                    scene.structure_json = generated_text
                     scene.save()
                     messages.success(request, "Generated draft from scene outline.")
                 except Exception:
@@ -4493,6 +4669,7 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                         "Write in continuous prose with paragraphs; do not include section headers.",
                         "Preserve the story beats, POV, and location implied by the draft.",
                         "Avoid meta commentary and avoid explaining what you are doing.",
+                        "If you cannot finish within one response, stop only at the end of a complete paragraph.",
                         "",
                         "Draft:",
                         cleaned_draft,
@@ -4503,17 +4680,17 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                     model_name = get_user_text_model(request.user)
                     params = {
                         "temperature": 0.7,
-                        "max_tokens": 1200,
+                        "max_tokens": 2200,
                     }
-                    result = _call_tracked_llm(
+                    generated_text, _ = _generate_scene_text_with_continuation(
                         project=scene.project,
+                        outline_node=scene,
                         action_label="Scene Render Prose",
                         prompt=prompt,
                         model_name=model_name,
                         params=params,
-                        outline_node=scene,
                     )
-                    scene.rendered_text = (result.text or "").strip() + "\n"
+                    scene.rendered_text = generated_text + ("\n" if generated_text and not generated_text.endswith("\n") else "")
                     scene.save()
                     messages.success(request, "Rendered novel prose from draft.")
                 except Exception:
@@ -4529,6 +4706,39 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
             )
 
         return super().post(request, *args, **kwargs)
+
+
+class SceneDraftReviewView(LoginRequiredMixin, DetailView):
+    model = OutlineNode
+    template_name = "main/scene_draft_review.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        blocked = _subscription_required_response(request)
+        if blocked is not None:
+            return blocked
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return OutlineNode.objects.filter(
+            project=self.project,
+            node_type=OutlineNode.NodeType.SCENE,
+        ).select_related("parent")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        scene = self.object
+        ctx["project"] = self.project
+        ctx["back_url"] = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
+        ctx["review_error"] = ""
+        ctx["review"] = {"findings": [], "overall_assessment": "", "recommendations": []}
+        try:
+            ctx["review"] = _build_scene_draft_review(scene, user=self.request.user)
+        except ValueError as exc:
+            ctx["review_error"] = str(exc)
+        except Exception:
+            ctx["review_error"] = "Critic review failed. Please try again."
+        return ctx
 
 
 class OutlineNodeDeleteView(LoginRequiredMixin, DeleteView):

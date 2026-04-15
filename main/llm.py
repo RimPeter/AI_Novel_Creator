@@ -12,6 +12,7 @@ SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash characte
 class LLMResult:
     text: str
     usage: dict
+    finish_reason: str = ""
 
 
 def _normalize_llm_text(text: str | None) -> str:
@@ -55,6 +56,10 @@ def _get_object_value(value, key: str, default=None):
     if isinstance(value, dict):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+def _normalize_finish_reason(value) -> str:
+    return str(value or "").strip().lower()
 
 
 def _responses_reasoning_effort(model_name: str) -> str | None:
@@ -140,6 +145,7 @@ def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict) ->
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
         },
+        finish_reason=_normalize_finish_reason(_get_object_value(response.choices[0], "finish_reason", "")),
     )
 
 
@@ -163,6 +169,10 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
         if not total_tokens:
             total_tokens = prompt_tokens + completion_tokens
         text = _extract_responses_text(response)
+        finish_reason = _normalize_finish_reason(
+            _get_object_value(_get_object_value(response, "incomplete_details", None), "reason", "")
+            or ("length" if _normalize_finish_reason(_get_object_value(response, "status", "")) == "incomplete" else "")
+        )
         if text.strip():
             return LLMResult(
                 text=text,
@@ -171,6 +181,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
                     "completion_tokens": completion_tokens,
                     "total_tokens": total_tokens,
                 },
+                finish_reason=finish_reason,
             )
 
         fallback_result = _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params)
@@ -187,6 +198,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
                 "completion_tokens": combined_completion_tokens,
                 "total_tokens": combined_total_tokens,
             },
+            finish_reason=fallback_result.finish_reason,
         )
 
     return _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params)

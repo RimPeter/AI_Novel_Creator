@@ -12,10 +12,21 @@
   const ui = window.AppUI;
   if (!ui) return;
   const csrfToken = ui.getCsrfToken();
+  const autogrow = window.AppAutogrow;
 
   const FIELD_NAMES = ["title", "summary", "pov", "location"];
 
   const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
+  const refreshFieldLayout = (el) => {
+    if (!el) return;
+    if (autogrow?.resize && el.matches("textarea[data-autogrow='true']")) {
+      autogrow.resize(el);
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const getSelectedCharacterIds = () =>
+    Array.from(form.querySelectorAll('input[name="characters"]:checked')).map((input) => (input.value || "").trim()).filter(Boolean);
 
   const getCurrentValues = () => {
     const values = {};
@@ -40,6 +51,7 @@
     }
 
     el.value = next;
+    refreshFieldLayout(el);
     return true;
   };
 
@@ -54,11 +66,13 @@
       if (!hasOption) return false;
       if ((el.value || "").trim() === next) return false;
       el.value = next;
+      refreshFieldLayout(el);
       return true;
     }
 
     if ((el.value || "").trim() === next) return false;
     el.value = next;
+    refreshFieldLayout(el);
     return true;
   };
 
@@ -74,16 +88,19 @@
       const hasOption = Array.from(el.options || []).some((opt) => opt.value === addition);
       if (!hasOption) return false;
       el.value = addition;
+      refreshFieldLayout(el);
       return true;
     }
 
     const existing = (el.value || "").trim();
     if (!existing) {
       el.value = addition;
+      refreshFieldLayout(el);
       return true;
     }
     if (existing.includes(addition)) return false;
     el.value = `${existing}\n\n${addition}`.trim();
+    refreshFieldLayout(el);
     return true;
   };
 
@@ -105,14 +122,19 @@
     if (!linesToAdd.length) return false;
 
     el.value = [...existingLines, ...linesToAdd].join("\n");
+    refreshFieldLayout(el);
     return true;
   };
 
   const postForSuggestions = async (postUrl) => {
     const current = getCurrentValues();
+    const selectedCharacterIds = getSelectedCharacterIds();
     const params = new URLSearchParams();
     for (const name of FIELD_NAMES) {
       params.set(name, current[name] || "");
+    }
+    for (const characterId of selectedCharacterIds) {
+      params.append("characters", characterId);
     }
 
     const result = await ui.postFormUrlEncoded({

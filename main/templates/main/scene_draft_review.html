@@ -11,6 +11,12 @@
           <h1 class="page-title">Critic/Review</h1>
         </div>
         <div class="actions">
+          <form method="post">
+            {% csrf_token %}
+            <button class="btn btn-secondary" type="submit">
+              {% if review_ready %}Refresh review{% else %}Generate review{% endif %}
+            </button>
+          </form>
           <a class="btn btn-secondary" href="{{ back_url }}">Back to scene</a>
         </div>
       </div>
@@ -21,6 +27,16 @@
     </section>
 
     <section class="card page-panel">
+      {% if review_ready %}
+        <div class="muted">
+          Review cached for current scene content.
+          {% if review_generated_at %} Generated: {{ review_generated_at }}.{% endif %}
+          {% if review_model_name %} Model: {{ review_model_name }}.{% endif %}
+          {% if review.source_truncated %} Large draft review used truncated source text.{% endif %}
+        </div>
+      {% elif review_needs_refresh %}
+        <div class="muted">The saved review is out of date because Scene Outline or Draft changed.</div>
+      {% endif %}
       {% if review_error %}
         <div class="form-errors">{{ review_error }}</div>
       {% else %}

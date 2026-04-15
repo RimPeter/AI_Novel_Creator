@@ -264,6 +264,10 @@ class OutlineNode(TimeStampedModel):
     structure_json = models.TextField(blank=True, default="")
     rendered_text = models.TextField(blank=True, default="")
     characters = models.JSONField(blank=True, default=list)
+    draft_review_data = models.JSONField(blank=True, default=dict)
+    draft_review_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    draft_review_model_name = models.CharField(max_length=120, blank=True, default="")
+    draft_review_generated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ["project", "parent_id", "order", "created_at"]

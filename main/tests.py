@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -2447,6 +2448,167 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         prompt = mock_call.call_args.kwargs["prompt"]
         self.assertIn("For 'summary': provide only additive bullet points, one bullet per line.", prompt)
 
+    def test_scene_brainstorm_includes_selected_character_details_in_prompt(self):
+        selected = Character.objects.create(
+            project=self.project,
+            name="Ava",
+            role="Protagonist",
+            personality="Driven and guarded.",
+        )
+        Character.objects.create(
+            project=self.project,
+            name="Zed",
+            role="Rival",
+            personality="Provocative.",
+        )
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"- Ava corners the informant."}',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Selected scene characters:", prompt)
+        self.assertIn("- Ava: role=Protagonist", prompt)
+        self.assertIn("personality=Driven and guarded.", prompt)
+        self.assertIn("prefer the POV to be one of those selected characters", prompt)
+        self.assertIn("make the scene outline actively include all of them", prompt)
+        self.assertNotIn("- Zed:", prompt)
+
+    def test_scene_add_details_includes_selected_character_details_in_prompt(self):
+        selected = Character.objects.create(
+            project=self.project,
+            name="Ava",
+            role="Protagonist",
+            personality="Driven and guarded.",
+        )
+        Character.objects.create(
+            project=self.project,
+            name="Zed",
+            role="Rival",
+            personality="Provocative.",
+        )
+        url = reverse("scene-add-details", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"- Ava notices the informant flinch."}',
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": self.scene.pov,
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Selected scene characters:", prompt)
+        self.assertIn("- Ava: role=Protagonist", prompt)
+        self.assertIn("personality=Driven and guarded.", prompt)
+        self.assertIn("prefer the POV to be one of those selected characters", prompt)
+        self.assertIn("added summary bullets should actively involve all of them", prompt)
+        self.assertNotIn("- Zed:", prompt)
+
+    def test_scene_brainstorm_remaps_selected_pov_to_canonical_character_name(self):
+        selected = Character.objects.create(project=self.project, name="Ava", role="Protagonist")
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"pov":"ava","summary":"- Ava corners the informant."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": "",
+                    "pov": "",
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["suggestions"]["pov"], "Ava")
+
+    def test_scene_brainstorm_rejects_pov_outside_selected_characters(self):
+        selected = Character.objects.create(project=self.project, name="Ava", role="Protagonist")
+        Character.objects.create(project=self.project, name="Zed", role="Rival")
+        url = reverse("scene-brainstorm", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"pov":"Zed","summary":"- Ava corners the informant."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": "",
+                    "pov": "",
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("pov", resp.json()["suggestions"])
+
+    def test_scene_add_details_rejects_pov_outside_selected_characters(self):
+        selected = Character.objects.create(project=self.project, name="Ava", role="Protagonist")
+        Character.objects.create(project=self.project, name="Zed", role="Rival")
+        url = reverse("scene-add-details", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"pov":"Zed","summary":"- Ava notices the informant flinch."}',
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(
+                url,
+                data={
+                    "title": self.scene.title,
+                    "summary": self.scene.summary,
+                    "pov": "",
+                    "location": self.scene.location,
+                    "characters": [str(selected.id)],
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("pov", resp.json()["suggestions"])
+
     def test_render_uses_llm_when_available(self):
         self.scene.structure_json = (
             '{\n  "schema_version": 1,\n  "title": "Scene 1",\n  "summary": "x",\n  "pov": "Ava",\n  "location": "Docking bay",\n  "beats": []\n}'
@@ -2472,7 +2634,7 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.scene.refresh_from_db()
         self.assertIn("Prose text.", self.scene.rendered_text)
 
-    def test_scene_draft_review_page_renders_review_and_back_link(self):
+    def test_scene_draft_review_post_generates_saves_and_redirects(self):
         self.scene.structure_json = "Draft text."
         self.scene.save(update_fields=["structure_json"])
         url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
@@ -2483,19 +2645,63 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
                 usage={"ok": True},
             ),
         ) as mock_call:
+            resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], url)
+        self.scene.refresh_from_db()
+        self.assertEqual(
+            self.scene.draft_review_data,
+            {
+                "findings": ["A concrete evidence beat is missing."],
+                "overall_assessment": "Readable but too generalized.",
+                "recommendations": ["Show the contradiction in Unit X-9's testimony directly."],
+                "source_truncated": False,
+            },
+        )
+        self.assertTrue(self.scene.draft_review_fingerprint)
+        self.assertEqual(self.scene.draft_review_model_name, "gpt-4o-mini")
+        self.assertIsNotNone(self.scene.draft_review_generated_at)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Scene Outline:", prompt)
+        self.assertIn("Draft:", prompt)
+        self.assertIn("focus on missed outline beats", prompt.lower())
+
+    def test_scene_draft_review_get_renders_cached_review_and_back_link(self):
+        self.scene.structure_json = "Draft text."
+        self.scene.draft_review_data = {
+            "findings": ["A concrete evidence beat is missing."],
+            "overall_assessment": "Readable but too generalized.",
+            "recommendations": ["Show the contradiction in Unit X-9's testimony directly."],
+            "source_truncated": False,
+        }
+        self.scene.draft_review_fingerprint = hashlib.sha256(
+            f"{self.scene.summary.strip()}\n||\nDraft text.".encode("utf-8")
+        ).hexdigest()
+        self.scene.draft_review_model_name = "gpt-4o-mini"
+        self.scene.draft_review_generated_at = timezone.now()
+        self.scene.save(
+            update_fields=[
+                "structure_json",
+                "draft_review_data",
+                "draft_review_fingerprint",
+                "draft_review_model_name",
+                "draft_review_generated_at",
+            ]
+        )
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch("main.views.call_llm") as mock_call:
             resp = self.client.get(url)
 
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_call.call_count, 0)
         self.assertContains(resp, "Critic/Review")
         self.assertContains(resp, "Findings")
         self.assertContains(resp, "A concrete evidence beat is missing.")
         self.assertContains(resp, "Readable but too generalized.")
         self.assertContains(resp, "Show the contradiction in Unit X-9&#x27;s testimony directly.", html=False)
         self.assertContains(resp, reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
-        prompt = mock_call.call_args.kwargs["prompt"]
-        self.assertIn("Scene Outline:", prompt)
-        self.assertIn("Draft:", prompt)
-        self.assertIn("focus on missed outline beats", prompt.lower())
+        self.assertContains(resp, "Review cached for current scene content.")
 
     def test_scene_draft_review_page_shows_error_when_outline_or_draft_missing(self):
         self.scene.structure_json = ""
@@ -2505,6 +2711,44 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Add both a Scene Outline and a Draft before requesting a critic review.")
+
+    def test_scene_draft_review_get_shows_stale_message_without_spending_tokens(self):
+        self.scene.structure_json = "Draft text changed."
+        self.scene.draft_review_data = {
+            "findings": ["Old finding."],
+            "overall_assessment": "Old assessment.",
+            "recommendations": ["Old recommendation."],
+            "source_truncated": False,
+        }
+        self.scene.draft_review_fingerprint = "stale"
+        self.scene.save(update_fields=["structure_json", "draft_review_data", "draft_review_fingerprint"])
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch("main.views.call_llm") as mock_call:
+            resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_call.call_count, 0)
+        self.assertContains(resp, "The saved review is out of date because Scene Outline or Draft changed.")
+        self.assertContains(resp, "Generate a critic review for the current Scene Outline and Draft.")
+
+    def test_scene_draft_review_prompt_truncates_large_draft(self):
+        self.scene.structure_json = "A" * 13050
+        self.scene.save(update_fields=["structure_json"])
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text="{\"findings\":[\"The middle section may hide pacing issues.\"],\"overall_assessment\":\"Partial but still useful review.\",\"recommendations\":[\"Run a deeper review after tightening the draft.\"]}",
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 302)
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("[... review input truncated ...]", prompt)
+        self.scene.refresh_from_db()
+        self.assertEqual(self.scene.draft_review_data["source_truncated"], True)
 
     def test_structurize_continues_when_generation_hits_length_limit(self):
         self.scene.summary = "- Ava corners the informant.\n- The hidden buyer is exposed."

@@ -71,12 +71,14 @@
                         Draft from Scene Outline
                       </button>
                       <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reshuffle">Regenerate</button>
-                      <a
+                      <button
                         class="btn btn-secondary btn-sm"
-                        href="{% url 'scene-draft-review' slug=project.slug pk=object.id %}"
+                        type="submit"
+                        formaction="{% url 'scene-draft-review' slug=project.slug pk=object.id %}"
+                        formmethod="post"
                       >
                         Critic/Review
-                      </a>
+                      </button>
                       <span class="tooltip-wrap">
                         <button class="btn btn-secondary btn-sm" type="button" id="draft-target-btn">!{...}!</button>
                         <span class="tooltip-bubble" role="tooltip">

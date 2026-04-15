@@ -19,6 +19,10 @@
     textareas.forEach((textarea) => resize(textarea));
   };
 
+  window.AppAutogrow = window.AppAutogrow || {};
+  window.AppAutogrow.resize = resize;
+  window.AppAutogrow.resizeAll = resizeAll;
+
   textareas.forEach((textarea) => {
     textarea.addEventListener("input", () => resize(textarea));
     textarea.addEventListener("change", () => resize(textarea));

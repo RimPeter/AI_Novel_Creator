@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import json
 import logging
 import re
@@ -422,6 +423,77 @@ def _get_selected_character_context(project: NovelProject, selected_ids: list[st
         lines.append(line)
 
     return lines if len(lines) > 1 else []
+
+
+def _normalize_selected_scene_pov(project: NovelProject, selected_ids: list[str] | None, suggested_pov: str) -> str:
+    suggestion = str(suggested_pov or "").strip()
+    if not suggestion:
+        return ""
+
+    ids = [str(pk).strip() for pk in (selected_ids or []) if str(pk).strip()]
+    if not ids:
+        return suggestion
+
+    valid_names = {}
+    for character in Character.objects.filter(project=project, id__in=ids).only("name"):
+        canonical = (character.name or "").strip()
+        if canonical:
+            valid_names[canonical.lower()] = canonical
+    return valid_names.get(suggestion.lower(), "")
+
+
+def _get_selected_scene_character_names(project: NovelProject, selected_ids: list[str] | None) -> list[str]:
+    ids = [str(pk).strip() for pk in (selected_ids or []) if str(pk).strip()]
+    if not ids:
+        return []
+    characters = {str(obj.id): (obj.name or "").strip() for obj in Character.objects.filter(project=project, id__in=ids).only("name")}
+    return [characters[char_id] for char_id in ids if characters.get(char_id)]
+
+
+def _missing_scene_character_mentions(summary_text: str, selected_names: list[str]) -> list[str]:
+    summary_lower = str(summary_text or "").lower()
+    missing = []
+    for name in selected_names:
+        if name.lower() not in summary_lower:
+            missing.append(name)
+    return missing
+
+
+def _revise_scene_outline_to_include_characters(
+    *,
+    scene: OutlineNode,
+    summary_text: str,
+    selected_names: list[str],
+    model_name: str,
+    action_label: str,
+) -> str:
+    if not summary_text or not selected_names:
+        return str(summary_text or "").strip()
+
+    prompt = "\n".join(
+        [
+            "Revise the scene outline so every selected scene character is explicitly included by name.",
+            "Return bullet points only, one bullet per line.",
+            "Preserve the existing scene beats and ordering unless a small change is needed to fit the missing characters naturally.",
+            "Do not drop important existing beats.",
+            "Each selected character must appear by name at least once in the revised outline.",
+            "",
+            "Selected character names:",
+            ", ".join(selected_names),
+            "",
+            "Current scene outline:",
+            summary_text,
+        ]
+    ).strip()
+    result = _call_tracked_llm(
+        project=scene.project,
+        action_label=action_label,
+        prompt=prompt,
+        model_name=model_name,
+        params={"temperature": 0.3, "max_tokens": 500},
+        outline_node=scene,
+    )
+    return _normalize_scene_outline_bullets(result.text)
 
 
 def _get_selected_location_context(project: NovelProject, location_name: str) -> list[str]:
@@ -1222,6 +1294,7 @@ def brainstorm_scene(request, slug, pk):
     ]
 
     current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    selected_characters = request.POST.getlist("characters")
     rejected = {k for k in allowed_fields if request.POST.get(f"reject_{k}")}
     if rejected:
         for k in rejected:
@@ -1245,6 +1318,9 @@ def brainstorm_scene(request, slug, pk):
         "- For 'summary': write concise bullet points, one idea per line.",
         "- If 'summary' already has text, preserve its core beats while expanding it with fresh, non-repetitive detail.",
         "- For 'pov': provide a character name or short POV tag.",
+        "- If selected scene characters are provided, prefer the POV to be one of those selected characters.",
+        "- If selected scene characters are provided, make the scene outline actively include all of them unless the current fields make that impossible.",
+        "- When selected scene characters are provided, mention or imply a concrete role for each of them in the scene outline rather than focusing on only one character.",
         "- For 'location': provide a short place name.",
         "",
         "Project title: " + (scene.project.title or ""),
@@ -1254,6 +1330,10 @@ def brainstorm_scene(request, slug, pk):
     if bible_lines:
         prompt_lines.append("")
         prompt_lines.extend(bible_lines)
+    character_lines = _get_selected_character_context(scene.project, selected_characters)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
     prompt_lines.extend(
         [
             "Existing fields (JSON):",
@@ -1281,6 +1361,10 @@ def brainstorm_scene(request, slug, pk):
             text = str(value or "").strip()
             if not text:
                 continue
+            if key == "pov":
+                text = _normalize_selected_scene_pov(scene.project, selected_characters, text)
+                if not text:
+                    continue
             if key == "summary":
                 text = _normalize_scene_outline_bullets(text)
                 if not text:
@@ -1308,6 +1392,7 @@ def add_scene_details(request, slug, pk):
     ]
 
     current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+    selected_characters = request.POST.getlist("characters")
     if not any(current.values()):
         return JsonResponse({"ok": False, "error": "Add at least one scene detail first."}, status=400)
 
@@ -1319,8 +1404,10 @@ def add_scene_details(request, slug, pk):
         "- Output an object with only keys from: " + ", ".join(allowed_fields),
         "- For 'title': only include if currently blank.",
         "- For 'pov'/'location': only include if currently blank.",
+        "- If selected scene characters are provided and 'pov' is blank, prefer the POV to be one of those selected characters.",
         "- For 'summary': provide only additive bullet points, one bullet per line.",
         "- For 'summary': keep the existing outline beats intact and add fresh, non-repetitive bullets only.",
+        "- If selected scene characters are provided, added summary bullets should actively involve all of them unless the existing scene outline clearly excludes one.",
         "",
         "Project title: " + (scene.project.title or ""),
         "Chapter: " + (getattr(scene.parent, "title", "") or "").strip(),
@@ -1329,6 +1416,10 @@ def add_scene_details(request, slug, pk):
     if bible_lines:
         prompt_lines.append("")
         prompt_lines.extend(bible_lines)
+    character_lines = _get_selected_character_context(scene.project, selected_characters)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
     prompt_lines.extend(
         [
             "Current fields (JSON):",
@@ -1358,6 +1449,10 @@ def add_scene_details(request, slug, pk):
             text = str(value or "").strip()
             if not text:
                 continue
+            if key == "pov":
+                text = _normalize_selected_scene_pov(scene.project, selected_characters, text)
+                if not text:
+                    continue
             if key == "summary":
                 text = _normalize_scene_outline_bullets(text)
                 if not text:
@@ -3360,12 +3455,78 @@ def add_location_details(request, slug):
         return _json_internal_error()
 
 
+SCENE_DRAFT_REVIEW_MAX_OUTLINE_CHARS = 4_000
+SCENE_DRAFT_REVIEW_MAX_DRAFT_CHARS = 12_000
+
+
+def _scene_draft_review_fingerprint(scene: OutlineNode) -> str:
+    payload = "\n||\n".join(
+        [
+            (scene.summary or "").strip(),
+            (scene.structure_json or "").strip(),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _truncate_review_text(text: str, limit: int) -> tuple[str, bool]:
+    normalized = str(text or "").strip()
+    if len(normalized) <= limit:
+        return normalized, False
+    head = normalized[: limit // 2].rstrip()
+    tail = normalized[-(limit - len(head) - 32) :].lstrip()
+    truncated = f"{head}\n\n[... review input truncated ...]\n\n{tail}".strip()
+    return truncated, True
+
+
+def _get_scene_draft_review_prompt_inputs(scene: OutlineNode) -> tuple[str, str, bool]:
+    summary, summary_truncated = _truncate_review_text(scene.summary or "", SCENE_DRAFT_REVIEW_MAX_OUTLINE_CHARS)
+    draft, draft_truncated = _truncate_review_text(scene.structure_json or "", SCENE_DRAFT_REVIEW_MAX_DRAFT_CHARS)
+    return summary, draft, bool(summary_truncated or draft_truncated)
+
+
+def _serialize_scene_review(scene: OutlineNode) -> dict[str, object]:
+    raw = scene.draft_review_data or {}
+    findings = [str(item).strip() for item in (raw.get("findings") or []) if str(item).strip()]
+    recommendations = [str(item).strip() for item in (raw.get("recommendations") or []) if str(item).strip()]
+    return {
+        "findings": findings,
+        "overall_assessment": str(raw.get("overall_assessment") or "").strip(),
+        "recommendations": recommendations,
+        "source_truncated": bool(raw.get("source_truncated")),
+    }
+
+
+def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
+    review = _build_scene_draft_review(scene, user=user)
+    scene.draft_review_data = review
+    scene.draft_review_fingerprint = _scene_draft_review_fingerprint(scene)
+    scene.draft_review_model_name = get_user_text_model(user)
+    scene.draft_review_generated_at = timezone.now()
+    scene.save(
+        update_fields=[
+            "draft_review_data",
+            "draft_review_fingerprint",
+            "draft_review_model_name",
+            "draft_review_generated_at",
+        ]
+    )
+    return review
+
+
+def _scene_draft_review_is_fresh(scene: OutlineNode) -> bool:
+    if not scene.draft_review_data or not scene.draft_review_fingerprint:
+        return False
+    return scene.draft_review_fingerprint == _scene_draft_review_fingerprint(scene)
+
+
 def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
     summary = (scene.summary or "").strip()
     draft = (scene.structure_json or "").strip()
     if not summary or not draft:
         raise ValueError("Add both a Scene Outline and a Draft before requesting a critic review.")
 
+    summary_for_prompt, draft_for_prompt, truncated = _get_scene_draft_review_prompt_inputs(scene)
     prompt = "\n".join(
         [
             "You are a rigorous fiction editor reviewing how well a scene draft executes its scene outline.",
@@ -3379,12 +3540,13 @@ def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
             "- 'overall_assessment' must be one concise paragraph.",
             "- 'recommendations' must be a JSON array of specific revision actions.",
             "- Prefer actionable edits over abstract theory.",
+            "- If the draft is truncated for review, mention risks caused by reviewing a partial draft when relevant.",
             "",
             "Scene Outline:",
-            summary,
+            summary_for_prompt,
             "",
             "Draft:",
-            draft,
+            draft_for_prompt,
         ]
     ).strip()
     model_name = get_user_text_model(user)
@@ -3405,6 +3567,7 @@ def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
         "findings": findings,
         "overall_assessment": overall_assessment,
         "recommendations": recommendations,
+        "source_truncated": bool(truncated),
     }
 
 
@@ -4731,14 +4894,29 @@ class SceneDraftReviewView(LoginRequiredMixin, DetailView):
         ctx["project"] = self.project
         ctx["back_url"] = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
         ctx["review_error"] = ""
-        ctx["review"] = {"findings": [], "overall_assessment": "", "recommendations": []}
-        try:
-            ctx["review"] = _build_scene_draft_review(scene, user=self.request.user)
-        except ValueError as exc:
-            ctx["review_error"] = str(exc)
-        except Exception:
-            ctx["review_error"] = "Critic review failed. Please try again."
+        ctx["review"] = _serialize_scene_review(scene)
+        ctx["review_ready"] = _scene_draft_review_is_fresh(scene)
+        ctx["review_generated_at"] = scene.draft_review_generated_at
+        ctx["review_model_name"] = (scene.draft_review_model_name or "").strip()
+        ctx["review_needs_refresh"] = bool(scene.draft_review_data) and not ctx["review_ready"]
+        if not (scene.summary or "").strip() or not (scene.structure_json or "").strip():
+            ctx["review_error"] = "Add both a Scene Outline and a Draft before requesting a critic review."
+        elif not ctx["review_ready"]:
+            ctx["review_error"] = "Generate a critic review for the current Scene Outline and Draft."
         return ctx
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        try:
+            _generate_and_store_scene_draft_review(self.object, user=request.user)
+            messages.success(request, "Critic review generated.")
+        except ValueError as exc:
+            messages.error(request, str(exc))
+        except Exception:
+            messages.error(request, "Critic review failed. Please try again.")
+        return HttpResponseRedirect(
+            reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.object.id})
+        )
 
 
 class OutlineNodeDeleteView(LoginRequiredMixin, DeleteView):

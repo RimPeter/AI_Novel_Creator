@@ -2897,6 +2897,8 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertContains(resp, 'id="draft-synonym-btn"')
         self.assertContains(resp, 'aria-pressed="false"')
         self.assertContains(resp, reverse("scene-synonyms", kwargs={"slug": self.project.slug}))
+        self.assertContains(resp, "hover a word to open the dictionary card")
+        self.assertContains(resp, "press `1-8` to swap in a listed alternative")
 
     @patch("main.views.urlopen")
     def test_scene_synonyms_endpoint_filters_duplicate_and_identical_results(self, mock_urlopen):

@@ -17,6 +17,7 @@
   let regeneratedRanges = [];
   let synonymMode = false;
   let activeWordElement = null;
+  let activeSynonyms = [];
   let hoverRequestId = 0;
 
   const synonymCache = new Map();
@@ -68,7 +69,7 @@
     return matches;
   };
 
-  const buildWordSpans = (text) => {
+  const buildWordSpans = (text, baseOffset = 0) => {
     const pattern = /[A-Za-z][A-Za-z'-]{1,}/g;
     let result = "";
     let lastIndex = 0;
@@ -79,7 +80,7 @@
       const normalized = normalizeLookupWord(word);
       result += escapeHtml(text.slice(lastIndex, match.index));
       if (normalized) {
-        result += `<span class="draft-synonym-word" data-word="${escapeHtml(normalized)}">${escapeHtml(word)}</span>`;
+        result += `<span class="draft-synonym-word" data-word="${escapeHtml(normalized)}" data-start="${baseOffset + match.index}" data-end="${baseOffset + pattern.lastIndex}">${escapeHtml(word)}</span>`;
       } else {
         result += escapeHtml(word);
       }
@@ -90,8 +91,8 @@
     return result;
   };
 
-  const buildHighlightedSegment = (text, classes) => {
-    const content = synonymMode ? buildWordSpans(text) : escapeHtml(text);
+  const buildHighlightedSegment = (text, classes, startOffset) => {
+    const content = synonymMode ? buildWordSpans(text, startOffset) : escapeHtml(text);
     return classes.length ? `<span class="${classes.join(" ")}">${content}</span>` : content;
   };
 
@@ -124,7 +125,7 @@
       const regenerated = regeneratedRanges.some((range) => start >= range.start && end <= range.end);
       if (regenerated) classes.push("draft-highlight-regenerated");
 
-      result += buildHighlightedSegment(text.slice(start, end), classes);
+      result += buildHighlightedSegment(text.slice(start, end), classes, start);
     }
 
     return result;
@@ -134,17 +135,30 @@
     let body = "";
 
     if (state === "loading") {
-      body = '<div class="draft-synonym-status">Loading similar words...</div>';
+      body = '<div class="draft-synonym-meta">similar words</div><div class="draft-synonym-status">Loading entry...</div>';
     } else if (state === "ready" && synonyms.length) {
-      body = `<div class="draft-synonym-list">${synonyms
-        .map((item) => `<span class="draft-synonym-chip">${escapeHtml(item)}</span>`)
-        .join("")}</div>`;
+      body = `
+        <div class="draft-synonym-meta">similar words</div>
+        <div class="draft-synonym-list" role="list">${synonyms
+          .map(
+            (item, index) => `
+              <div class="draft-synonym-entry" role="listitem">
+                <span class="draft-synonym-number" aria-hidden="true">${index + 1}</span>
+                <span class="draft-synonym-term">${escapeHtml(item)}</span>
+              </div>`,
+          )
+          .join("")}
+        </div>
+      `;
     } else {
-      body = '<div class="draft-synonym-status">No close synonyms found.</div>';
+      body = '<div class="draft-synonym-meta">similar words</div><div class="draft-synonym-status">No close matches found for this entry.</div>';
     }
 
     synonymPopover.innerHTML = `
-      <div class="draft-synonym-title">${escapeHtml(word)}</div>
+      <div class="draft-synonym-heading">
+        <div class="draft-synonym-title">${escapeHtml(word)}</div>
+        <div class="draft-synonym-pronunciation">dictionary lookup</div>
+      </div>
       ${body}
     `;
   };
@@ -152,6 +166,7 @@
   const hideSynonymPopover = () => {
     hoverRequestId += 1;
     activeWordElement = null;
+    activeSynonyms = [];
     synonymPopover.classList.remove("is-visible");
     synonymPopover.innerHTML = "";
   };
@@ -221,14 +236,31 @@
     const requestId = ++hoverRequestId;
 
     setPopoverContent(labelWord, "loading");
+    activeSynonyms = [];
     synonymPopover.classList.add("is-visible");
     positionSynonymPopover(target);
 
     const synonyms = await fetchSynonyms(lookupWord);
     if (!synonymMode || requestId !== hoverRequestId || activeWordElement !== target) return;
 
+    activeSynonyms = synonyms;
     setPopoverContent(labelWord, synonyms.length ? "ready" : "empty", synonyms);
     positionSynonymPopover(target);
+  };
+
+  const replaceHoveredWord = (replacement) => {
+    if (!activeWordElement) return false;
+    const start = Number.parseInt(activeWordElement.dataset.start || "", 10);
+    const end = Number.parseInt(activeWordElement.dataset.end || "", 10);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+
+    const currentValue = textarea.value || "";
+    if (start < 0 || end > currentValue.length) return false;
+
+    textarea.value = `${currentValue.slice(0, start)}${replacement}${currentValue.slice(end)}`;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
   };
 
   const updateHighlight = () => {
@@ -346,6 +378,16 @@
     },
     { passive: false },
   );
+
+  window.addEventListener("keydown", (event) => {
+    if (!synonymMode || !activeWordElement || !activeSynonyms.length) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const digit = Number.parseInt(event.key, 10);
+    if (!Number.isFinite(digit) || digit < 1 || digit > activeSynonyms.length) return;
+    if (replaceHoveredWord(activeSynonyms[digit - 1])) {
+      event.preventDefault();
+    }
+  });
 
   window.addEventListener("resize", () => {
     if (synonymMode && activeWordElement) {

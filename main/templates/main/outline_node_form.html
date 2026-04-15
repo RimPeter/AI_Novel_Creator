@@ -101,7 +101,7 @@
                           Synonym
                         </button>
                         <span class="tooltip-bubble" role="tooltip">
-                          Turn on hover mode for the draft so you can inspect similar-meaning words without editing the text.
+                          Turn on hover mode, point at a word, then press a matching number key to replace it with a suggested synonym.
                         </span>
                       </span>
                     </div>
@@ -125,6 +125,7 @@
                       data-placeholder="{{ field.field.widget.attrs.placeholder|default:'' }}"
                     >{{ field.value|default_if_none:'' }}</textarea>
                   </div>
+                  <div class="muted">Synonym mode: click `Synonym`, hover a word to open the dictionary card, then press `1-8` to swap in a listed alternative.</div>
                 {% else %}
                   <div class="form-label-row">
                     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>

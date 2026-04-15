@@ -693,7 +693,10 @@ class BillingTests(AuthenticatedTestCase):
         self.assertTrue(resp.content.startswith(b"%PDF-"))
         self.assertIn(b"Example Books Ltd", resp.content)
         self.assertIn(b"accounts@example.com", resp.content)
+        self.assertIn(b"/Subtype /Image", resp.content)
         self.assertIn(b"Total inc VAT", resp.content)
+        self.assertIn(b"VAT 20%", resp.content)
+        self.assertIn(b"GBP 16.67", resp.content)
 
     def test_invoice_pdf_download_is_scoped_to_owner(self):
         other_user = get_user_model().objects.create_user(
@@ -1048,10 +1051,10 @@ class BillingTests(AuthenticatedTestCase):
                         "status": "paid",
                         "currency": "gbp",
                         "created": 1735689600,
-                        "subtotal": 1500,
+                        "subtotal": 1800,
                         "tax": 0,
-                        "total": 1500,
-                        "amount_paid": 1500,
+                        "total": 1800,
+                        "amount_paid": 1800,
                         "customer_details": {
                             "name": "Test Buyer",
                             "email": "tester@example.com",
@@ -1067,7 +1070,9 @@ class BillingTests(AuthenticatedTestCase):
         invoice = BillingInvoice.objects.get(user=self.user, stripe_invoice_id="in_123")
         self.assertEqual(invoice.invoice_number, "INV-STRIPE-1")
         self.assertEqual(invoice.status, "paid")
-        self.assertEqual(invoice.total_amount, 1500)
+        self.assertEqual(invoice.total_amount, 1800)
+        self.assertEqual(invoice.subtotal_amount, 1500)
+        self.assertEqual(invoice.tax_amount, 300)
         self.assertEqual(invoice.description, "Monthly subscription")
 
     def test_sync_subscription_record_accepts_dict_shaped_items_data(self):

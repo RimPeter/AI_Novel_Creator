@@ -1,9 +1,13 @@
 import json
 import logging
 import re
+import struct
 import textwrap
+import zlib
 from collections import defaultdict
 from datetime import timedelta
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
@@ -23,6 +27,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 from django.views.decorators.http import require_GET, require_POST
 
 from .billing import (
+    _vat_breakdown_from_gross_minor,
     billing_enabled,
     clear_subscription_status,
     cancel_recurring_subscription,
@@ -60,6 +65,77 @@ STORY_BIBLE_DOCUMENT_PROMPT_PER_DOC_CHARS = 4_000
 STRIPE_CHECKOUT_SESSION_PLACEHOLDER = "{CHECKOUT_SESSION_ID}"
 BILLING_STATUS_RESET_SUPERUSER = "ferdinand"
 logger = logging.getLogger(__name__)
+INVOICE_LOGO_PATH = Path(settings.BASE_DIR) / "media" / "images" / "Friendly AI robot logo.png"
+
+
+def _invoice_totals_for_pdf(invoice: BillingInvoice) -> list[tuple[str, str]]:
+    subtotal_amount = int(invoice.subtotal_amount or 0)
+    tax_amount = int(invoice.tax_amount or 0)
+    total_amount = int(invoice.total_amount or 0)
+    if total_amount > 0 and tax_amount <= 0 and subtotal_amount >= total_amount:
+        subtotal_amount, tax_amount = _vat_breakdown_from_gross_minor(total_amount)
+    return [
+        ("Subtotal ex VAT", format_minor_amount(subtotal_amount, invoice.currency)),
+        ("VAT 20%", format_minor_amount(tax_amount, invoice.currency)),
+        ("Total inc VAT", format_minor_amount(total_amount, invoice.currency)),
+        ("Paid", format_minor_amount(invoice.amount_paid, invoice.currency)),
+        ("Amount due", format_minor_amount(invoice.amount_due, invoice.currency)),
+    ]
+
+
+@lru_cache(maxsize=1)
+def _load_invoice_logo_png() -> tuple[int, int, bytes] | None:
+    try:
+        data = INVOICE_LOGO_PATH.read_bytes()
+    except OSError:
+        return None
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+
+    width = height = None
+    bit_depth = color_type = compression = filter_method = interlace = None
+    idat_parts: list[bytes] = []
+    offset = 8
+    data_len = len(data)
+    while offset + 8 <= data_len:
+        chunk_len = struct.unpack(">I", data[offset:offset + 4])[0]
+        chunk_type = data[offset + 4:offset + 8]
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + chunk_len
+        if chunk_data_end + 4 > data_len:
+            return None
+        chunk_data = data[chunk_data_start:chunk_data_end]
+        offset = chunk_data_end + 4
+        if chunk_type == b"IHDR":
+            if len(chunk_data) != 13:
+                return None
+            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(">IIBBBBB", chunk_data)
+        elif chunk_type == b"IDAT":
+            idat_parts.append(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    if not width or not height or not idat_parts:
+        return None
+    if (bit_depth, color_type, compression, filter_method, interlace) != (8, 2, 0, 0, 0):
+        return None
+    compressed_data = b"".join(idat_parts)
+    try:
+        zlib.decompress(compressed_data)
+    except zlib.error:
+        return None
+    return width, height, compressed_data
+
+
+def _pdf_draw_image(commands: list[str], *, x: float, y: float, width: float, height: float, image_name: str) -> None:
+    commands.extend(
+        [
+            "q",
+            f"{width:.2f} 0 0 {height:.2f} {x:.2f} {y:.2f} cm",
+            f"/{image_name} Do",
+            "Q",
+        ]
+    )
 
 
 def _project_queryset_for_user(user):
@@ -2163,11 +2239,17 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     status_text = (invoice.status or "draft").upper()
     description = invoice.description or "Billing invoice"
     currency = (invoice.currency or "GBP").upper()
+    logo = _load_invoice_logo_png()
 
     commands: list[str] = []
     # Header bar
     _pdf_set_fill(commands, 0.09, 0.16, 0.30)
     _pdf_fill_rect(commands, 0, 718, 612, 74)
+    if logo:
+        logo_width, logo_height, _ = logo
+        target_height = 40.0
+        target_width = target_height * (logo_width / logo_height)
+        _pdf_draw_image(commands, x=334, y=734, width=target_width, height=target_height, image_name="Im1")
     _pdf_draw_text(commands, x=44, y=764, text="INVOICE", font="/F2", size=24, color=(1.0, 1.0, 1.0))
     _pdf_draw_text(commands, x=44, y=744, text=seller_name, font="/F2", size=11, color=(0.89, 0.94, 1.0))
     _pdf_draw_text(commands, x=430, y=760, text=f"#{invoice.public_number}", font="/F2", size=12, color=(1.0, 1.0, 1.0))
@@ -2224,13 +2306,7 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     _pdf_set_stroke(commands, 0.84, 0.87, 0.93)
     _pdf_stroke_rect(commands, 328, 322, 240, 98)
 
-    totals = [
-        ("Subtotal ex VAT", format_minor_amount(invoice.subtotal_amount, invoice.currency)),
-        ("VAT 20%", format_minor_amount(invoice.tax_amount, invoice.currency)),
-        ("Total inc VAT", format_minor_amount(invoice.total_amount, invoice.currency)),
-        ("Paid", format_minor_amount(invoice.amount_paid, invoice.currency)),
-        ("Amount due", format_minor_amount(invoice.amount_due, invoice.currency)),
-    ]
+    totals = _invoice_totals_for_pdf(invoice)
     y = 404.0
     for label, value in totals:
         is_key_total = label in {"Total", "Amount due"}
@@ -2261,14 +2337,33 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     )
 
     stream = "\n".join(commands).encode("latin-1", "replace")
+    page_resources = "/ProcSet [/PDF /Text"
+    content_object_id = 6
+    image_object = None
+    if logo:
+        logo_width, logo_height, logo_data = logo
+        image_object = (
+            f"6 0 obj << /Type /XObject /Subtype /Image /Width {logo_width} /Height {logo_height} "
+            f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode "
+            f"/DecodeParms << /Predictor 15 /Colors 3 /BitsPerComponent 8 /Columns {logo_width} >> "
+            f"/Length {len(logo_data)} >> stream\n".encode("ascii")
+            + logo_data
+            + b"\nendstream endobj\n"
+        )
+        page_resources += " /ImageC"
+        content_object_id = 7
+    page_resources += "]"
+    xobject_dict = " /XObject << /Im1 6 0 R >>" if logo else ""
     objects = [
         b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
         b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /ProcSet [/PDF /Text] /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >> endobj\n",
+        f"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << {page_resources} /Font << /F1 4 0 R /F2 5 0 R >>{xobject_dict} >> /Contents {content_object_id} 0 R >> endobj\n".encode("ascii"),
         b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
         b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n",
-        f"6 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
+        f"{content_object_id} 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
     ]
+    if image_object:
+        objects.insert(5, image_object)
 
     pdf = bytearray(b"%PDF-1.4\n")
     offsets = [0]

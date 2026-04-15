@@ -383,6 +383,12 @@ def _upsert_invoice_record(
     subtotal_amount_value = payload.get("subtotal") if "subtotal" in payload else payload.get("amount_subtotal")
     tax_amount_value = payload.get("tax")
     amount_paid_value = payload.get("amount_paid") if "amount_paid" in payload else payload.get("amount_total")
+    total_amount = _coerce_amount(total_amount_value)
+    subtotal_amount = _coerce_amount(subtotal_amount_value or total_amount)
+    tax_amount = _coerce_amount(tax_amount_value)
+    # Stripe can omit explicit tax values for VAT-inclusive prices on invoice payloads.
+    if total_amount > 0 and tax_amount <= 0 and subtotal_amount >= total_amount:
+        subtotal_amount, tax_amount = _vat_breakdown_from_gross_minor(total_amount)
 
     invoice.user = user
     invoice.subscription_record = subscription_record or get_subscription_record(user)
@@ -412,9 +418,9 @@ def _upsert_invoice_record(
         invoice.buyer_address = _normalize_address(customer_details.get("address"))
     if not invoice.description:
         invoice.description = description
-    invoice.subtotal_amount = _coerce_amount(subtotal_amount_value)
-    invoice.tax_amount = _coerce_amount(tax_amount_value)
-    invoice.total_amount = _coerce_amount(total_amount_value)
+    invoice.subtotal_amount = subtotal_amount
+    invoice.tax_amount = tax_amount
+    invoice.total_amount = total_amount
     invoice.amount_paid = _coerce_amount(amount_paid_value)
     invoice.notes = invoice.notes or billing_reason
     invoice.raw_data = payload

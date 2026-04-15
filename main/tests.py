@@ -193,6 +193,15 @@ class AccountEmailFlowTests(TestCase):
 
 
 class NavbarVisibilityTests(TestCase):
+    def test_brand_assets_use_static_paths(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '/static/main/images/Friendly%20AI%20robot%20logo.png', html=False)
+        self.assertContains(response, '/static/main/favicon_AI_novel.png', html=False)
+        self.assertNotContains(response, '/media/images/Friendly%20AI%20robot%20logo.png', html=False)
+        self.assertNotContains(response, '/media/images/favicon_AI_novel.png', html=False)
+
     def test_anonymous_users_do_not_see_projects_or_more_dropdowns(self):
         response = self.client.get(reverse("home"))
 

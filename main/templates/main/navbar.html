@@ -1,9 +1,10 @@
+{% load static %}
 <nav class="navbar" aria-label="Primary">
   <div class="navbar-inner">
     <a class="navbar-brand" href="{% url 'home' %}">
       <img
         class="navbar-brand-logo"
-        src="/media/images/Friendly%20AI%20robot%20logo.png"
+        src="{% static 'main/images/Friendly AI robot logo.png' %}"
         alt="AI Novel Creator"
       />
     </a>

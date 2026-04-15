@@ -3544,6 +3544,10 @@ class TokenUsageViewTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Token usage")
+        self.assertContains(resp, "Generation model")
+        self.assertContains(resp, "Text model for future generations")
+        self.assertContains(resp, 'name="text_model_name"', html=False)
+        self.assertContains(resp, "Save model")
         self.assertContains(resp, "395")
         self.assertContains(resp, "Generate Bible")
         self.assertContains(resp, "Generate All Scenes")
@@ -3551,6 +3555,25 @@ class TokenUsageViewTests(AuthenticatedTestCase):
         self.assertContains(resp, "Project B")
         self.assertContains(resp, "195")
         self.assertContains(resp, "200")
+
+    def test_token_usage_view_shows_generation_model_section_without_usage_rows(self):
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Generation model")
+        self.assertContains(resp, "Text model for future generations")
+        self.assertContains(resp, "Current selection:")
+        self.assertContains(resp, 'name="text_model_name"', html=False)
+        self.assertContains(resp, "Save model")
+
+    @override_settings(STRIPE_SECRET_KEY="sk_test_123", STRIPE_PRICE_ID_MONTHLY="price_monthly_123")
+    def test_token_usage_view_still_shows_generation_model_section_when_billing_enabled(self):
+        resp = self.client.get(reverse("token-usage"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Generation model")
+        self.assertContains(resp, "Text model for future generations")
+        self.assertContains(resp, 'name="text_model_name"', html=False)
 
     def test_token_usage_excludes_runs_from_other_users_projects(self):
         other_user = get_user_model().objects.create_user(

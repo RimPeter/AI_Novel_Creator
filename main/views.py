@@ -2011,12 +2011,6 @@ class ProjectArchiveListView(LoginRequiredMixin, ListView):
 class TokenUsageView(LoginRequiredMixin, TemplateView):
     template_name = "main/token_usage.html"
 
-    def dispatch(self, request, *args, **kwargs):
-        blocked = _subscription_required_response(request)
-        if blocked is not None:
-            return blocked
-        return super().dispatch(request, *args, **kwargs)
-
     def post(self, request, *args, **kwargs):
         try:
             selected_model = save_user_text_model(request.user, request.POST.get("text_model_name") or "")

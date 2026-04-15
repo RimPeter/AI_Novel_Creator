@@ -86,12 +86,14 @@
     </section>
 
     <section class="card page-panel">
-      <div class="header-row">
-        <div>
-          <h2 class="page-panel-title">Invoices</h2>
-          <p class="muted">Download a PDF copy of each invoice. Company details for all invoices come from the shared company details page.</p>
-        </div>
-      </div>
+      <details class="collapsible billing-invoices-panel">
+        <summary class="collapsible-summary billing-invoices-summary">
+          <div class="billing-invoices-summary-copy">
+            <h2 class="page-panel-title">Invoices</h2>
+            <p class="muted">Download a PDF copy of each invoice. Company details for all invoices come from the shared company details page.</p>
+          </div>
+          <span class="billing-invoices-toggle" aria-hidden="true"></span>
+        </summary>
       {% if invoices %}
         <div class="billing-invoice-list">
           {% for invoice in invoices %}
@@ -113,6 +115,7 @@
       {% else %}
         <p class="muted">No invoices yet. Completed payments will appear here.</p>
       {% endif %}
+      </details>
     </section>
 
     {% if billing_enabled %}

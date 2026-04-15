@@ -567,6 +567,7 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Invoices")
+        self.assertContains(resp, 'class="collapsible billing-invoices-panel"', html=False)
         self.assertContains(resp, "INV-1001")
         self.assertContains(resp, reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
         self.assertNotContains(resp, "Edit invoice")

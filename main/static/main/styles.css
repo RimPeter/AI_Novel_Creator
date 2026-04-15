@@ -1164,6 +1164,41 @@ ul {
   margin-top: 18px;
 }
 
+.billing-invoices-summary {
+  align-items: center;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.billing-invoices-summary-copy .page-panel-title,
+.billing-invoices-summary-copy .muted {
+  margin: 0;
+}
+
+.billing-invoices-summary-copy .muted {
+  margin-top: 6px;
+}
+
+.billing-invoices-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.billing-invoices-toggle::before {
+  content: "Hide invoices";
+}
+
+.billing-invoices-panel:not([open]) .billing-invoices-toggle::before {
+  content: "Show invoices";
+}
+
 .billing-status-actions {
   margin-top: 16px;
   justify-content: flex-end;
@@ -1196,6 +1231,10 @@ ul {
 }
 
 @media (max-width: 720px) {
+  .billing-invoices-summary {
+    align-items: flex-start;
+  }
+
   .billing-invoice-card {
     flex-direction: column;
   }

@@ -1003,6 +1003,13 @@ class BillingTests(AuthenticatedTestCase):
                 "user_id": str(self.user.id),
                 "plan_key": "monthly",
                 "price_id": "price_monthly_123",
+                "billing_first_name": "Ada",
+                "billing_last_name": "Lovelace",
+                "billing_company_name": "Analytical Engines Ltd",
+                "billing_tax_id": "GB123",
+                "billing_address_line_1": "1 Logic Lane",
+                "billing_city": "London",
+                "billing_country": "United Kingdom",
             },
         }
         mock_sub_retrieve.return_value = {
@@ -1027,13 +1034,6 @@ class BillingTests(AuthenticatedTestCase):
             "tax": 0,
             "total": 1500,
             "amount_paid": 1500,
-            "metadata": {
-                "billing_first_name": "Ada",
-                "billing_last_name": "Lovelace",
-                "billing_company_name": "Analytical Engines Ltd",
-                "billing_tax_id": "GB123",
-                "billing_country": "United Kingdom",
-            },
             "customer_details": {
                 "name": "Test Buyer",
                 "email": "tester@example.com",
@@ -1051,6 +1051,7 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(invoice.buyer_name, "Ada Lovelace")
         self.assertEqual(invoice.buyer_company_name, "Analytical Engines Ltd")
         self.assertEqual(invoice.buyer_tax_id, "GB123")
+        self.assertIn("1 Logic Lane", invoice.buyer_address)
 
     @patch("main.billing.stripe.Subscription.retrieve")
     def test_webhook_processing_is_idempotent(self, mock_retrieve):

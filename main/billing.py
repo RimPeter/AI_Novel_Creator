@@ -488,19 +488,24 @@ def _upsert_invoice_record(
         invoice.seller_name = str(getattr(settings, "SITE_NAME", "") or "AI Novel Creator").strip() or "AI Novel Creator"
     if not invoice.seller_email:
         invoice.seller_email = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
-    if not invoice.buyer_name:
-        invoice.buyer_name = _billing_contact_name(
-            billing_details,
-            fallback=str(customer_details.get("name") or getattr(user, "get_username", lambda: "")() or "").strip(),
-        )
-    if not invoice.buyer_company_name:
-        invoice.buyer_company_name = str(billing_details.get("company_name") or "").strip()
-    if not invoice.buyer_email:
-        invoice.buyer_email = str(billing_details.get("email") or customer_details.get("email") or getattr(user, "email", "") or "").strip()
-    if not invoice.buyer_address:
-        invoice.buyer_address = _billing_address_from_details(billing_details) or _normalize_address(customer_details.get("address"))
-    if not invoice.buyer_tax_id:
-        invoice.buyer_tax_id = str(billing_details.get("tax_id") or "").strip()
+    buyer_name = _billing_contact_name(
+        billing_details,
+        fallback=str(customer_details.get("name") or getattr(user, "get_username", lambda: "")() or "").strip(),
+    )
+    buyer_company_name = str(billing_details.get("company_name") or "").strip()
+    buyer_email = str(billing_details.get("email") or customer_details.get("email") or getattr(user, "email", "") or "").strip()
+    buyer_address = _billing_address_from_details(billing_details) or _normalize_address(customer_details.get("address"))
+    buyer_tax_id = str(billing_details.get("tax_id") or "").strip()
+    if buyer_name:
+        invoice.buyer_name = buyer_name
+    if buyer_company_name:
+        invoice.buyer_company_name = buyer_company_name
+    if buyer_email:
+        invoice.buyer_email = buyer_email
+    if buyer_address:
+        invoice.buyer_address = buyer_address
+    if buyer_tax_id:
+        invoice.buyer_tax_id = buyer_tax_id
     if not invoice.description:
         invoice.description = description
     invoice.subtotal_amount = subtotal_amount
@@ -550,6 +555,7 @@ def _sync_checkout_invoice(
         "amount_paid": amount_total,
         "description": option.get("label") or option.get("description") or "Billing invoice",
         "customer_details": _as_dict(session.get("customer_details")),
+        "metadata": _as_dict(session.get("metadata")),
     }
     return _upsert_invoice_record(
         user=user,
@@ -577,6 +583,12 @@ def _sync_session_invoice(
         _set_stripe_api_key()
         invoice = stripe.Invoice.retrieve(invoice_id)
         invoice_dict = _as_dict(invoice)
+        invoice_metadata = _as_dict(invoice_dict.get("metadata"))
+        session_metadata = _as_dict(session.get("metadata"))
+        if session_metadata:
+            merged_metadata = dict(session_metadata)
+            merged_metadata.update(invoice_metadata)
+            invoice_dict["metadata"] = merged_metadata
         return _upsert_invoice_record(
             user=user,
             source_type="stripe_invoice",

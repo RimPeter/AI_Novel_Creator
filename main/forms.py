@@ -218,6 +218,44 @@ class BillingCompanyProfileForm(forms.ModelForm):
         }
 
 
+class BillingInformationForm(forms.Form):
+    plan = forms.CharField(widget=forms.HiddenInput())
+    add_billing_information = forms.BooleanField(required=False)
+    is_business_purchase = forms.BooleanField(required=False)
+    accepted_terms = forms.BooleanField(required=True)
+    first_name = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+    last_name = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+    company_name = forms.CharField(required=False, max_length=255, widget=forms.TextInput(attrs={"class": "form-control"}))
+    email = forms.EmailField(required=False, widget=forms.EmailInput(attrs={"class": "form-control"}))
+    address_line_1 = forms.CharField(required=False, max_length=255, widget=forms.TextInput(attrs={"class": "form-control"}))
+    address_line_2 = forms.CharField(required=False, max_length=255, widget=forms.TextInput(attrs={"class": "form-control"}))
+    city = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+    state_region = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+    postcode = forms.CharField(required=False, max_length=40, widget=forms.TextInput(attrs={"class": "form-control"}))
+    country = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+    tax_id = forms.CharField(required=False, max_length=120, widget=forms.TextInput(attrs={"class": "form-control"}))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        add_billing_information = bool(cleaned_data.get("add_billing_information"))
+        is_business_purchase = bool(cleaned_data.get("is_business_purchase"))
+        if not add_billing_information:
+            return cleaned_data
+        first_name = str(cleaned_data.get("first_name") or "").strip()
+        last_name = str(cleaned_data.get("last_name") or "").strip()
+        country = str(cleaned_data.get("country") or "").strip()
+        company_name = str(cleaned_data.get("company_name") or "").strip()
+        if not first_name:
+            self.add_error("first_name", "Enter a first name or leave billing information turned off.")
+        if not last_name:
+            self.add_error("last_name", "Enter a last name or leave billing information turned off.")
+        if not country:
+            self.add_error("country", "Enter a country or leave billing information turned off.")
+        if is_business_purchase and not company_name:
+            self.add_error("company_name", "Enter a company name for a business purchase.")
+        return cleaned_data
+
+
 class OutlineChapterForm(forms.ModelForm):
     class Meta:
         model = OutlineNode

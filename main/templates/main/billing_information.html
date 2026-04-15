@@ -1,0 +1,181 @@
+{% extends "main/base.html" %}
+
+{% block title %}Billing Information | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Checkout</span>
+          <h1 class="page-title">Billing information</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'billing' %}">Back to billing</a>
+          <a class="btn btn-secondary" href="{% url 'billing-terms' %}">Terms and conditions</a>
+        </div>
+      </div>
+      <p class="page-lead">Billing information is optional. If you add it, the values will be reused for future invoice downloads and can be changed before each purchase.</p>
+    </section>
+
+    <section class="card page-panel">
+      {% if selected_plan and billing_information_form %}
+        <div class="header-row">
+          <div>
+            <h2 class="page-panel-title">{{ selected_plan.label }}</h2>
+            <p class="muted">{{ selected_plan.price_display }}. {{ selected_plan.price_breakdown_display }}.</p>
+          </div>
+        </div>
+
+        <form method="post" action="{% url 'billing-checkout' %}" class="form" data-billing-information-form>
+          {% csrf_token %}
+          {{ billing_information_form.plan }}
+          {% if billing_information_form.non_field_errors %}
+            <div class="form-errors">{{ billing_information_form.non_field_errors }}</div>
+          {% endif %}
+
+          <div class="form-row">
+            <label class="billing-plan-terms-check" for="{{ billing_information_form.add_billing_information.id_for_label }}">
+              {{ billing_information_form.add_billing_information }}
+              <span>Add billing information for invoice</span>
+            </label>
+            {% for error in billing_information_form.add_billing_information.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+
+          <div data-billing-information-fields hidden>
+            <div class="form-row">
+              <label class="billing-plan-terms-check" for="{{ billing_information_form.is_business_purchase.id_for_label }}">
+                {{ billing_information_form.is_business_purchase }}
+                <span>This is a business purchase</span>
+              </label>
+              {% for error in billing_information_form.is_business_purchase.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="billing-info-grid">
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.first_name.id_for_label }}">First name</label>
+                {{ billing_information_form.first_name }}
+                {% for error in billing_information_form.first_name.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.last_name.id_for_label }}">Last name</label>
+                {{ billing_information_form.last_name }}
+                {% for error in billing_information_form.last_name.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row" data-business-only-field hidden>
+                <label class="form-label" for="{{ billing_information_form.company_name.id_for_label }}">Company name</label>
+                {{ billing_information_form.company_name }}
+                {% for error in billing_information_form.company_name.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.email.id_for_label }}">Email address</label>
+                {{ billing_information_form.email }}
+                {% for error in billing_information_form.email.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.address_line_1.id_for_label }}">Address line 1</label>
+                {{ billing_information_form.address_line_1 }}
+                {% for error in billing_information_form.address_line_1.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.address_line_2.id_for_label }}">Address line 2</label>
+                {{ billing_information_form.address_line_2 }}
+                {% for error in billing_information_form.address_line_2.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.city.id_for_label }}">City</label>
+                {{ billing_information_form.city }}
+                {% for error in billing_information_form.city.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.state_region.id_for_label }}">State / region</label>
+                {{ billing_information_form.state_region }}
+                {% for error in billing_information_form.state_region.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.postcode.id_for_label }}">Postcode</label>
+                {{ billing_information_form.postcode }}
+                {% for error in billing_information_form.postcode.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="{{ billing_information_form.country.id_for_label }}">Country</label>
+                {{ billing_information_form.country }}
+                {% for error in billing_information_form.country.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div class="form-row" data-business-only-field hidden>
+                <label class="form-label" for="{{ billing_information_form.tax_id.id_for_label }}">VAT / Tax ID</label>
+                {{ billing_information_form.tax_id }}
+                {% for error in billing_information_form.tax_id.errors %}
+                  <div class="field-error">{{ error }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="billing-plan-terms-check" for="{{ billing_information_form.accepted_terms.id_for_label }}">
+              {{ billing_information_form.accepted_terms }}
+              <span>I agree to the <a href="{% url 'billing-terms' %}">Terms and Conditions</a> for plan purchases.</span>
+            </label>
+            {% for error in billing_information_form.accepted_terms.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-primary" type="submit">Continue to Stripe Checkout</button>
+            <a class="btn btn-secondary" href="{% url 'billing' %}">Cancel</a>
+          </div>
+        </form>
+      {% else %}
+        <p class="muted">Choose a valid billing plan before entering billing information.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const form = document.querySelector("[data-billing-information-form]");
+      if (!form) return;
+      const addInfo = form.querySelector("#{{ billing_information_form.add_billing_information.id_for_label|default:'' }}");
+      const businessPurchase = form.querySelector("#{{ billing_information_form.is_business_purchase.id_for_label|default:'' }}");
+      const infoFields = form.querySelector("[data-billing-information-fields]");
+      const businessOnlyFields = form.querySelectorAll("[data-business-only-field]");
+      const syncVisibility = () => {
+        const showInfo = !!addInfo?.checked;
+        const showBusiness = showInfo && !!businessPurchase?.checked;
+        if (infoFields) infoFields.hidden = !showInfo;
+        businessOnlyFields.forEach((field) => {
+          field.hidden = !showBusiness;
+        });
+      };
+      addInfo?.addEventListener("change", syncVisibility);
+      businessPurchase?.addEventListener("change", syncVisibility);
+      syncVisibility();
+    })();
+  </script>
+{% endblock %}

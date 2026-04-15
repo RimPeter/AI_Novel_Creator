@@ -135,13 +135,8 @@
               <div class="billing-plan-vat-badge">{{ option.vat_badge }}</div>
               <p class="billing-plan-vat-note">{{ option.price_breakdown_display }}</p>
               <p class="muted">{{ option.description }}</p>
-              <form method="post" action="{% url 'billing-checkout' %}">
-                {% csrf_token %}
+              <form method="get" action="{% url 'billing-information' %}">
                 <input type="hidden" name="plan" value="{{ option.key }}" />
-                <label class="billing-plan-terms-check">
-                  <input type="checkbox" name="accepted_terms" value="1" required />
-                  <span>I agree to the <a href="{% url 'billing-terms' %}">Terms and Conditions</a> for plan purchases.</span>
-                </label>
                 <button class="btn btn-primary" type="submit">Choose {{ option.label }}</button>
               </form>
             </article>

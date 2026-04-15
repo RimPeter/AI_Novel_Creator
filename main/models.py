@@ -449,6 +449,29 @@ class BillingCompanyProfile(TimeStampedModel):
         return self.company_name or "Billing company profile"
 
 
+class BillingInformationProfile(TimeStampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="billing_information_profile",
+    )
+    first_name = models.CharField(max_length=120, blank=True, default="")
+    last_name = models.CharField(max_length=120, blank=True, default="")
+    company_name = models.CharField(max_length=255, blank=True, default="")
+    email = models.CharField(max_length=255, blank=True, default="")
+    address_line_1 = models.CharField(max_length=255, blank=True, default="")
+    address_line_2 = models.CharField(max_length=255, blank=True, default="")
+    city = models.CharField(max_length=120, blank=True, default="")
+    state_region = models.CharField(max_length=120, blank=True, default="")
+    postcode = models.CharField(max_length=40, blank=True, default="")
+    country = models.CharField(max_length=120, blank=True, default="")
+    tax_id = models.CharField(max_length=120, blank=True, default="")
+    is_business_purchase = models.BooleanField(default=False)
+
+    def __str__(self) -> str:
+        return f"Billing information for {self.user}"
+
+
 class BillingInvoice(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -476,8 +499,10 @@ class BillingInvoice(TimeStampedModel):
     seller_email = models.CharField(max_length=255, blank=True, default=default_invoice_seller_email)
     seller_address = models.TextField(blank=True, default="")
     buyer_name = models.CharField(max_length=255, blank=True, default="")
+    buyer_company_name = models.CharField(max_length=255, blank=True, default="")
     buyer_email = models.CharField(max_length=255, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
+    buyer_tax_id = models.CharField(max_length=120, blank=True, default="")
     description = models.TextField(blank=True, default="")
     subtotal_amount = models.IntegerField(default=0)
     tax_amount = models.IntegerField(default=0)

@@ -43,6 +43,7 @@ from .billing import (
     user_has_active_subscription,
 )
 from .forms import (
+    BillingInformationForm,
     BillingCompanyProfileForm,
     CharacterForm,
     HomeUpdateForm,
@@ -54,7 +55,7 @@ from .forms import (
     StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import BillingCompanyProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
+from .models import BillingCompanyProfile, BillingInformationProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .llm import call_llm, generate_image_data_url
@@ -641,6 +642,85 @@ def _build_stripe_checkout_success_url(request) -> str:
         session_id=placeholder_token,
     )
     return request.build_absolute_uri(success_path).replace(placeholder_token, STRIPE_CHECKOUT_SESSION_PLACEHOLDER)
+
+
+def _get_billing_information_profile(user) -> BillingInformationProfile:
+    profile, _ = BillingInformationProfile.objects.get_or_create(user=user)
+    return profile
+
+
+def _serialize_billing_information_profile(profile: BillingInformationProfile) -> dict[str, object]:
+    return {
+        "add_billing_information": bool(
+            profile.first_name
+            or profile.last_name
+            or profile.company_name
+            or profile.email
+            or profile.address_line_1
+            or profile.address_line_2
+            or profile.city
+            or profile.state_region
+            or profile.postcode
+            or profile.country
+            or profile.tax_id
+        ),
+        "is_business_purchase": bool(profile.is_business_purchase),
+        "first_name": profile.first_name,
+        "last_name": profile.last_name,
+        "company_name": profile.company_name,
+        "email": profile.email,
+        "address_line_1": profile.address_line_1,
+        "address_line_2": profile.address_line_2,
+        "city": profile.city,
+        "state_region": profile.state_region,
+        "postcode": profile.postcode,
+        "country": profile.country,
+        "tax_id": profile.tax_id,
+    }
+
+
+def _billing_information_redirect(plan: str) -> str:
+    return _add_query_params(reverse("billing-information"), plan=plan)
+
+
+def _extract_billing_information(cleaned_data: dict[str, object]) -> dict[str, str]:
+    if not bool(cleaned_data.get("add_billing_information")):
+        return {}
+    return {
+        "first_name": str(cleaned_data.get("first_name") or "").strip(),
+        "last_name": str(cleaned_data.get("last_name") or "").strip(),
+        "company_name": str(cleaned_data.get("company_name") or "").strip(),
+        "email": str(cleaned_data.get("email") or "").strip(),
+        "address_line_1": str(cleaned_data.get("address_line_1") or "").strip(),
+        "address_line_2": str(cleaned_data.get("address_line_2") or "").strip(),
+        "city": str(cleaned_data.get("city") or "").strip(),
+        "state_region": str(cleaned_data.get("state_region") or "").strip(),
+        "postcode": str(cleaned_data.get("postcode") or "").strip(),
+        "country": str(cleaned_data.get("country") or "").strip(),
+        "tax_id": str(cleaned_data.get("tax_id") or "").strip(),
+        "is_business_purchase": "1" if bool(cleaned_data.get("is_business_purchase")) else "",
+    }
+
+
+def _save_billing_information_profile(*, user, cleaned_data: dict[str, object]) -> BillingInformationProfile:
+    profile = _get_billing_information_profile(user)
+    if not bool(cleaned_data.get("add_billing_information")):
+        return profile
+    billing_information = _extract_billing_information(cleaned_data)
+    profile.first_name = billing_information.get("first_name", "")
+    profile.last_name = billing_information.get("last_name", "")
+    profile.company_name = billing_information.get("company_name", "")
+    profile.email = billing_information.get("email", "")
+    profile.address_line_1 = billing_information.get("address_line_1", "")
+    profile.address_line_2 = billing_information.get("address_line_2", "")
+    profile.city = billing_information.get("city", "")
+    profile.state_region = billing_information.get("state_region", "")
+    profile.postcode = billing_information.get("postcode", "")
+    profile.country = billing_information.get("country", "")
+    profile.tax_id = billing_information.get("tax_id", "")
+    profile.is_business_purchase = bool(billing_information.get("is_business_purchase"))
+    profile.save()
+    return profile
 
 
 def _can_clear_billing_status(user) -> bool:
@@ -1835,6 +1915,23 @@ class BillingTermsView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class BillingInformationView(LoginRequiredMixin, TemplateView):
+    template_name = "main/billing_information.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        plan = (self.request.GET.get("plan") or "").strip().lower()
+        option = next((item for item in get_price_options() if item["key"] == plan and item["price_id"]), None)
+        ctx["selected_plan"] = option
+        if option is None:
+            ctx["billing_information_form"] = None
+            return ctx
+        initial = _serialize_billing_information_profile(_get_billing_information_profile(self.request.user))
+        initial["plan"] = option["key"]
+        ctx["billing_information_form"] = BillingInformationForm(initial=initial)
+        return ctx
+
+
 @require_POST
 @login_required
 def create_billing_checkout(request):
@@ -1851,13 +1948,15 @@ def create_billing_checkout(request):
     if option is None:
         messages.error(request, "Choose a valid billing plan.")
         return HttpResponseRedirect(reverse("billing"))
-    accepted_terms = str(request.POST.get("accepted_terms") or "").strip().lower()
-    if accepted_terms not in {"1", "true", "yes", "on"}:
-        messages.error(
+    form = BillingInformationForm(request.POST)
+    if not form.is_valid():
+        return render(
             request,
-            "Accept the plan purchase terms and conditions before continuing to checkout.",
+            "main/billing_information.html",
+            {"selected_plan": option, "billing_information_form": form},
+            status=200,
         )
-        return HttpResponseRedirect(reverse("billing"))
+    _save_billing_information_profile(user=request.user, cleaned_data=form.cleaned_data)
 
     success_url = _build_stripe_checkout_success_url(request)
     cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="cancelled"))
@@ -1867,6 +1966,7 @@ def create_billing_checkout(request):
             option=option,
             success_url=success_url,
             cancel_url=cancel_url,
+            billing_details=_extract_billing_information(form.cleaned_data),
         )
     except Exception as e:
         _log_exception("Failed to create Stripe checkout session for user_id=%s", request.user.pk)
@@ -2282,9 +2382,15 @@ def _build_invoice_pdf(invoice: BillingInvoice) -> bytes:
     _pdf_draw_text_lines(commands, x=56, y=634, lines=seller_lines[:6], size=9.4, leading=12.0)
 
     _pdf_draw_text(commands, x=328, y=648, text="BILL TO", font="/F2", size=9.5, color=(0.32, 0.39, 0.50))
-    buyer_lines = [buyer_name]
+    buyer_lines = []
+    if invoice.buyer_company_name:
+        buyer_lines.extend(_pdf_wrap_lines(invoice.buyer_company_name, width=34))
+    if buyer_name and buyer_name != invoice.buyer_company_name:
+        buyer_lines.append(buyer_name)
     buyer_lines.extend(_pdf_wrap_lines(buyer_email, width=34) if buyer_email else [])
     buyer_lines.extend(_pdf_wrap_lines(buyer_address, width=34) if buyer_address else [])
+    if invoice.buyer_tax_id:
+        buyer_lines.extend(_pdf_wrap_lines(f"Tax ID: {invoice.buyer_tax_id}", width=34))
     _pdf_draw_text_lines(commands, x=328, y=634, lines=buyer_lines[:6], size=9.4, leading=12.0)
 
     # Description table

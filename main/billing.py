@@ -15,6 +15,7 @@ from .models import BillingCompanyProfile, BillingInvoice, ProcessedStripeEvent,
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
 VAT_RATE_PERCENT = Decimal("20")
 VAT_MULTIPLIER = Decimal("1.20")
+BILLING_METADATA_PREFIX = "billing_"
 
 
 def billing_enabled() -> bool:
@@ -345,6 +346,81 @@ def _normalize_address(value) -> str:
     return ""
 
 
+def _normalize_invoice_billing_details(details: dict[str, Any] | None) -> dict[str, str]:
+    details = details or {}
+    return {
+        "first_name": str(details.get("first_name") or "").strip(),
+        "last_name": str(details.get("last_name") or "").strip(),
+        "company_name": str(details.get("company_name") or "").strip(),
+        "email": str(details.get("email") or "").strip(),
+        "address_line_1": str(details.get("address_line_1") or "").strip(),
+        "address_line_2": str(details.get("address_line_2") or "").strip(),
+        "city": str(details.get("city") or "").strip(),
+        "state_region": str(details.get("state_region") or "").strip(),
+        "postcode": str(details.get("postcode") or "").strip(),
+        "country": str(details.get("country") or "").strip(),
+        "tax_id": str(details.get("tax_id") or "").strip(),
+        "is_business_purchase": (
+            "1" if str(details.get("is_business_purchase") or "").strip().lower() in {"1", "true", "yes", "on"} else ""
+        ),
+    }
+
+
+def _billing_details_to_metadata(details: dict[str, Any] | None) -> dict[str, str]:
+    normalized = _normalize_invoice_billing_details(details)
+    if not any(normalized.values()):
+        return {}
+    return {
+        f"{BILLING_METADATA_PREFIX}{key}": value
+        for key, value in normalized.items()
+    }
+
+
+def _billing_details_from_metadata(metadata: dict[str, Any] | None) -> dict[str, str]:
+    metadata = metadata or {}
+    extracted: dict[str, str] = {}
+    for key in (
+        "first_name",
+        "last_name",
+        "company_name",
+        "email",
+        "address_line_1",
+        "address_line_2",
+        "city",
+        "state_region",
+        "postcode",
+        "country",
+        "tax_id",
+        "is_business_purchase",
+    ):
+        extracted[key] = str(metadata.get(f"{BILLING_METADATA_PREFIX}{key}") or "").strip()
+    return extracted
+
+
+def _billing_address_from_details(details: dict[str, Any] | None) -> str:
+    details = details or {}
+    return "\n".join(
+        part
+        for part in [
+            str(details.get("address_line_1") or "").strip(),
+            str(details.get("address_line_2") or "").strip(),
+            str(details.get("city") or "").strip(),
+            str(details.get("state_region") or "").strip(),
+            str(details.get("postcode") or "").strip(),
+            str(details.get("country") or "").strip(),
+        ]
+        if part
+    ).strip()
+
+
+def _billing_contact_name(details: dict[str, Any] | None, *, fallback: str = "") -> str:
+    details = details or {}
+    full_name = " ".join(
+        part for part in [str(details.get("first_name") or "").strip(), str(details.get("last_name") or "").strip()] if part
+    ).strip()
+    return full_name or str(fallback or "").strip()
+
+
 def _upsert_invoice_record(
     *,
     user,
@@ -370,6 +446,8 @@ def _upsert_invoice_record(
 
     payload = _json_safe(payload or {})
     customer_details = _as_dict(payload.get("customer_details"))
+    metadata = _as_dict(payload.get("metadata"))
+    billing_details = _billing_details_from_metadata(metadata)
     billing_reason = str(payload.get("billing_reason") or "").strip()
     created_issue_date = _timestamp_to_date(payload.get("created"))
     due_date = _timestamp_to_date(payload.get("due_date"))
@@ -411,11 +489,18 @@ def _upsert_invoice_record(
     if not invoice.seller_email:
         invoice.seller_email = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
     if not invoice.buyer_name:
-        invoice.buyer_name = str(customer_details.get("name") or getattr(user, "get_username", lambda: "")() or "").strip()
+        invoice.buyer_name = _billing_contact_name(
+            billing_details,
+            fallback=str(customer_details.get("name") or getattr(user, "get_username", lambda: "")() or "").strip(),
+        )
+    if not invoice.buyer_company_name:
+        invoice.buyer_company_name = str(billing_details.get("company_name") or "").strip()
     if not invoice.buyer_email:
-        invoice.buyer_email = str(customer_details.get("email") or getattr(user, "email", "") or "").strip()
+        invoice.buyer_email = str(billing_details.get("email") or customer_details.get("email") or getattr(user, "email", "") or "").strip()
     if not invoice.buyer_address:
-        invoice.buyer_address = _normalize_address(customer_details.get("address"))
+        invoice.buyer_address = _billing_address_from_details(billing_details) or _normalize_address(customer_details.get("address"))
+    if not invoice.buyer_tax_id:
+        invoice.buyer_tax_id = str(billing_details.get("tax_id") or "").strip()
     if not invoice.description:
         invoice.description = description
     invoice.subtotal_amount = subtotal_amount
@@ -524,20 +609,22 @@ def ensure_stripe_customer(user) -> tuple[UserSubscription, str]:
     return record, customer.id
 
 
-def _build_checkout_metadata(*, user, option: dict[str, str]) -> dict[str, str]:
-    return {
+def _build_checkout_metadata(*, user, option: dict[str, str], billing_details: dict[str, Any] | None = None) -> dict[str, str]:
+    metadata = {
         "user_id": str(user.id),
         "plan_key": option["key"],
         "price_id": option["price_id"],
         "checkout_mode": option["checkout_mode"],
         "access_days": str(option.get("access_days") or ""),
     }
+    metadata.update(_billing_details_to_metadata(billing_details))
+    return metadata
 
 
-def create_checkout_session(*, user, option: dict[str, str], success_url: str, cancel_url: str):
+def create_checkout_session(*, user, option: dict[str, str], success_url: str, cancel_url: str, billing_details: dict[str, Any] | None = None):
     _set_stripe_api_key()
     record, customer_id = ensure_stripe_customer(user)
-    metadata = _build_checkout_metadata(user=user, option=option)
+    metadata = _build_checkout_metadata(user=user, option=option, billing_details=billing_details)
     session_kwargs = dict(
         mode=option["checkout_mode"],
         customer=customer_id,

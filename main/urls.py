@@ -7,6 +7,7 @@ urlpatterns = [
     path("token-usage/", views.TokenUsageView.as_view(), name="token-usage"),
     path("billing/", views.BillingView.as_view(), name="billing"),
     path("billing/terms-and-conditions/", views.BillingTermsView.as_view(), name="billing-terms"),
+    path("billing/information/", views.BillingInformationView.as_view(), name="billing-information"),
     path("billing/checkout/", views.create_billing_checkout, name="billing-checkout"),
     path("billing/clear-status/", views.clear_billing_status, name="billing-clear-status"),
     path("billing/company-details/", views.BillingCompanyProfileUpdateView.as_view(), name="billing-company-details"),

@@ -23,6 +23,7 @@ from .billing import process_webhook_event, sync_checkout_session, sync_subscrip
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
     BillingCompanyProfile,
+    BillingInformationProfile,
     BillingInvoice,
     Character,
     GenerationRun,
@@ -572,6 +573,31 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, reverse("billing-invoice-pdf", kwargs={"pk": invoice.pk}))
         self.assertNotContains(resp, "Edit invoice")
 
+    def test_billing_information_page_prefills_saved_profile(self):
+        BillingInformationProfile.objects.create(
+            user=self.user,
+            first_name="Ada",
+            last_name="Lovelace",
+            company_name="Analytical Engines Ltd",
+            email="ada@example.com",
+            country="United Kingdom",
+            is_business_purchase=True,
+        )
+
+        resp = self.client.get(reverse("billing-information") + "?plan=monthly")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Billing information")
+        self.assertContains(resp, 'value="Ada"', html=False)
+        self.assertContains(resp, 'value="Analytical Engines Ltd"', html=False)
+
+    def test_billing_page_plan_choice_redirects_to_billing_information(self):
+        resp = self.client.get(reverse("billing-information"), data={"plan": "monthly"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Monthly subscription")
+        self.assertContains(resp, reverse("billing-checkout"))
+
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
     def test_billing_page_syncs_successful_checkout_session(self, mock_sync_checkout, mock_get_subscription_display):
@@ -629,16 +655,37 @@ class BillingTests(AuthenticatedTestCase):
     def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
         mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
 
-        resp = self.client.post(reverse("billing-checkout"), data={"plan": "monthly", "accepted_terms": "1"})
+        resp = self.client.post(
+            reverse("billing-checkout"),
+            data={
+                "plan": "monthly",
+                "accepted_terms": "1",
+                "add_billing_information": "1",
+                "first_name": "Ada",
+                "last_name": "Lovelace",
+                "company_name": "Analytical Engines Ltd",
+                "email": "ada@example.com",
+                "address_line_1": "1 Logic Lane",
+                "city": "London",
+                "country": "United Kingdom",
+                "is_business_purchase": "1",
+                "tax_id": "GB123",
+            },
+        )
 
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
         self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "monthly")
         self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_monthly_123")
         self.assertEqual(mock_create_session.call_args.kwargs["user"], self.user)
+        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"]["first_name"], "Ada")
+        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"]["company_name"], "Analytical Engines Ltd")
         self.assertIn("checkout=success", mock_create_session.call_args.kwargs["success_url"])
         self.assertIn("session_id={CHECKOUT_SESSION_ID}", mock_create_session.call_args.kwargs["success_url"])
         self.assertNotIn("%7BCHECKOUT_SESSION_ID%7D", mock_create_session.call_args.kwargs["success_url"])
+        profile = BillingInformationProfile.objects.get(user=self.user)
+        self.assertEqual(profile.first_name, "Ada")
+        self.assertTrue(profile.is_business_purchase)
 
     @patch("main.views.create_checkout_session")
     def test_one_time_checkout_redirects_to_stripe_checkout(self, mock_create_session):
@@ -650,6 +697,7 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_456")
         self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "single_month")
         self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_single_month_123")
+        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"], {})
 
     @patch("main.views.create_billing_portal_session")
     def test_portal_redirects_to_stripe_portal(self, mock_create_portal):
@@ -679,6 +727,9 @@ class BillingTests(AuthenticatedTestCase):
             invoice_number="INV-2002",
             status="paid",
             currency="GBP",
+            buyer_name="Ada Lovelace",
+            buyer_company_name="Analytical Engines Ltd",
+            buyer_tax_id="GB123",
             description="Yearly subscription",
             subtotal_amount=10000,
             total_amount=10000,
@@ -694,6 +745,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertIn(b"Example Books Ltd", resp.content)
         self.assertIn(b"accounts@example.com", resp.content)
         self.assertIn(b"/Subtype /Image", resp.content)
+        self.assertIn(b"Analytical Engines Ltd", resp.content)
+        self.assertIn(b"GB123", resp.content)
         self.assertIn(b"Total inc VAT", resp.content)
         self.assertIn(b"VAT 20%", resp.content)
         self.assertIn(b"GBP 16.67", resp.content)
@@ -974,6 +1027,13 @@ class BillingTests(AuthenticatedTestCase):
             "tax": 0,
             "total": 1500,
             "amount_paid": 1500,
+            "metadata": {
+                "billing_first_name": "Ada",
+                "billing_last_name": "Lovelace",
+                "billing_company_name": "Analytical Engines Ltd",
+                "billing_tax_id": "GB123",
+                "billing_country": "United Kingdom",
+            },
             "customer_details": {
                 "name": "Test Buyer",
                 "email": "tester@example.com",
@@ -988,6 +1048,9 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(invoice.invoice_number, "INV-CHECKOUT-1")
         self.assertEqual(invoice.stripe_checkout_session_id, "cs_sub_123")
         self.assertEqual(invoice.total_amount, 1500)
+        self.assertEqual(invoice.buyer_name, "Ada Lovelace")
+        self.assertEqual(invoice.buyer_company_name, "Analytical Engines Ltd")
+        self.assertEqual(invoice.buyer_tax_id, "GB123")
 
     @patch("main.billing.stripe.Subscription.retrieve")
     def test_webhook_processing_is_idempotent(self, mock_retrieve):

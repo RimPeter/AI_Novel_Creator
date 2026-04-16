@@ -57,7 +57,7 @@ from .forms import (
     StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import BillingCompanyProfile, BillingInformationProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible, StoryBibleDocument
+from .models import BillingCompanyProfile, BillingInformationProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, SceneCriticReview, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .llm import call_llm, generate_image_data_url
@@ -3479,24 +3479,63 @@ def _get_scene_draft_review_prompt_inputs(scene: OutlineNode) -> tuple[str, str,
     return summary, draft, bool(summary_truncated or draft_truncated)
 
 
-def _serialize_scene_review(scene: OutlineNode) -> dict[str, object]:
-    raw = scene.draft_review_data or {}
-    findings = [str(item).strip() for item in (raw.get("findings") or []) if str(item).strip()]
-    recommendations = [str(item).strip() for item in (raw.get("recommendations") or []) if str(item).strip()]
+def _get_latest_scene_review(scene: OutlineNode) -> SceneCriticReview | None:
+    return scene.critic_reviews.order_by("-reviewed_at", "-created_at", "-id").first()
+
+
+def _serialize_scene_review(review: SceneCriticReview | None) -> dict[str, object]:
+    if review is None:
+        return {
+            "scene_name": "",
+            "reviewed_at": None,
+            "findings": [],
+            "overall_assessment": "",
+            "recommendations": [],
+            "improvements_vs_previous": "",
+            "source_truncated": False,
+            "model_name": "",
+        }
+
+    findings = [str(item).strip() for item in (review.findings or []) if str(item).strip()]
+    recommendations = [str(item).strip() for item in (review.recommendations or []) if str(item).strip()]
     return {
+        "scene_name": (review.scene_title_snapshot or "").strip(),
+        "reviewed_at": review.reviewed_at,
         "findings": findings,
-        "overall_assessment": str(raw.get("overall_assessment") or "").strip(),
+        "overall_assessment": str(review.overall_assessment or "").strip(),
         "recommendations": recommendations,
-        "source_truncated": bool(raw.get("source_truncated")),
+        "improvements_vs_previous": str(review.improvements_vs_previous or "").strip(),
+        "source_truncated": bool(review.source_truncated),
+        "model_name": (review.model_name or "").strip(),
     }
 
 
-def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
-    review = _build_scene_draft_review(scene, user=user)
+def _serialize_scene_review_history(scene: OutlineNode) -> list[dict[str, object]]:
+    history = []
+    for review in scene.critic_reviews.order_by("-reviewed_at", "-created_at", "-id"):
+        history.append(_serialize_scene_review(review))
+    return history
+
+
+def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> SceneCriticReview:
+    previous_review = _get_latest_scene_review(scene)
+    review = _build_scene_draft_review(scene, user=user, previous_review=previous_review)
+    review_record = SceneCriticReview.objects.create(
+        scene=scene,
+        scene_title_snapshot=(scene.title or "").strip(),
+        reviewed_at=timezone.now(),
+        findings=review["findings"],
+        overall_assessment=review["overall_assessment"],
+        recommendations=review["recommendations"],
+        improvements_vs_previous=review["improvements_vs_previous"],
+        model_name=get_user_text_model(user),
+        source_fingerprint=_scene_draft_review_fingerprint(scene),
+        source_truncated=bool(review.get("source_truncated")),
+    )
     scene.draft_review_data = review
     scene.draft_review_fingerprint = _scene_draft_review_fingerprint(scene)
     scene.draft_review_model_name = get_user_text_model(user)
-    scene.draft_review_generated_at = timezone.now()
+    scene.draft_review_generated_at = review_record.reviewed_at
     scene.save(
         update_fields=[
             "draft_review_data",
@@ -3505,44 +3544,89 @@ def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> dict[
             "draft_review_generated_at",
         ]
     )
-    return review
+    return review_record
 
 
-def _scene_draft_review_is_fresh(scene: OutlineNode) -> bool:
-    if not scene.draft_review_data or not scene.draft_review_fingerprint:
+def _scene_draft_review_is_fresh(scene: OutlineNode, review: SceneCriticReview | None = None) -> bool:
+    review = review or _get_latest_scene_review(scene)
+    if review is None or not review.source_fingerprint:
         return False
-    return scene.draft_review_fingerprint == _scene_draft_review_fingerprint(scene)
+    return review.source_fingerprint == _scene_draft_review_fingerprint(scene)
 
 
-def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
+def _build_scene_draft_review(
+    scene: OutlineNode,
+    *,
+    user,
+    previous_review: SceneCriticReview | None = None,
+) -> dict[str, object]:
     summary = (scene.summary or "").strip()
     draft = (scene.structure_json or "").strip()
     if not summary or not draft:
         raise ValueError("Add both a Scene Outline and a Draft before requesting a critic review.")
 
     summary_for_prompt, draft_for_prompt, truncated = _get_scene_draft_review_prompt_inputs(scene)
-    prompt = "\n".join(
-        [
-            "You are a rigorous fiction editor reviewing how well a scene draft executes its scene outline.",
-            "Return STRICT JSON only.",
-            "Output one object with exactly these keys: findings, overall_assessment, recommendations.",
-            "Rules:",
-            "- 'findings' must be a JSON array of concise strings ordered by severity.",
-            "- Focus on missed outline beats, weak execution, repetition, vague evidence, pacing drift, and awkward prose.",
-            "- Be concrete and critical. Do not soften weak points with filler praise.",
-            "- Reference the actual outline and draft content, not generic writing advice.",
-            "- 'overall_assessment' must be one concise paragraph.",
-            "- 'recommendations' must be a JSON array of specific revision actions.",
-            "- Prefer actionable edits over abstract theory.",
-            "- If the draft is truncated for review, mention risks caused by reviewing a partial draft when relevant.",
-            "",
-            "Scene Outline:",
-            summary_for_prompt,
-            "",
-            "Draft:",
-            draft_for_prompt,
-        ]
-    ).strip()
+    has_previous_review = previous_review is not None
+    prompt_lines = [
+        "You are a rigorous fiction editor reviewing how well a scene draft executes its scene outline.",
+        "Return STRICT JSON only.",
+        "Output one object with exactly these keys: findings, overall_assessment, recommendations, improvements_vs_previous.",
+        "Rules:",
+        "- 'findings' must be a JSON array of concise strings ordered by severity.",
+        "- Focus on missed outline beats, weak execution, repetition, vague evidence, pacing drift, and awkward prose.",
+        "- Be concrete and critical. Do not soften weak points with filler praise.",
+        "- Reference the actual outline and draft content, not generic writing advice.",
+        "- 'overall_assessment' must be one concise paragraph.",
+        "- 'recommendations' must be a JSON array of specific revision actions.",
+        "- Prefer actionable edits over abstract theory.",
+        "- 'improvements_vs_previous' must be one concise paragraph comparing this review to the previous critic review.",
+        "- If the draft is truncated for review, mention risks caused by reviewing a partial draft when relevant.",
+        "",
+        "Scene title:",
+        (scene.title or "").strip() or "(Untitled scene)",
+        "",
+        "Scene Outline:",
+        summary_for_prompt,
+        "",
+        "Draft:",
+        draft_for_prompt,
+    ]
+    if has_previous_review:
+        prompt_lines.extend(
+            [
+                "",
+                "A previous saved critic review exists for this scene.",
+                "Do not say this is the first saved review.",
+                "The improvements_vs_previous field must compare the current review against the previous saved review below.",
+            ]
+        )
+        prompt_lines.extend(
+            [
+                "",
+                "Previous critic review:",
+                json.dumps(
+                    {
+                        "findings": [str(item).strip() for item in (previous_review.findings or []) if str(item).strip()],
+                        "overall_assessment": str(previous_review.overall_assessment or "").strip(),
+                        "recommendations": [
+                            str(item).strip() for item in (previous_review.recommendations or []) if str(item).strip()
+                        ],
+                        "improvements_vs_previous": str(previous_review.improvements_vs_previous or "").strip(),
+                        "reviewed_at": previous_review.reviewed_at.isoformat() if previous_review.reviewed_at else "",
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+    else:
+        prompt_lines.extend(
+            [
+                "",
+                "No previous saved critic review exists for this scene.",
+                "For improvements_vs_previous, state that this is the first saved review for the scene.",
+            ]
+        )
+    prompt = "\n".join(prompt_lines).strip()
     model_name = get_user_text_model(user)
     params = {"temperature": 0.3, "max_tokens": 1200}
     data = _call_tracked_llm_json_object(
@@ -3557,10 +3641,23 @@ def _build_scene_draft_review(scene: OutlineNode, *, user) -> dict[str, object]:
     findings = [str(item).strip() for item in (data.get("findings") or []) if str(item).strip()]
     recommendations = [str(item).strip() for item in (data.get("recommendations") or []) if str(item).strip()]
     overall_assessment = str(data.get("overall_assessment") or "").strip()
+    improvements_vs_previous = str(data.get("improvements_vs_previous") or "").strip()
+    if has_previous_review:
+        normalized_improvements = improvements_vs_previous.lower()
+        if "first saved review" in normalized_improvements or "no previous review" in normalized_improvements:
+            previous_assessment = str(previous_review.overall_assessment or "").strip() if previous_review is not None else ""
+            if previous_assessment:
+                improvements_vs_previous = (
+                    "Compared with the previous saved review, this pass should be judged against the earlier assessment: "
+                    f"{previous_assessment}"
+                )
+            else:
+                improvements_vs_previous = "Compared with the previous saved review, reassess the draft against the earlier findings and recommendations."
     return {
         "findings": findings,
         "overall_assessment": overall_assessment,
         "recommendations": recommendations,
+        "improvements_vs_previous": improvements_vs_previous,
         "source_truncated": bool(truncated),
     }
 
@@ -4862,6 +4959,16 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
                 reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
             )
 
+        if self.object.node_type == OutlineNode.NodeType.SCENE and action == "review":
+            form = self.get_form()
+            if not form.is_valid():
+                return self.form_invalid(form)
+            scene = form.save()
+            messages.success(request, "Saved.")
+            return HttpResponseRedirect(
+                reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": scene.id})
+            )
+
         return super().post(request, *args, **kwargs)
 
 
@@ -4885,14 +4992,16 @@ class SceneDraftReviewView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         scene = self.object
+        latest_review = _get_latest_scene_review(scene)
         ctx["project"] = self.project
         ctx["back_url"] = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": scene.id})
         ctx["review_error"] = ""
-        ctx["review"] = _serialize_scene_review(scene)
-        ctx["review_ready"] = _scene_draft_review_is_fresh(scene)
-        ctx["review_generated_at"] = scene.draft_review_generated_at
-        ctx["review_model_name"] = (scene.draft_review_model_name or "").strip()
-        ctx["review_needs_refresh"] = bool(scene.draft_review_data) and not ctx["review_ready"]
+        ctx["review"] = _serialize_scene_review(latest_review)
+        ctx["review_history"] = _serialize_scene_review_history(scene)
+        ctx["review_ready"] = _scene_draft_review_is_fresh(scene, latest_review)
+        ctx["review_generated_at"] = latest_review.reviewed_at if latest_review is not None else None
+        ctx["review_model_name"] = (latest_review.model_name or "").strip() if latest_review is not None else ""
+        ctx["review_needs_refresh"] = bool(latest_review) and not ctx["review_ready"]
         if not (scene.summary or "").strip() or not (scene.structure_json or "").strip():
             ctx["review_error"] = "Add both a Scene Outline and a Draft before requesting a critic review."
         elif not ctx["review_ready"]:

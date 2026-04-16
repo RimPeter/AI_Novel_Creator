@@ -300,6 +300,27 @@ class OutlineNode(TimeStampedModel):
         return f"{self.get_node_type_display()}: {self.title or str(self.id)[:8]}"
 
 
+class SceneCriticReview(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scene = models.ForeignKey(OutlineNode, on_delete=models.CASCADE, related_name="critic_reviews")
+    scene_title_snapshot = models.CharField(max_length=255, blank=True, default="")
+    reviewed_at = models.DateTimeField(default=timezone.now, db_index=True)
+    findings = models.JSONField(blank=True, default=list)
+    overall_assessment = models.TextField(blank=True, default="")
+    recommendations = models.JSONField(blank=True, default=list)
+    improvements_vs_previous = models.TextField(blank=True, default="")
+    model_name = models.CharField(max_length=120, blank=True, default="")
+    source_fingerprint = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    source_truncated = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-reviewed_at", "-created_at", "-id"]
+
+    def __str__(self) -> str:
+        scene_name = self.scene_title_snapshot or self.scene.title or str(self.scene_id)
+        return f"Critic review for {scene_name}"
+
+
 class ManuscriptChunk(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     outline_node = models.ForeignKey(OutlineNode, on_delete=models.CASCADE, related_name="chunks")

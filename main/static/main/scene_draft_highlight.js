@@ -319,6 +319,15 @@
         event.preventDefault();
         return;
       }
+      const loadingMessages = {
+        structurize: "Generating draft from scene outline...",
+        reshuffle: "Regenerating draft...",
+        review: "Saving scene and opening critic review...",
+      };
+      const loadingMessage = loadingMessages[action];
+      if (loadingMessage && window.AppUI?.showLoading) {
+        window.AppUI.showLoading(loadingMessage);
+      }
       if (action !== "reshuffle") return;
       try {
         window.sessionStorage.setItem(

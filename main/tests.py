@@ -33,6 +33,7 @@ from .models import (
     NovelProject,
     OutlineNode,
     ProcessedStripeEvent,
+    SceneCriticReview,
     StoryBible,
     StoryBibleDocument,
     UserSubscription,
@@ -2134,7 +2135,8 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertContains(resp, "Scene Outline")
         self.assertContains(resp, "Draft from Scene Outline")
         self.assertContains(resp, "Critic/Review")
-        self.assertContains(resp, reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
+        self.assertContains(resp, 'name="action"', html=False)
+        self.assertContains(resp, 'value="review"', html=False)
         self.assertContains(resp, 'id="scene-add-details-btn"', html=False)
         self.assertContains(resp, "Add Detail")
         self.assertContains(resp, 'name="summary"', html=False)
@@ -2664,7 +2666,7 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         with patch(
             "main.views.call_llm",
             return_value=LLMResult(
-                text="{\"findings\":[\"A concrete evidence beat is missing.\"],\"overall_assessment\":\"Readable but too generalized.\",\"recommendations\":[\"Show the contradiction in Unit X-9's testimony directly.\"]}",
+                text="{\"findings\":[\"A concrete evidence beat is missing.\"],\"overall_assessment\":\"Readable but too generalized.\",\"recommendations\":[\"Show the contradiction in Unit X-9's testimony directly.\"],\"improvements_vs_previous\":\"First review for this scene; no previous review to compare.\"}",
                 usage={"ok": True},
             ),
         ) as mock_call:
@@ -2673,12 +2675,21 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], url)
         self.scene.refresh_from_db()
+        saved_review = SceneCriticReview.objects.get(scene=self.scene)
+        self.assertEqual(saved_review.scene_title_snapshot, "Scene 1")
+        self.assertEqual(saved_review.findings, ["A concrete evidence beat is missing."])
+        self.assertEqual(saved_review.overall_assessment, "Readable but too generalized.")
+        self.assertEqual(saved_review.recommendations, ["Show the contradiction in Unit X-9's testimony directly."])
+        self.assertEqual(saved_review.improvements_vs_previous, "First review for this scene; no previous review to compare.")
+        self.assertFalse(saved_review.source_truncated)
+        self.assertEqual(saved_review.model_name, "gpt-4o-mini")
         self.assertEqual(
             self.scene.draft_review_data,
             {
                 "findings": ["A concrete evidence beat is missing."],
                 "overall_assessment": "Readable but too generalized.",
                 "recommendations": ["Show the contradiction in Unit X-9's testimony directly."],
+                "improvements_vs_previous": "First review for this scene; no previous review to compare.",
                 "source_truncated": False,
             },
         )
@@ -2692,25 +2703,19 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
 
     def test_scene_draft_review_get_renders_cached_review_and_back_link(self):
         self.scene.structure_json = "Draft text."
-        self.scene.draft_review_data = {
-            "findings": ["A concrete evidence beat is missing."],
-            "overall_assessment": "Readable but too generalized.",
-            "recommendations": ["Show the contradiction in Unit X-9's testimony directly."],
-            "source_truncated": False,
-        }
-        self.scene.draft_review_fingerprint = hashlib.sha256(
-            f"{self.scene.summary.strip()}\n||\nDraft text.".encode("utf-8")
-        ).hexdigest()
-        self.scene.draft_review_model_name = "gpt-4o-mini"
-        self.scene.draft_review_generated_at = timezone.now()
-        self.scene.save(
-            update_fields=[
-                "structure_json",
-                "draft_review_data",
-                "draft_review_fingerprint",
-                "draft_review_model_name",
-                "draft_review_generated_at",
-            ]
+        self.scene.save(update_fields=["structure_json"])
+        reviewed_at = timezone.now()
+        SceneCriticReview.objects.create(
+            scene=self.scene,
+            scene_title_snapshot="Scene 1",
+            reviewed_at=reviewed_at,
+            findings=["A concrete evidence beat is missing."],
+            overall_assessment="Readable but too generalized.",
+            recommendations=["Show the contradiction in Unit X-9's testimony directly."],
+            improvements_vs_previous="First review for this scene; no previous review to compare.",
+            model_name="gpt-4o-mini",
+            source_fingerprint=hashlib.sha256(f"{self.scene.summary.strip()}\n||\nDraft text.".encode("utf-8")).hexdigest(),
+            source_truncated=False,
         )
         url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         with patch("main.views.call_llm") as mock_call:
@@ -2723,8 +2728,10 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertContains(resp, "A concrete evidence beat is missing.")
         self.assertContains(resp, "Readable but too generalized.")
         self.assertContains(resp, "Show the contradiction in Unit X-9&#x27;s testimony directly.", html=False)
+        self.assertContains(resp, "First review for this scene; no previous review to compare.")
         self.assertContains(resp, reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id}))
         self.assertContains(resp, "Review cached for current scene content.")
+        self.assertContains(resp, "Review History")
 
     def test_scene_draft_review_page_shows_error_when_outline_or_draft_missing(self):
         self.scene.structure_json = ""
@@ -2737,14 +2744,18 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
 
     def test_scene_draft_review_get_shows_stale_message_without_spending_tokens(self):
         self.scene.structure_json = "Draft text changed."
-        self.scene.draft_review_data = {
-            "findings": ["Old finding."],
-            "overall_assessment": "Old assessment.",
-            "recommendations": ["Old recommendation."],
-            "source_truncated": False,
-        }
-        self.scene.draft_review_fingerprint = "stale"
-        self.scene.save(update_fields=["structure_json", "draft_review_data", "draft_review_fingerprint"])
+        self.scene.save(update_fields=["structure_json"])
+        SceneCriticReview.objects.create(
+            scene=self.scene,
+            scene_title_snapshot="Scene 1",
+            findings=["Old finding."],
+            overall_assessment="Old assessment.",
+            recommendations=["Old recommendation."],
+            improvements_vs_previous="First review for this scene; no previous review to compare.",
+            model_name="gpt-4o-mini",
+            source_fingerprint="stale",
+            source_truncated=False,
+        )
         url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
         with patch("main.views.call_llm") as mock_call:
             resp = self.client.get(url)
@@ -2761,7 +2772,7 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         with patch(
             "main.views.call_llm",
             return_value=LLMResult(
-                text="{\"findings\":[\"The middle section may hide pacing issues.\"],\"overall_assessment\":\"Partial but still useful review.\",\"recommendations\":[\"Run a deeper review after tightening the draft.\"]}",
+                text="{\"findings\":[\"The middle section may hide pacing issues.\"],\"overall_assessment\":\"Partial but still useful review.\",\"recommendations\":[\"Run a deeper review after tightening the draft.\"],\"improvements_vs_previous\":\"First review for this scene; no previous review to compare.\"}",
                 usage={"ok": True},
             ),
         ) as mock_call:
@@ -2770,8 +2781,99 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         prompt = mock_call.call_args.kwargs["prompt"]
         self.assertIn("[... review input truncated ...]", prompt)
+        saved_review = SceneCriticReview.objects.get(scene=self.scene)
+        self.assertEqual(saved_review.source_truncated, True)
+
+    def test_scene_draft_review_second_generation_compares_to_previous_review(self):
+        self.scene.structure_json = "Draft text."
+        self.scene.save(update_fields=["structure_json"])
+        SceneCriticReview.objects.create(
+            scene=self.scene,
+            scene_title_snapshot="Old scene name",
+            findings=["Old finding."],
+            overall_assessment="Old assessment.",
+            recommendations=["Old recommendation."],
+            improvements_vs_previous="First review for this scene; no previous review to compare.",
+            model_name="gpt-4o-mini",
+            source_fingerprint="older-fingerprint",
+            source_truncated=False,
+        )
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text="{\"findings\":[\"The scene now lands the reveal more clearly.\"],\"overall_assessment\":\"Sharper and more specific than the prior pass.\",\"recommendations\":[\"Tighten the closing image.\"],\"improvements_vs_previous\":\"This draft addresses the earlier missing evidence beat and is more specific overall.\"}",
+                usage={"ok": True},
+            ),
+        ) as mock_call:
+            resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(SceneCriticReview.objects.filter(scene=self.scene).count(), 2)
+        latest_review = SceneCriticReview.objects.filter(scene=self.scene).order_by("-reviewed_at", "-created_at", "-id").first()
+        self.assertEqual(latest_review.scene_title_snapshot, "Scene 1")
+        self.assertEqual(
+            latest_review.improvements_vs_previous,
+            "This draft addresses the earlier missing evidence beat and is more specific overall.",
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Previous critic review:", prompt)
+        self.assertIn("Old finding.", prompt)
+
+    def test_scene_draft_review_replaces_false_first_review_text_when_previous_review_exists(self):
+        self.scene.structure_json = "Draft text."
+        self.scene.save(update_fields=["structure_json"])
+        SceneCriticReview.objects.create(
+            scene=self.scene,
+            scene_title_snapshot="Scene 1",
+            findings=["Old finding."],
+            overall_assessment="Old assessment.",
+            recommendations=["Old recommendation."],
+            improvements_vs_previous="First review for this scene; no previous review to compare.",
+            model_name="gpt-4o-mini",
+            source_fingerprint="older-fingerprint",
+            source_truncated=False,
+        )
+        url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text="{\"findings\":[\"A new problem appears.\"],\"overall_assessment\":\"New assessment.\",\"recommendations\":[\"New recommendation.\"],\"improvements_vs_previous\":\"This is the first saved review for the scene.\"}",
+                usage={"ok": True},
+            ),
+        ):
+            resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 302)
+        latest_review = SceneCriticReview.objects.filter(scene=self.scene).order_by("-reviewed_at", "-created_at", "-id").first()
+        self.assertNotIn("first saved review", latest_review.improvements_vs_previous.lower())
+        self.assertIn("previous saved review", latest_review.improvements_vs_previous.lower())
+
+    def test_scene_review_action_saves_scene_before_redirect(self):
+        url = reverse("outline-node-edit", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+        review_url = reverse("scene-draft-review", kwargs={"slug": self.project.slug, "pk": self.scene.id})
+
+        resp = self.client.post(
+            url,
+            data={
+                "order": self.scene.order,
+                "title": "Updated Scene Name",
+                "summary": "- Updated beat one.\n- Updated beat two.",
+                "pov": "Ava",
+                "location": "Docking bay",
+                "characters": [],
+                "structure_json": "Updated draft text.",
+                "rendered_text": "",
+                "action": "review",
+            },
+        )
+
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], review_url)
         self.scene.refresh_from_db()
-        self.assertEqual(self.scene.draft_review_data["source_truncated"], True)
+        self.assertEqual(self.scene.title, "Updated Scene Name")
+        self.assertEqual(self.scene.summary, "- Updated beat one.\n- Updated beat two.")
+        self.assertEqual(self.scene.structure_json, "Updated draft text.")
 
     def test_structurize_continues_when_generation_hits_length_limit(self):
         self.scene.summary = "- Ava corners the informant.\n- The hidden buyer is exposed."

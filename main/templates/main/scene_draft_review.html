@@ -39,7 +39,12 @@
       {% endif %}
       {% if review_error %}
         <div class="form-errors">{{ review_error }}</div>
-      {% else %}
+      {% endif %}
+      {% if review.findings or review.overall_assessment or review.recommendations or review.improvements_vs_previous %}
+        <div class="muted">
+          {% if review.scene_name %}Scene snapshot: {{ review.scene_name }}.{% endif %}
+          {% if review.reviewed_at %} Reviewed: {{ review.reviewed_at }}.{% endif %}
+        </div>
         <div class="form-row">
           <label class="form-label">Findings</label>
           <ul>
@@ -62,7 +67,31 @@
             {% endfor %}
           </ul>
         </div>
+
+        <div class="form-row">
+          <label class="form-label">Improvements Compared To Previous Review</label>
+          <p>{{ review.improvements_vs_previous }}</p>
+        </div>
+      {% else %}
+        <div class="muted">No critic review has been saved for this scene yet.</div>
       {% endif %}
     </section>
+
+    {% if review_history %}
+      <section class="card page-panel">
+        <div class="form-row">
+          <label class="form-label">Review History</label>
+          <ul>
+            {% for item in review_history %}
+              <li>
+                {% if item.reviewed_at %}<strong>{{ item.reviewed_at }}</strong>{% endif %}
+                {% if item.scene_name %} - {{ item.scene_name }}{% endif %}
+                {% if item.overall_assessment %}: {{ item.overall_assessment }}{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+    {% endif %}
   </div>
 {% endblock %}

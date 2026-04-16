@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BillingCompanyProfile, BillingInvoice, HomeUpdate, ProcessedStripeEvent, UserSubscription
+from .models import BillingCompanyProfile, BillingInvoice, HomeUpdate, ProcessedStripeEvent, SceneCriticReview, UserSubscription
 
 
 @admin.register(HomeUpdate)
@@ -41,3 +41,11 @@ class BillingInvoiceAdmin(admin.ModelAdmin):
 @admin.register(BillingCompanyProfile)
 class BillingCompanyProfileAdmin(admin.ModelAdmin):
     list_display = ("company_name", "company_email", "updated_at")
+
+
+@admin.register(SceneCriticReview)
+class SceneCriticReviewAdmin(admin.ModelAdmin):
+    list_display = ("scene_title_snapshot", "scene", "reviewed_at", "model_name", "source_truncated")
+    search_fields = ("scene_title_snapshot", "scene__title", "scene__project__title", "overall_assessment")
+    list_filter = ("source_truncated", "model_name", "reviewed_at")
+    readonly_fields = ("created_at", "updated_at")

@@ -12,20 +12,21 @@
   </head>
   <body class="{% block body_class %}{% endblock body_class %}">
     {% include "main/navbar.html" %}
+    {% if messages %}
+      <ul class="messages" aria-live="polite">
+        {% for message in messages %}
+          <li class="message message-{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     <main class="wrap {% block main_class %}{% endblock main_class %}">
-      {% if messages %}
-        <ul class="messages">
-          {% for message in messages %}
-            <li class="message message-{{ message.tags }}">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
       {% block body %}
         <section class="card">
           {% block content %}{% endblock content %}
         </section>
       {% endblock body %}
     </main>
+    <script src="{% static 'main/ui_helpers.js' %}" defer></script>
     <script src="{% static 'main/navbar_dropdown.js' %}" defer></script>
     {% block extra_body %}{% endblock extra_body %}
   </body>

@@ -10,14 +10,14 @@
   </head>
   <body>
     {% include "main/navbar.html" %}
+    {% if messages %}
+      <ul class="messages" aria-live="polite">
+        {% for message in messages %}
+          <li class="message message-{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     <main class="wrap">
-      {% if messages %}
-        <ul class="messages">
-          {% for message in messages %}
-            <li class="message message-{{ message.tags }}">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
       {% block content %}
         <section class="card">
           <h1>Welcome to AI Novel Creator</h1>
@@ -30,6 +30,7 @@
         </section>
       {% endblock %}
     </main>
+    <script src="{% static 'main/ui_helpers.js' %}" defer></script>
     <script src="{% static 'main/navbar_dropdown.js' %}" defer></script>
   </body>
 </html>

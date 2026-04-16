@@ -143,6 +143,9 @@
       csrfToken,
       failureLabel: "Request failed",
     });
+    if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
+      return null;
+    }
     if (!result.ok) {
       ui.showMessage(result.error, "error");
       return null;
@@ -152,6 +155,8 @@
   };
 
   brainstormBtn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     brainstormBtn.disabled = true;
     const originalText = brainstormBtn.textContent;
     brainstormBtn.textContent = "Brainstorming...";
@@ -176,6 +181,8 @@
   });
 
   addDetailsBtn.addEventListener("click", async () => {
+    if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
     const current = getCurrentValues();
     if (!Object.values(current).some(Boolean)) {
       ui.showMessage("Add at least one scene detail first.", "warning");

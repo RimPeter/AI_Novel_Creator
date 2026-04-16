@@ -39,6 +39,9 @@
     <section
       class="card page-panel"
       {% if node_kind == "scene" %}
+        data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
+        data-ai-billing-url="{{ ai_billing_url|default:'' }}"
+        data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
         data-location-create-url="{% url 'location-create' slug=project.slug %}?next={{ request.get_full_path|urlencode }}"
         {% if object %}
           data-scene-brainstorm-url="{% url 'scene-brainstorm' slug=project.slug pk=object.id %}"

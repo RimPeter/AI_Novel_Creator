@@ -508,11 +508,18 @@ a:hover {
 }
 
 .messages {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: min(720px, calc(100vw - 24px));
   list-style: none;
   padding: 0;
-  margin: 0 0 16px;
+  margin: 0;
   display: grid;
   gap: 10px;
+  pointer-events: none;
 }
 
 .message {
@@ -520,6 +527,9 @@ a:hover {
   border-radius: 12px;
   border: 1px solid rgba(127, 127, 127, 0.25);
   background: rgba(127, 127, 127, 0.08);
+  box-shadow: 0 12px 28px rgba(3, 8, 18, 0.28);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
 }
 
 .message-success {
@@ -540,6 +550,13 @@ a:hover {
 .message-info {
   border-color: rgba(90, 140, 255, 0.55);
   background: rgba(90, 140, 255, 0.16);
+}
+
+.message-loading {
+  border-color: rgba(120, 169, 255, 0.45);
+  background:
+    linear-gradient(90deg, rgba(255, 188, 117, 0.14), rgba(120, 169, 255, 0.18)),
+    rgba(90, 140, 255, 0.14);
 }
 
 .card {

@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
   --app-bg: #09111f;
   --app-bg-soft: #13233f;
   --app-surface: rgba(15, 22, 38, 0.72);
@@ -53,7 +53,7 @@ body::after {
   background: rgba(120, 169, 255, 0.18);
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   :root {
     --app-surface: rgba(255, 255, 255, 0.74);
     --app-surface-soft: rgba(255, 255, 255, 0.72);
@@ -90,7 +90,7 @@ a:hover {
   box-shadow: 0 10px 30px rgba(4, 10, 22, 0.12);
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   .navbar {
     background: rgba(255, 255, 255, 0.72);
   }
@@ -465,7 +465,7 @@ a:hover {
   }
 }
 
-@media (max-width: 720px) and (prefers-color-scheme: light) {
+@media not all {
   .navbar-toggle {
     border-color: rgba(26, 39, 66, 0.12);
     background:
@@ -618,14 +618,14 @@ ul {
 }
 
 .scene-chapter-menu-toggle::after {
-  content: "▾";
+  content: "\25BE";
   margin-left: 8px;
   font-size: 12px;
   opacity: 0.8;
 }
 
 .scene-chapter-menu[open] .scene-chapter-menu-toggle::after {
-  content: "▴";
+  content: "\25B4";
 }
 
 .scene-chapter-menu-panel {
@@ -780,7 +780,7 @@ ul {
   white-space: pre-wrap;
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   .update-note {
     background:
       linear-gradient(180deg, rgba(255, 244, 184, 0.55), rgba(255, 255, 255, 0.72)),
@@ -1812,7 +1812,7 @@ ul {
   transform: translateY(0);
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   .reject-tooltip {
     background: #000000;
     color: #f3f4f6;
@@ -1850,7 +1850,7 @@ select {
   }
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   select,
   option {
     background-color: #ffffff;
@@ -2223,7 +2223,7 @@ textarea.auto-grow {
   display: none;
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   .draft-input {
     caret-color: #101114;
   }
@@ -3538,7 +3538,7 @@ textarea.auto-grow {
   filter: brightness(1.06);
 }
 
-@media (prefers-color-scheme: light) {
+@media not all {
   .projects-hero {
     background:
       radial-gradient(circle at top left, rgba(255, 188, 117, 0.2), transparent 28%),

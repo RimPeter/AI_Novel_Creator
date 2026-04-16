@@ -314,7 +314,15 @@ if os.name == "nt":
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATICFILES_DIRS = []
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 WHITENOISE_USE_FINDERS = DEBUG or RUNNING_TESTS
 if RUNNING_TESTS:
     STATIC_ROOT.mkdir(parents=True, exist_ok=True)
@@ -328,9 +336,9 @@ if USE_S3_MEDIA:
     AWS_QUERYSTRING_AUTH = env_bool("AWS_QUERYSTRING_AUTH", True)
     _media_domain = AWS_S3_CUSTOM_DOMAIN or (f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com" if AWS_STORAGE_BUCKET_NAME else "")
     MEDIA_URL = f"https://{_media_domain}/media/" if _media_domain else "/media/"
-    STORAGES = {
-        "default": {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {"location": "media"}},
-        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {"location": "media"},
     }
 else:
     MEDIA_URL = "/media/"

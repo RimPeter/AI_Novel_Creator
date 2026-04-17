@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
+import stripe
 from stripe._stripe_object import StripeObject
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -20,7 +21,7 @@ from django.utils import timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
-from .billing import process_webhook_event, sync_checkout_session, sync_subscription_record
+from .billing import ensure_stripe_customer, process_webhook_event, sync_checkout_session, sync_subscription_record
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm
 from .models import (
     BillingCompanyProfile,
@@ -1220,6 +1221,23 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(record.stripe_subscription_id, "sub_123")
         self.assertEqual(record.stripe_price_id, "price_monthly_123")
         self.assertEqual(record.billing_interval, "month")
+
+    @patch("main.billing.stripe.Customer.create")
+    @patch("main.billing.stripe.Customer.retrieve")
+    def test_ensure_stripe_customer_recreates_missing_customer(self, mock_retrieve, mock_create):
+        record = UserSubscription.objects.create(user=self.user, stripe_customer_id="cus_missing_123")
+        mock_retrieve.side_effect = stripe.error.InvalidRequestError(
+            message="No such customer: 'cus_missing_123'",
+            param="customer",
+        )
+        mock_create.return_value = SimpleNamespace(id="cus_new_123")
+
+        refreshed_record, customer_id = ensure_stripe_customer(self.user)
+
+        self.assertEqual(refreshed_record.pk, record.pk)
+        self.assertEqual(customer_id, "cus_new_123")
+        record.refresh_from_db()
+        self.assertEqual(record.stripe_customer_id, "cus_new_123")
 
     def test_sync_subscription_record_accepts_stripe_object(self):
         subscription = StripeObject.construct_from(

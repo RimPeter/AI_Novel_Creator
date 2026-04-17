@@ -609,7 +609,14 @@ def ensure_stripe_customer(user) -> tuple[UserSubscription, str]:
     _set_stripe_api_key()
     record = get_or_create_subscription_record(user)
     if record.stripe_customer_id:
-        return record, record.stripe_customer_id
+        try:
+            customer = stripe.Customer.retrieve(record.stripe_customer_id)
+            customer_id = str(getattr(customer, "id", "") or record.stripe_customer_id).strip()
+            if customer_id:
+                return record, customer_id
+        except stripe.error.InvalidRequestError as exc:
+            if "No such customer" not in str(exc):
+                raise
 
     customer = stripe.Customer.create(
         email=(getattr(user, "email", "") or "").strip() or None,

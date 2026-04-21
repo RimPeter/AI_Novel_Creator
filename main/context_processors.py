@@ -5,3 +5,11 @@ def navbar_text_model(request):
     if not getattr(request.user, "is_authenticated", False):
         return {}
     return {"navbar_text_model": get_user_text_model(request.user)}
+
+
+def optional_apps(request):
+    from django.conf import settings
+
+    return {
+        "youtube_app_enabled": bool(getattr(settings, "YOUTUBE_APP_ENABLED", False)),
+    }

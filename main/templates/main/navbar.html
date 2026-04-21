@@ -32,8 +32,10 @@
             <a href="{% url 'token-usage' %}">Token Usage</a>
             <a href="{% url 'billing' %}">Billing</a>
             <a href="{% url 'contact' %}">Contact</a>
-            {% if user.is_superuser %}
+            {% if user.is_superuser and youtube_app_enabled %}
               <a href="{% url 'youtube:index' %}">Channel List</a>
+            {% endif %}
+            {% if user.is_superuser %}
               <a href="{% url 'home-update-create' %}">Post Update</a>
               <a href="{% url 'admin:index' %}">Admin</a>
             {% endif %}

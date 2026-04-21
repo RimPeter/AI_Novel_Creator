@@ -25,10 +25,12 @@ urlpatterns = [
     path("accounts/email/", ManagedEmailView.as_view(), name="account_email"),
     path("accounts/", include("allauth.urls")),
     path("admin/", admin.site.urls),
-    path("youtube/", include("youtube.urls")),
     path("", include("security.urls")),
     path("", include("main.urls")),
 ]
+
+if settings.YOUTUBE_APP_ENABLED:
+    urlpatterns.insert(3, path("youtube/", include("youtube.urls")))
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

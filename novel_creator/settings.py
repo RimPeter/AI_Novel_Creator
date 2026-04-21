@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from email.utils import parseaddr
+import importlib.util
 import os
 import sys
 
@@ -120,6 +121,7 @@ SECURITY_RATE_LIMIT_RULES = {
     "billing-webhook": (120, 60),
 }
 USE_S3_MEDIA = env_bool("USE_S3_MEDIA", False)
+YOUTUBE_APP_ENABLED = importlib.util.find_spec("youtube") is not None
 
 
 
@@ -138,8 +140,9 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'security',
     'main',
-    'youtube',
 ]
+if YOUTUBE_APP_ENABLED:
+    INSTALLED_APPS.append("youtube")
 if USE_S3_MEDIA:
     INSTALLED_APPS.append("storages")
 
@@ -169,6 +172,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'main.context_processors.navbar_text_model',
+                'main.context_processors.optional_apps',
             ],
         },
     },

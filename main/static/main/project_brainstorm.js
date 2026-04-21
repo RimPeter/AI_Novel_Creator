@@ -2,12 +2,12 @@
   const section = document.querySelector("[data-project-brainstorm-url]");
   const brainstormBtn = document.getElementById("project-brainstorm-btn");
   const addDetailsBtn = document.getElementById("project-add-details-btn");
-  if (!section || !brainstormBtn || !addDetailsBtn) return;
+  if (!section || !brainstormBtn) return;
 
   const brainstormUrl = section.getAttribute("data-project-brainstorm-url");
   const addDetailsUrl = section.getAttribute("data-project-add-details-url");
   const form = section.querySelector("form");
-  if (!brainstormUrl || !addDetailsUrl || !form) return;
+  if (!brainstormUrl || !form) return;
 
   const ui = window.AppUI;
   if (!ui) return;
@@ -30,6 +30,7 @@
   const postForSuggestions = async (postUrl) => {
     const current = getCurrentValues();
     const params = new URLSearchParams();
+    params.set("title", (getFieldEl("title")?.value || "").trim());
     for (const name of FIELD_NAMES) {
       params.set(name, current[name] || "");
     }
@@ -135,26 +136,28 @@
     }
   });
 
-  addDetailsBtn.addEventListener("click", async () => {
-    const current = getCurrentValues();
-    if (!Object.values(current).some(Boolean)) {
-      ui.showMessage("Add at least one project detail first.", "warning");
-      return;
-    }
+  if (addDetailsBtn && addDetailsUrl) {
+    addDetailsBtn.addEventListener("click", async () => {
+      const current = getCurrentValues();
+      if (!Object.values(current).some(Boolean)) {
+        ui.showMessage("Add at least one project detail first.", "warning");
+        return;
+      }
 
-    addDetailsBtn.disabled = true;
-    const originalText = addDetailsBtn.textContent;
-    addDetailsBtn.textContent = "Adding...";
+      addDetailsBtn.disabled = true;
+      const originalText = addDetailsBtn.textContent;
+      addDetailsBtn.textContent = "Adding...";
 
-    try {
-      const suggestions = await postForSuggestions(addDetailsUrl);
-      if (!suggestions) return;
-      const changed = applyMoreDetails(suggestions);
-      if (!changed) ui.showMessage("No additional details to add right now.", "warning");
-      else ui.showMessage(`Enhanced ${changed} field(s).`, "success");
-    } finally {
-      addDetailsBtn.disabled = false;
-      addDetailsBtn.textContent = originalText;
-    }
-  });
+      try {
+        const suggestions = await postForSuggestions(addDetailsUrl);
+        if (!suggestions) return;
+        const changed = applyMoreDetails(suggestions);
+        if (!changed) ui.showMessage("No additional details to add right now.", "warning");
+        else ui.showMessage(`Enhanced ${changed} field(s).`, "success");
+      } finally {
+        addDetailsBtn.disabled = false;
+        addDetailsBtn.textContent = originalText;
+      }
+    });
+  }
 })();

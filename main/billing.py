@@ -145,7 +145,7 @@ def user_has_active_plan(user) -> bool:
     record = get_subscription_record(user)
     if record is None:
         return False
-    return bool(record.is_active and str(record.status or "").strip().lower() == "active")
+    return bool(record.is_active)
 
 
 def get_subscription_display(user) -> dict[str, Any]:

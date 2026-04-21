@@ -1089,20 +1089,29 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn(reverse("billing"), resp["Location"])
 
-    def test_generation_endpoint_requires_status_active_when_plan_is_trialing(self):
+    def test_generation_endpoint_allows_status_trialing(self):
         self._create_subscription(status="trialing", days=7)
 
-        resp = self.client.post(
-            reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
-            data={},
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-            HTTP_ACCEPT="application/json",
-        )
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Speculative mystery"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
+                data={
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
 
-        self.assertEqual(resp.status_code, 402)
-        self.assertEqual(resp.json()["ok"], False)
-        self.assertIn("active plan", resp.json()["error"].lower())
-        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+        self.assertEqual(resp.status_code, 200)
 
     def test_generation_endpoint_allows_status_active(self):
         self._create_subscription(status="active", days=30)
@@ -1128,13 +1137,13 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
 
-    def test_token_usage_redirects_to_billing_when_plan_is_trialing(self):
+    def test_token_usage_is_available_when_plan_is_trialing(self):
         self._create_subscription(status="trialing", days=7)
 
         resp = self.client.get(reverse("token-usage"))
 
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn(reverse("billing"), resp["Location"])
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Token usage")
 
     def test_token_usage_is_available_when_plan_is_active(self):
         self._create_subscription(status="active", days=30)
@@ -3927,6 +3936,41 @@ class TokenUsageViewTests(AuthenticatedTestCase):
         self.assertContains(usage_resp, "Project Brainstorm")
         self.assertContains(usage_resp, "55")
         self.assertContains(usage_resp, "Project A")
+
+    def test_project_create_page_offers_brainstorm_button(self):
+        resp = self.client.get(reverse("project-create"))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="project-brainstorm-btn"', html=False)
+        self.assertContains(resp, reverse("project-create-brainstorm"))
+
+    def test_project_create_brainstorm_returns_suggestions_without_saved_project(self):
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Space opera", "tone": "Brooding wonder"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            resp = self.client.post(
+                reverse("project-create-brainstorm"),
+                data={
+                    "title": "Starfall",
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {"ok": True, "suggestions": {"genre": "Space opera", "tone": "Brooding wonder"}},
+        )
+        self.assertIn("Project title: Starfall", mock_call.call_args.kwargs["prompt"])
 
     def test_token_usage_page_saves_per_user_text_model_selection(self):
         resp = self.client.post(

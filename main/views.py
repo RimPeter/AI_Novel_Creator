@@ -983,6 +983,98 @@ def home(request):
     return render(request, "main/home.html", {"updates": updates})
 
 
+def _brainstorm_project_suggestions(*, title: str, current: dict[str, str], user, project: NovelProject | None = None) -> dict[str, str]:
+    allowed_fields = [
+        "seed_idea",
+        "genre",
+        "tone",
+        "style_notes",
+    ]
+    empty_fields = [k for k in allowed_fields if not current.get(k)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a novelist's project brainstorming assistant.",
+        "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(allowed_fields),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- Keep genre/tone short (a few words).",
+        "- For seed_idea/style_notes, write concise prose (no bullet points).",
+        "",
+        "Project title: " + (title or ""),
+    ]
+    if project is not None:
+        bible_lines = _get_story_bible_context(project)
+        if bible_lines:
+            prompt_lines.append("")
+            prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
+        [
+            "Existing fields (may be blank):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+    prompt = "\n".join(prompt_lines).strip()
+    model_name = get_user_text_model(user)
+    params = {"temperature": 0.7, "max_tokens": 500}
+
+    if project is not None:
+        data = _call_tracked_llm_json_object(
+            project=project,
+            action_label="Project Brainstorm",
+            prompt=prompt,
+            model_name=model_name,
+            params=params,
+            run_type=GenerationRun.RunType.BIBLE,
+        )
+    else:
+        result = call_llm(prompt=prompt, model_name=model_name, params=params)
+        raw_text = (result.text or "").strip()
+        payload = _extract_json_object(raw_text) if raw_text else "{}"
+        data = json.loads(payload)
+        if not isinstance(data, dict):
+            raise ValueError("Model response must be a JSON object.")
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+@require_POST
+@login_required
+def brainstorm_project_new(request):
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    allowed_fields = [
+        "seed_idea",
+        "genre",
+        "tone",
+        "style_notes",
+    ]
+    current = {k: (request.POST.get(k) or "").strip() for k in allowed_fields}
+
+    try:
+        filtered = _brainstorm_project_suggestions(
+            title=(request.POST.get("title") or "").strip(),
+            current=current,
+            user=request.user,
+        )
+        return JsonResponse({"ok": True, "suggestions": filtered})
+    except Exception:
+        return _json_internal_error()
+
+
 @require_POST
 @login_required
 def brainstorm_project(request, slug):
@@ -1003,57 +1095,15 @@ def brainstorm_project(request, slug):
     if rejected:
         for k in rejected:
             current[k] = ""
-    empty_fields = [k for k in allowed_fields if not current.get(k)]
-    if not empty_fields:
-        return JsonResponse({"ok": True, "suggestions": {}})
-
-    prompt_lines = [
-        "You are a novelist's project brainstorming assistant.",
-        "Goal: fill in ONLY the currently-empty fields with strong, coherent ideas.",
-        "Rules:",
-        "- Return STRICT JSON only (no markdown, no extra text).",
-        "- Output an object with only keys from: " + ", ".join(allowed_fields),
-        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
-        "- Keep genre/tone short (a few words).",
-        "- For seed_idea/style_notes, write concise prose (no bullet points).",
-        "",
-        "Project title: " + (project.title or ""),
-    ]
-    bible_lines = _get_story_bible_context(project)
-    if bible_lines:
-        prompt_lines.append("")
-        prompt_lines.extend(bible_lines)
-    prompt_lines.extend(
-        [
-            "Existing fields (may be blank):",
-            json.dumps(current, ensure_ascii=False),
-        ]
-    )
-    prompt = "\n".join(prompt_lines).strip()
-
     try:
-        model_name = get_user_text_model(request.user)
-        params = {"temperature": 0.7, "max_tokens": 500}
-        data = _call_tracked_llm_json_object(
+        filtered = _brainstorm_project_suggestions(
+            title=(project.title or "").strip(),
+            current=current,
+            user=request.user,
             project=project,
-            action_label="Project Brainstorm",
-            prompt=prompt,
-            model_name=model_name,
-            params=params,
-            run_type=GenerationRun.RunType.BIBLE,
         )
-
-        filtered = {}
-        for key, value in data.items():
-            if key not in empty_fields:
-                continue
-            text = str(value or "").strip()
-            if not text:
-                continue
-            filtered[key] = text
-
         return JsonResponse({"ok": True, "suggestions": filtered})
-    except Exception as e:
+    except Exception:
         return _json_internal_error()
 
 

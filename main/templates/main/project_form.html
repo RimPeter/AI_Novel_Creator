@@ -24,10 +24,8 @@
 
     <section
       class="card page-panel"
-      {% if object %}
-        data-project-brainstorm-url="{% url 'project-brainstorm' slug=object.slug %}"
-        data-project-add-details-url="{% url 'project-add-details' slug=object.slug %}"
-      {% endif %}
+      data-project-brainstorm-url="{% if object %}{% url 'project-brainstorm' slug=object.slug %}{% else %}{% url 'project-create-brainstorm' %}{% endif %}"
+      {% if object %}data-project-add-details-url="{% url 'project-add-details' slug=object.slug %}"{% endif %}
     >
       <div class="page-panel-head">
         <div>
@@ -58,8 +56,8 @@
 
         <div class="actions">
           <button class="btn btn-primary" type="submit">Save</button>
+          <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
           {% if object %}
-            <button class="btn btn-secondary" type="button" id="project-brainstorm-btn">Brainstorm</button>
             <button class="btn btn-secondary" type="button" id="project-add-details-btn">Add more details</button>
             <a class="btn btn-secondary" href="{% url 'project-delete' slug=object.slug %}">Delete</a>
           {% endif %}
@@ -69,9 +67,7 @@
     </section>
   </div>
 
-  {% if object %}
-    <script src="{% static 'main/ui_helpers.js' %}" defer></script>
-    <script src="{% static 'main/project_brainstorm.js' %}" defer></script>
-  {% endif %}
+  <script src="{% static 'main/ui_helpers.js' %}" defer></script>
+  <script src="{% static 'main/project_brainstorm.js' %}" defer></script>
   <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
 {% endblock %}

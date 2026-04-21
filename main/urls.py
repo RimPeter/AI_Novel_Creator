@@ -19,6 +19,7 @@ urlpatterns = [
     path("projects/", views.ProjectListView.as_view(), name="project-list"),
     path("projects/archive/", views.ProjectArchiveListView.as_view(), name="project-archive-list"),
     path("projects/new/", views.ProjectCreateView.as_view(), name="project-create"),
+    path("projects/new/brainstorm/", views.brainstorm_project_new, name="project-create-brainstorm"),
     path("projects/<slug:slug>/archive/", views.archive_project, name="project-archive"),
     path("projects/<slug:slug>/restore/", views.restore_project, name="project-restore"),
     path("projects/<slug:slug>/", views.ProjectDetailView.as_view(), name="project-detail"),

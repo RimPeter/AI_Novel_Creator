@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'security',
     'main',
+    'youtube',
 ]
 if USE_S3_MEDIA:
     INSTALLED_APPS.append("storages")
@@ -184,6 +185,7 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+ACCOUNT_ADAPTER = "main.account_adapter.AccountAdapter"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 
@@ -199,6 +201,7 @@ ACCOUNT_EMAIL_SUBJECT_PREFIX = "[AI Novel Creator] "
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = os.environ.get("ACCOUNT_DEFAULT_HTTP_PROTOCOL", "http" if DEBUG else "https")
 ACCOUNT_FORMS = {
+    "signup": "main.forms.TestingSignupForm",
     "request_login_code": "main.forms.LegacyVerifiedRequestLoginCodeForm",
     "reset_password": "main.forms.LegacyVerifiedResetPasswordForm",
 }

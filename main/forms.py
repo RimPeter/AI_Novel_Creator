@@ -1,7 +1,8 @@
 from django import forms
 
-from allauth.account.forms import RequestLoginCodeForm, ResetPasswordForm
+from allauth.account.forms import RequestLoginCodeForm, ResetPasswordForm, SignupForm
 
+from .account_email import MULTI_ACCOUNT_TEST_EMAIL, is_multi_account_test_email
 from .location_hierarchy import build_location_label_map, collect_descendant_ids
 from .models import BillingCompanyProfile, Character, HomeUpdate, Location, NovelProject, OutlineNode, StoryBible
 from .signals import sync_legacy_account_emails
@@ -23,6 +24,15 @@ class LegacyVerifiedRequestLoginCodeForm(RequestLoginCodeForm):
         if email:
             sync_legacy_account_emails(email=email)
         return super().clean_email()
+
+
+class TestingSignupForm(SignupForm):
+    def validate_unique_email(self, value) -> str:
+        normalized = (value or "").strip().lower()
+        if is_multi_account_test_email(normalized):
+            self.account_already_exists = False
+            return normalized
+        return super().validate_unique_email(value)
 
 
 class NovelProjectForm(forms.ModelForm):

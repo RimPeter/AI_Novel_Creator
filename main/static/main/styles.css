@@ -1303,22 +1303,24 @@ ul {
   padding: 0;
 }
 
-.account-email-choice {
+.account-email-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: 100%;
+  justify-content: space-between;
+  gap: 18px;
   padding: 16px;
-}
-
-.account-email-choice input[type="radio"] {
-  flex: 0 0 auto;
-  accent-color: var(--app-accent);
 }
 
 .account-email-copy {
   display: grid;
   gap: 8px;
+}
+
+.account-email-actions {
+  display: grid;
+  justify-items: stretch;
+  gap: 14px;
+  min-width: 220px;
 }
 
 .account-email-badges {
@@ -3824,5 +3826,18 @@ textarea.auto-grow {
 
   .auth-lead {
     font-size: 16px;
+  }
+
+  .account-email-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .account-email-actions {
+    min-width: 0;
+  }
+
+  .account-email-actions .btn {
+    width: 100%;
   }
 }

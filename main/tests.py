@@ -8,6 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from allauth.account.models import EmailAddress
+from allauth.account.models import get_emailconfirmation_model
 import stripe
 from stripe._stripe_object import StripeObject
 from django.contrib.auth import get_user_model
@@ -136,6 +137,71 @@ class AccountEmailFlowTests(TestCase):
         email_address = EmailAddress.objects.get(email="newwriter@example.com")
         self.assertFalse(email_address.verified)
 
+    def test_signup_allows_duplicate_testing_email_for_multiple_accounts(self):
+        get_user_model().objects.create_user(
+            username="existingtester",
+            email="primaszecsi@gmail.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=get_user_model().objects.get(username="existingtester"),
+            email="primaszecsi@gmail.com",
+            primary=True,
+            verified=False,
+        )
+
+        response = self.client.post(
+            reverse("account_signup"),
+            data={
+                "username": "secondtester",
+                "email": "primaszecsi@gmail.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(get_user_model().objects.filter(username="secondtester").exists())
+        self.assertEqual(
+            EmailAddress.objects.filter(email="primaszecsi@gmail.com").count(),
+            2,
+        )
+
+    def test_duplicate_testing_email_can_be_confirmed_for_multiple_accounts(self):
+        first_user = get_user_model().objects.create_user(
+            username="verifiedtester",
+            email="primaszecsi@gmail.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=first_user,
+            email="primaszecsi@gmail.com",
+            primary=True,
+            verified=True,
+        )
+        second_user = get_user_model().objects.create_user(
+            username="pendingtester",
+            email="primaszecsi@gmail.com",
+            password="password123",
+        )
+        pending = EmailAddress.objects.create(
+            user=second_user,
+            email="primaszecsi@gmail.com",
+            primary=True,
+            verified=False,
+        )
+        confirmation = get_emailconfirmation_model().create(pending)
+
+        response = self.client.get(
+            reverse("account_confirm_email", args=[confirmation.key]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        pending.refresh_from_db()
+        self.assertTrue(pending.verified)
+
     def test_login_page_offers_email_sign_in_code_recovery(self):
         response = self.client.get(reverse("account_login"))
 
@@ -192,6 +258,99 @@ class AccountEmailFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(any(user.email in message.to for message in mail.outbox))
         self.assertTrue(any("password" in message.subject.lower() for message in mail.outbox))
+
+    def test_primary_email_cannot_be_deleted_even_if_another_verified_email_exists(self):
+        user = get_user_model().objects.create_user(
+            username="primarylocked",
+            email="primarylocked@example.com",
+            password="password123",
+        )
+        primary = EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=True,
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email="backup@example.com",
+            primary=False,
+            verified=True,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("account_email"),
+            data={"email": primary.email, "action_remove": "1"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(EmailAddress.objects.filter(pk=primary.pk).exists())
+        self.assertContains(response, "You cannot remove your primary email address")
+
+    def test_secondary_email_can_be_deleted_when_another_verified_email_exists(self):
+        user = get_user_model().objects.create_user(
+            username="secondarydelete",
+            email="secondarydelete@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=True,
+        )
+        removable = EmailAddress.objects.create(
+            user=user,
+            email="extra@example.com",
+            primary=False,
+            verified=False,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("account_email"),
+            data={"email": removable.email, "action_remove": "1"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(EmailAddress.objects.filter(pk=removable.pk).exists())
+        self.assertContains(response, "Removed email address extra@example.com.")
+
+    def test_email_cannot_be_deleted_without_another_verified_email_remaining(self):
+        user = get_user_model().objects.create_user(
+            username="needsverified",
+            email="needsverified@example.com",
+            password="password123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            primary=True,
+            verified=False,
+        )
+        removable = EmailAddress.objects.create(
+            user=user,
+            email="pending@example.com",
+            primary=False,
+            verified=False,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("account_email"),
+            data={"email": removable.email, "action_remove": "1"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(EmailAddress.objects.filter(pk=removable.pk).exists())
+        self.assertContains(
+            response,
+            "You can only remove this email address when another verified email address remains on the account.",
+        )
 
 
 class NavbarVisibilityTests(TestCase):

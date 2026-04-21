@@ -1,5 +1,6 @@
 (() => {
   const FLASH_STORAGE_KEY = "app-ui-flash-message";
+  const DEFAULT_MESSAGE_TIMEOUT_MS = 7000;
   const LOADING_MESSAGE_TEXT = "Loading...";
   const LOADING_MESSAGE_LEVEL = "info";
   const LOADING_MESSAGE_DELAY_MS = 180;
@@ -28,14 +29,27 @@
     return list;
   };
 
-  const showMessage = (text, level = "info", timeoutMs = 3000) => {
+  const removeMessageAfterDelay = (item, timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS) => {
+    const delay = Number(timeoutMs) || DEFAULT_MESSAGE_TIMEOUT_MS;
+    window.setTimeout(() => item.remove(), delay);
+  };
+
+  const showMessage = (text, level = "info", timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS) => {
     if (!String(text || "").trim()) return;
     const list = ensureMessageList();
     const item = document.createElement("li");
     item.className = `message message-${level}`;
     item.textContent = text;
     list.appendChild(item);
-    window.setTimeout(() => item.remove(), timeoutMs);
+    removeMessageAfterDelay(item, timeoutMs);
+  };
+
+  const initializeExistingMessages = () => {
+    document.querySelectorAll(".messages .message").forEach((item) => {
+      if (item.dataset.autoDismissInitialized === "true") return;
+      item.dataset.autoDismissInitialized = "true";
+      removeMessageAfterDelay(item, DEFAULT_MESSAGE_TIMEOUT_MS);
+    });
   };
 
   const showLoading = (text = LOADING_MESSAGE_TEXT) => {
@@ -74,11 +88,11 @@
     }
   };
 
-  const storeMessage = (text, level = "info", timeoutMs = 5000) => {
+  const storeMessage = (text, level = "info", timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS) => {
     const payload = {
       text: String(text || "").trim(),
       level: String(level || "info").trim() || "info",
-      timeoutMs: Number(timeoutMs) || 5000,
+      timeoutMs: Number(timeoutMs) || DEFAULT_MESSAGE_TIMEOUT_MS,
     };
     if (!payload.text) return;
     try {
@@ -94,7 +108,11 @@
       if (!raw) return;
       window.sessionStorage.removeItem(FLASH_STORAGE_KEY);
       const payload = JSON.parse(raw);
-      showMessage(payload?.text || "", payload?.level || "info", payload?.timeoutMs || 5000);
+      showMessage(
+        payload?.text || "",
+        payload?.level || "info",
+        payload?.timeoutMs || DEFAULT_MESSAGE_TIMEOUT_MS,
+      );
     } catch (_error) {
       try {
         window.sessionStorage.removeItem(FLASH_STORAGE_KEY);
@@ -152,5 +170,6 @@
     postFormUrlEncoded,
   };
 
+  initializeExistingMessages();
   consumeStoredMessage();
 })();

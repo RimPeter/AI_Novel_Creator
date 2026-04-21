@@ -11,7 +11,7 @@
   <body>
     {% include "main/navbar.html" %}
     {% if messages %}
-      <ul class="messages" aria-live="polite">
+      <ul class="messages" aria-live="polite" data-message-timeout="7000">
         {% for message in messages %}
           <li class="message message-{{ message.tags }}">{{ message }}</li>
         {% endfor %}
@@ -32,5 +32,16 @@
     </main>
     <script src="{% static 'main/ui_helpers.js' %}" defer></script>
     <script src="{% static 'main/navbar_dropdown.js' %}" defer></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const lists = document.querySelectorAll(".messages[data-message-timeout]");
+        lists.forEach((list) => {
+          const timeoutMs = Number(list.dataset.messageTimeout) || 7000;
+          list.querySelectorAll(".message").forEach((item) => {
+            window.setTimeout(() => item.remove(), timeoutMs);
+          });
+        });
+      });
+    </script>
   </body>
 </html>

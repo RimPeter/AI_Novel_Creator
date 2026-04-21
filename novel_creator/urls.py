@@ -19,9 +19,13 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
 
+from main.account_views import ManagedEmailView
+
 urlpatterns = [
+    path("accounts/email/", ManagedEmailView.as_view(), name="account_email"),
     path("accounts/", include("allauth.urls")),
     path("admin/", admin.site.urls),
+    path("youtube/", include("youtube.urls")),
     path("", include("security.urls")),
     path("", include("main.urls")),
 ]

@@ -40,46 +40,46 @@
           {% trans "The following email addresses are associated with your account:" %}
         </p>
         {% url 'account_email' as email_url %}
-        <form method="post" action="{{ email_url }}" class="form">
-          {% csrf_token %}
+        <ul class="list account-email-list">
+          {% for emailaddress in emailaddresses %}
+            <li class="list-item account-email-item">
+              <div class="account-email-row">
+                <div class="account-email-copy">
+                  <span class="list-title">{{ emailaddress.email }}</span>
+                  <span class="account-email-badges">
+                    {% if emailaddress.verified %}
+                      <span class="account-email-badge account-email-badge-success">{% trans "Verified" %}</span>
+                    {% else %}
+                      <span class="account-email-badge account-email-badge-warning">{% trans "Unverified" %}</span>
+                    {% endif %}
+                    {% if emailaddress.primary %}
+                      <span class="account-email-badge">{% trans "Primary" %}</span>
+                    {% endif %}
+                  </span>
+                </div>
 
-          <ul class="list account-email-list">
-            {% for radio in emailaddress_radios %}
-              {% with emailaddress=radio.emailaddress %}
-                <li class="list-item account-email-item">
-                  <label class="account-email-choice" for="{{ radio.id }}">
-                    <input
-                      type="radio"
-                      name="email"
-                      id="{{ radio.id }}"
-                      value="{{ emailaddress.email }}"
-                      {% if radio.checked %}checked{% endif %}
-                    />
-                    <span class="account-email-copy">
-                      <span class="list-title">{{ emailaddress.email }}</span>
-                      <span class="account-email-badges">
-                        {% if emailaddress.verified %}
-                          <span class="account-email-badge account-email-badge-success">{% trans "Verified" %}</span>
-                        {% else %}
-                          <span class="account-email-badge account-email-badge-warning">{% trans "Unverified" %}</span>
-                        {% endif %}
-                        {% if emailaddress.primary %}
-                          <span class="account-email-badge">{% trans "Primary" %}</span>
-                        {% endif %}
-                      </span>
-                    </span>
-                  </label>
-                </li>
-              {% endwith %}
-            {% endfor %}
-          </ul>
-
-          <div class="actions">
-            <button class="btn btn-primary" type="submit" name="action_primary">{% trans "Make Primary" %}</button>
-            <button class="btn btn-secondary" type="submit" name="action_send">{% trans "Re-send Verification" %}</button>
-            <button class="btn btn-secondary" type="submit" name="action_remove">{% trans "Remove" %}</button>
-          </div>
-        </form>
+                <form method="post" action="{{ email_url }}" class="account-email-actions">
+                  {% csrf_token %}
+                  <input type="hidden" name="email" value="{{ emailaddress.email }}" />
+                  {% if not emailaddress.primary %}
+                    <button class="btn btn-primary" type="submit" name="action_primary">{% trans "Make Primary" %}</button>
+                  {% endif %}
+                  {% if not emailaddress.verified %}
+                    <button class="btn btn-secondary" type="submit" name="action_send">{% trans "Re-send Verification" %}</button>
+                  {% endif %}
+                  <button
+                    class="btn btn-secondary"
+                    type="submit"
+                    name="action_remove"
+                    onclick="return window.confirm('{% trans 'Do you really want to remove this email address?' %}');"
+                  >
+                    {% trans "Remove" %}
+                  </button>
+                </form>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
       {% else %}
         <p class="muted">{% trans "No email addresses are configured for this account yet." %}</p>
       {% endif %}
@@ -122,11 +122,3 @@
     {% endif %}
   </div>
 {% endblock content %}
-
-{% block extra_body %}
-  <script src="{% static 'account/js/account.js' %}"></script>
-  <script src="{% static 'account/js/onload.js' %}"></script>
-  <script data-allauth-onload="allauth.account.forms.manageEmailForm" type="application/json">{
-    "i18n": {"confirmDelete": "{% trans 'Do you really want to remove the selected email address?' %}"}
-  }</script>
-{% endblock extra_body %}

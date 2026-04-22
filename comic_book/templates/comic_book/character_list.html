@@ -1,0 +1,54 @@
+{% extends "main/base.html" %}
+
+{% block title %}Characters | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Cast board</span>
+          <h1 class="page-title">{{ project.title }} characters</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:character-create' slug=project.slug %}">New character</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
+      </div>
+      <p class="page-lead">Track voice, costume, and visual identity before those details start repeating across pages and panels.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="get" class="form">
+        <div class="form-row">
+          <label class="form-label" for="character-search">Search</label>
+          <input class="form-control" id="character-search" type="text" name="q" value="{{ q }}" placeholder="Filter by character name" />
+        </div>
+      </form>
+
+      {% if characters %}
+        <ul class="list">
+          {% for character in characters %}
+            <li class="list-item comic-list-item">
+              <div>
+                <div class="list-title">{{ character.name }}</div>
+                {% if character.role %}
+                  <div class="muted">{{ character.role }}</div>
+                {% endif %}
+                {% if character.description %}
+                  <div class="comic-list-copy">{{ character.description|truncatechars:180 }}</div>
+                {% endif %}
+              </div>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:character-edit' slug=project.slug pk=character.pk %}">Edit</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:character-delete' slug=project.slug pk=character.pk %}">Delete</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="page-panel-copy">No characters yet. Add the cast members who need distinct visual or dialogue rules.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

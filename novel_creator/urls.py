@@ -25,6 +25,7 @@ urlpatterns = [
     path("accounts/email/", ManagedEmailView.as_view(), name="account_email"),
     path("accounts/", include("allauth.urls")),
     path("admin/", admin.site.urls),
+    path("comic-book/", include("comic_book.urls")),
     path("", include("security.urls")),
     path("", include("main.urls")),
 ]

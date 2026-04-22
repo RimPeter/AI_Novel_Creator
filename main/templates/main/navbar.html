@@ -26,6 +26,9 @@
             <a href="{% url 'project-create' %}">New Project</a>
           </div>
         </details>
+        {% if comic_book_app_enabled %}
+          <a href="{% url 'comic_book:index' %}">Comic Book</a>
+        {% endif %}
         <details class="nav-dropdown">
           <summary>More</summary>
           <div class="nav-dropdown-menu">

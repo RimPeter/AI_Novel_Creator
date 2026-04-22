@@ -766,6 +766,258 @@ ul {
   gap: 14px;
 }
 
+.comic-book-promo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 92, 92, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(255, 210, 74, 0.16), transparent 32%),
+    linear-gradient(145deg, rgba(33, 13, 19, 0.92), rgba(27, 37, 61, 0.92));
+}
+
+.comic-book-promo-copy {
+  max-width: 620px;
+}
+
+.comic-hero {
+  background:
+    radial-gradient(circle at top left, rgba(255, 92, 92, 0.18), transparent 24%),
+    radial-gradient(circle at top right, rgba(255, 210, 74, 0.16), transparent 28%),
+    linear-gradient(145deg, rgba(41, 13, 18, 0.96), rgba(18, 33, 59, 0.94));
+}
+
+.comic-project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.comic-project-card,
+.comic-issue-card {
+  display: grid;
+  gap: 18px;
+}
+
+.comic-project-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.comic-project-slug {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  opacity: 0.84;
+}
+
+.comic-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comic-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(255, 92, 92, 0.12), rgba(255, 210, 74, 0.1)),
+    rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.comic-project-copy,
+.comic-list-copy {
+  margin: 0;
+  opacity: 0.82;
+}
+
+.comic-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.comic-fact {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(255, 210, 74, 0.12), transparent 34%),
+    rgba(255, 255, 255, 0.04);
+}
+
+.comic-fact strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.comic-fact span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.74;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.comic-empty-state {
+  display: grid;
+  gap: 14px;
+}
+
+.comic-dashboard-grid {
+  align-items: start;
+}
+
+.comic-small-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.comic-small-stack strong,
+.comic-context-block strong,
+.comic-detail-block strong,
+.comic-callout strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.78;
+}
+
+.comic-subtitle {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.comic-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
+  gap: 18px;
+  align-items: start;
+}
+
+.comic-rail,
+.comic-context,
+.comic-stage {
+  min-width: 0;
+}
+
+.comic-stage {
+  display: grid;
+  gap: 18px;
+}
+
+.comic-outline-list,
+.comic-panel-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.comic-outline-item {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.comic-outline-item.is-active,
+.comic-outline-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 210, 74, 0.26);
+  background:
+    linear-gradient(135deg, rgba(255, 92, 92, 0.1), rgba(255, 210, 74, 0.12)),
+    rgba(255, 255, 255, 0.06);
+}
+
+.comic-outline-link {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+  text-decoration: none;
+}
+
+.comic-outline-link:hover {
+  text-decoration: none;
+}
+
+.comic-page-card,
+.comic-panel-card {
+  display: grid;
+  gap: 16px;
+}
+
+.comic-callout,
+.comic-context-block,
+.comic-detail-block {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(255, 210, 74, 0.08), transparent 32%),
+    rgba(255, 255, 255, 0.04);
+}
+
+.comic-detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.comic-export {
+  display: grid;
+  gap: 24px;
+}
+
+.comic-export-page {
+  display: grid;
+  gap: 18px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.comic-export-page:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.comic-export-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.comic-export-panel {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .update-note {
   padding: 16px;
   border-radius: 14px;
@@ -3704,6 +3956,10 @@ textarea.auto-grow {
     grid-template-columns: 1fr;
   }
 
+  .comic-workspace {
+    grid-template-columns: 1fr;
+  }
+
   .project-card-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3747,6 +4003,20 @@ textarea.auto-grow {
 
   .page-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .comic-book-promo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .comic-project-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .comic-project-card-head,
+  .comic-export-header {
+    flex-direction: column;
   }
 
   .dashboard-hero,

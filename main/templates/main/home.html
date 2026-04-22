@@ -60,5 +60,20 @@
         {% endfor %}
       </div>
     </section>
+
+    {% if comic_book_app_enabled %}
+      <section class="card comic-book-promo">
+        <div class="comic-book-promo-copy">
+          <span class="page-panel-kicker">New app</span>
+          <h2 class="page-panel-title">Comic Book</h2>
+          <p class="page-panel-copy">
+            Plan panels, map page turns, and keep character beats visual instead of buried in prose notes.
+          </p>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:index' %}">Open Comic Book</a>
+        </div>
+      </section>
+    {% endif %}
   </div>
 {% endblock %}

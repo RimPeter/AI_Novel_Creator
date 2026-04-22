@@ -1,0 +1,59 @@
+{% extends "main/base.html" %}
+
+{% block title %}{% if object %}Edit comic project{% else %}New comic project{% endif %}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Comic project</span>
+          <h1 class="page-title">{% if object %}Refine the series frame{% else %}Create a comic project{% endif %}</h1>
+        </div>
+        <div class="actions">
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=object.slug %}">Dashboard</a>
+          {% endif %}
+        </div>
+      </div>
+      <p class="page-lead">Lock the title, logline, audience, and visual tone before you start cutting the story into issues and page turns.</p>
+    </section>
+
+    <section class="card page-panel">
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">Core setup</span>
+          <h2 class="page-panel-title">Series frame</h2>
+        </div>
+      </div>
+
+      <form method="post" class="form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save</button>
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'comic_book:project-delete' slug=object.slug %}">Delete</a>
+          {% endif %}
+          <a class="btn btn-secondary" href="{% url 'comic_book:index' %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

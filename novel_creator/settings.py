@@ -138,6 +138,7 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
+    'comic_book',
     'security',
     'main',
 ]

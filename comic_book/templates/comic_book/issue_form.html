@@ -1,0 +1,45 @@
+{% extends "main/base.html" %}
+
+{% block title %}{% if object %}Edit issue{% else %}New issue{% endif %} | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Issue planner</span>
+          <h1 class="page-title">{% if object %}Issue {{ object.number }}{% else %}Create an issue{% endif %}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
+      </div>
+      <p class="page-lead">Define the issue arc first, then let the workspace break it into pages and panels.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="post" class="form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save issue</button>
+          {% if object %}
+            <a class="btn btn-secondary" href="{% url 'comic_book:issue-delete' slug=project.slug pk=object.pk %}">Delete</a>
+          {% endif %}
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

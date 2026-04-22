@@ -1,0 +1,99 @@
+{% extends "main/base.html" %}
+
+{% block title %}Comic Book | Projects{% endblock %}
+
+{% block content %}
+  <section class="card page-hero comic-hero">
+    <div class="page-hero-head">
+      <div>
+        <span class="page-kicker">Comic book creator</span>
+        <h1 class="page-title">Build issues, pages, and panels in one visual story room.</h1>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="{% url 'comic_book:project-create' %}">New comic project</a>
+      </div>
+    </div>
+    <p class="page-lead">
+      Keep issue beats, page turns, panel scripts, cast, and continuity notes in the same workspace so scripting stays visual instead of collapsing into prose chaos.
+    </p>
+    <div class="page-summary-grid" aria-label="Comic project overview">
+      <article class="page-summary-card">
+        <strong>{{ project_count }}</strong>
+        <span>Comic projects</span>
+      </article>
+      <article class="page-summary-card">
+        <strong>{{ issue_total }}</strong>
+        <span>Issues in play</span>
+      </article>
+      <article class="page-summary-card">
+        <strong>{{ recently_updated_count }}</strong>
+        <span>Updated this week</span>
+      </article>
+    </div>
+  </section>
+
+  {% if projects %}
+    <section class="comic-project-grid" aria-label="Comic projects">
+      {% for project in projects %}
+        <article class="card comic-project-card">
+          <div class="comic-project-card-head">
+            <div>
+              <div class="page-panel-kicker">Updated {{ project.updated_at|date:"M j, Y" }}</div>
+              <h2 class="page-panel-title">{{ project.title }}</h2>
+            </div>
+            <span class="comic-project-slug">/{{ project.slug }}/</span>
+          </div>
+
+          <div class="comic-chip-row">
+            {% if project.genre %}
+              <span class="comic-chip">{{ project.genre }}</span>
+            {% endif %}
+            {% if project.tone %}
+              <span class="comic-chip">{{ project.tone }}</span>
+            {% endif %}
+            {% if project.target_audience %}
+              <span class="comic-chip">{{ project.target_audience }}</span>
+            {% endif %}
+          </div>
+
+          <p class="comic-project-copy">
+            {% if project.logline %}
+              {{ project.logline|truncatechars:220 }}
+            {% else %}
+              No project logline yet. Add the central conflict and visual angle so the issue board starts with a sharp story spine.
+            {% endif %}
+          </p>
+
+          <div class="comic-fact-grid">
+            <div class="comic-fact">
+              <strong>{{ project.issue_count }}</strong>
+              <span>Issues</span>
+            </div>
+            <div class="comic-fact">
+              <strong>{{ project.character_count }}</strong>
+              <span>Characters</span>
+            </div>
+            <div class="comic-fact">
+              <strong>{{ project.location_count }}</strong>
+              <span>Locations</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <a class="btn btn-primary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Open project</a>
+            <a class="btn btn-secondary" href="{% url 'comic_book:project-edit' slug=project.slug %}">Edit</a>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="card comic-empty-state">
+      <div class="page-panel-kicker">No comics yet</div>
+      <h2 class="page-panel-title">Start with the project shell, then move into issue pacing.</h2>
+      <p class="page-panel-copy">
+        Create a comic project first. After that, define the bible, add cast and locations, then break the first issue into pages and panels.
+      </p>
+      <a class="btn btn-primary" href="{% url 'comic_book:project-create' %}">Create your first comic project</a>
+    </section>
+  {% endif %}
+{% endblock %}

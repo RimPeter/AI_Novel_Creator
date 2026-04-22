@@ -1,0 +1,90 @@
+{% extends "main/base.html" %}
+
+{% block title %}Export | Issue {{ issue.number }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Issue export</span>
+          <h1 class="page-title">Issue {{ issue.number }}: {{ issue.title }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}">Back to issue</a>
+        </div>
+      </div>
+      <p class="page-lead">Readable script export grouped by page and panel for artist handoff, review, or production cleanup.</p>
+    </section>
+
+    <section class="card page-panel comic-export">
+      {% for page in issue.pages.all %}
+        <article class="comic-export-page">
+          <header class="comic-export-header">
+            <div>
+              <div class="page-panel-kicker">Page {{ page.page_number }}</div>
+              <h2 class="page-panel-title">{% if page.title %}{{ page.title }}{% else %}Page {{ page.page_number }}{% endif %}</h2>
+            </div>
+            <div class="comic-chip-row">
+              <span class="comic-chip">{{ page.get_page_role_display }}</span>
+              <span class="comic-chip">{{ page.get_layout_type_display }}</span>
+            </div>
+          </header>
+
+          {% if page.summary %}
+            <p class="pre">{{ page.summary }}</p>
+          {% endif %}
+
+          {% for panel in page.panels.all %}
+            <section class="comic-export-panel">
+              <h3 class="comic-subtitle">Panel {{ panel.panel_number }}</h3>
+              <div class="comic-chip-row">
+                <span class="comic-chip">{{ panel.get_shot_type_display }}</span>
+                {% if panel.location %}
+                  <span class="comic-chip">{{ panel.location.name }}</span>
+                {% endif %}
+                {% for character in panel.characters.all %}
+                  <span class="comic-chip">{{ character.name }}</span>
+                {% endfor %}
+              </div>
+              {% if panel.action %}
+                <div class="comic-detail-block">
+                  <strong>Action</strong>
+                  <p class="pre">{{ panel.action }}</p>
+                </div>
+              {% endif %}
+              {% if panel.dialogue %}
+                <div class="comic-detail-block">
+                  <strong>Dialogue</strong>
+                  <p class="pre">{{ panel.dialogue }}</p>
+                </div>
+              {% endif %}
+              {% if panel.caption %}
+                <div class="comic-detail-block">
+                  <strong>Caption</strong>
+                  <p class="pre">{{ panel.caption }}</p>
+                </div>
+              {% endif %}
+              {% if panel.sfx %}
+                <div class="comic-detail-block">
+                  <strong>SFX</strong>
+                  <p class="pre">{{ panel.sfx }}</p>
+                </div>
+              {% endif %}
+              {% if panel.notes %}
+                <div class="comic-detail-block">
+                  <strong>Notes</strong>
+                  <p class="pre">{{ panel.notes }}</p>
+                </div>
+              {% endif %}
+            </section>
+          {% empty %}
+            <p class="page-panel-copy">No panels on this page yet.</p>
+          {% endfor %}
+        </article>
+      {% empty %}
+        <p class="page-panel-copy">No pages in this issue yet.</p>
+      {% endfor %}
+    </section>
+  </div>
+{% endblock %}

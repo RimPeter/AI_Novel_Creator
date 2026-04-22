@@ -1,0 +1,268 @@
+{% extends "main/base.html" %}
+
+{% block title %}Issue {{ issue.number }} | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Issue workspace</span>
+          <h1 class="page-title">Issue {{ issue.number }}: {{ issue.title }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:page-create' slug=project.slug issue_pk=issue.pk %}">Add page</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:issue-edit' slug=project.slug pk=issue.pk %}">Edit issue</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:issue-export' slug=project.slug pk=issue.pk %}">Export</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
+      </div>
+
+      <p class="page-lead">
+        {% if issue.summary %}
+          {{ issue.summary }}
+        {% else %}
+          No issue summary yet. Add the opening beat, escalation, and closing hook so every page carries part of the same arc.
+        {% endif %}
+      </p>
+
+      <div class="comic-chip-row">
+        <span class="comic-chip">{{ issue.get_status_display }}</span>
+        <span class="comic-chip">{{ issue.actual_page_count }} pages</span>
+        <span class="comic-chip">{{ panel_total }} panels</span>
+        {% if issue.theme %}
+          <span class="comic-chip">{{ issue.theme }}</span>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="comic-workspace">
+      <aside class="card comic-rail">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Issue tree</span>
+            <h2 class="page-panel-title">Pages</h2>
+          </div>
+        </div>
+
+        <div class="comic-outline-list">
+          {% for page in pages %}
+            <article class="comic-outline-item {% if selected_page and page.pk == selected_page.pk %}is-active{% endif %}">
+              <a class="comic-outline-link" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}?page={{ page.pk }}">
+                <strong>Page {{ page.page_number }}</strong>
+                {% if page.title %}
+                  <span>{{ page.title }}</span>
+                {% elif page.summary %}
+                  <span>{{ page.summary|truncatechars:56 }}</span>
+                {% else %}
+                  <span>No page summary yet.</span>
+                {% endif %}
+              </a>
+              <div class="muted">{{ page.panels.all|length }} panels</div>
+            </article>
+          {% empty %}
+            <div class="muted">No pages yet.</div>
+          {% endfor %}
+        </div>
+      </aside>
+
+      <div class="comic-stage">
+        {% if selected_page %}
+          <section class="card page-panel comic-page-card">
+            <div class="page-panel-head">
+              <div>
+                <span class="page-panel-kicker">Selected page</span>
+                <h2 class="page-panel-title">Page {{ selected_page.page_number }}{% if selected_page.title %}: {{ selected_page.title }}{% endif %}</h2>
+              </div>
+              <div class="actions">
+                <a class="btn btn-primary btn-sm" href="{% url 'comic_book:panel-create' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk %}">Add panel</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:page-edit' slug=project.slug issue_pk=issue.pk pk=selected_page.pk %}">Edit page</a>
+                <form method="post" action="{% url 'comic_book:page-shift' slug=project.slug issue_pk=issue.pk pk=selected_page.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="direction" value="up" />
+                  <button class="btn btn-secondary btn-sm" type="submit">Move earlier</button>
+                </form>
+                <form method="post" action="{% url 'comic_book:page-shift' slug=project.slug issue_pk=issue.pk pk=selected_page.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="direction" value="down" />
+                  <button class="btn btn-secondary btn-sm" type="submit">Move later</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="comic-chip-row">
+              <span class="comic-chip">{{ selected_page.get_page_role_display }}</span>
+              <span class="comic-chip">{{ selected_page.get_layout_type_display }}</span>
+              <span class="comic-chip">{{ selected_panels|length }} panels</span>
+              <span class="comic-chip">{{ selected_page.dialogue_word_count }} dialogue words</span>
+            </div>
+
+            {% if selected_page.summary %}
+              <p class="pre">{{ selected_page.summary }}</p>
+            {% endif %}
+
+            {% if selected_page.page_turn_hook %}
+              <div class="comic-callout">
+                <strong>Page-turn hook</strong>
+                <p class="pre">{{ selected_page.page_turn_hook }}</p>
+              </div>
+            {% endif %}
+
+            {% if selected_page.notes %}
+              <div class="comic-callout">
+                <strong>Notes</strong>
+                <p class="pre">{{ selected_page.notes }}</p>
+              </div>
+            {% endif %}
+          </section>
+
+          <section class="comic-panel-stack">
+            {% for panel in selected_panels %}
+              <article class="card comic-panel-card">
+                <div class="page-panel-head">
+                  <div>
+                    <span class="page-panel-kicker">Panel {{ panel.panel_number }}</span>
+                    <h3 class="comic-subtitle">{% if panel.title %}{{ panel.title }}{% else %}{{ panel.get_shot_type_display }} shot{% endif %}</h3>
+                  </div>
+                  <div class="actions">
+                    <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:panel-edit' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk pk=panel.pk %}">Edit</a>
+                    <form method="post" action="{% url 'comic_book:panel-shift' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk pk=panel.pk %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="direction" value="up" />
+                      <button class="btn btn-secondary btn-sm" type="submit">Earlier</button>
+                    </form>
+                    <form method="post" action="{% url 'comic_book:panel-shift' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk pk=panel.pk %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="direction" value="down" />
+                      <button class="btn btn-secondary btn-sm" type="submit">Later</button>
+                    </form>
+                    <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:panel-delete' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk pk=panel.pk %}">Delete</a>
+                  </div>
+                </div>
+
+                <div class="comic-chip-row">
+                  <span class="comic-chip">{{ panel.get_shot_type_display }}</span>
+                  {% if panel.focus %}
+                    <span class="comic-chip">{{ panel.focus }}</span>
+                  {% endif %}
+                  {% if panel.location %}
+                    <span class="comic-chip">{{ panel.location.name }}</span>
+                  {% endif %}
+                  <span class="comic-chip">{{ panel.balloon_word_count }} balloon words</span>
+                </div>
+
+                {% if panel.characters.all %}
+                  <div class="comic-chip-row">
+                    {% for character in panel.characters.all %}
+                      <span class="comic-chip">{{ character.name }}</span>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+
+                <div class="comic-detail-grid">
+                  {% if panel.action %}
+                    <div class="comic-detail-block">
+                      <strong>Action</strong>
+                      <p class="pre">{{ panel.action }}</p>
+                    </div>
+                  {% endif %}
+                  {% if panel.dialogue %}
+                    <div class="comic-detail-block">
+                      <strong>Dialogue</strong>
+                      <p class="pre">{{ panel.dialogue }}</p>
+                    </div>
+                  {% endif %}
+                  {% if panel.caption %}
+                    <div class="comic-detail-block">
+                      <strong>Caption</strong>
+                      <p class="pre">{{ panel.caption }}</p>
+                    </div>
+                  {% endif %}
+                  {% if panel.sfx %}
+                    <div class="comic-detail-block">
+                      <strong>SFX</strong>
+                      <p class="pre">{{ panel.sfx }}</p>
+                    </div>
+                  {% endif %}
+                  {% if panel.notes %}
+                    <div class="comic-detail-block">
+                      <strong>Notes</strong>
+                      <p class="pre">{{ panel.notes }}</p>
+                    </div>
+                  {% endif %}
+                </div>
+              </article>
+            {% empty %}
+              <section class="card page-panel">
+                <p class="page-panel-copy">No panels on this page yet. Add the first panel and start scripting the shot, action, and balloon load.</p>
+              </section>
+            {% endfor %}
+          </section>
+        {% else %}
+          <section class="card page-panel">
+            <div class="page-panel-head">
+              <div>
+                <span class="page-panel-kicker">No pages</span>
+                <h2 class="page-panel-title">Build the first page</h2>
+              </div>
+            </div>
+            <p class="page-panel-copy">This issue has no pages yet. Add one and start breaking the issue arc into page-turn beats.</p>
+            <a class="btn btn-primary" href="{% url 'comic_book:page-create' slug=project.slug issue_pk=issue.pk %}">Create page</a>
+          </section>
+        {% endif %}
+      </div>
+
+      <aside class="card comic-context">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Context rail</span>
+            <h2 class="page-panel-title">Issue support</h2>
+          </div>
+        </div>
+
+        {% if issue.opening_hook %}
+          <div class="comic-callout">
+            <strong>Opening hook</strong>
+            <p class="pre">{{ issue.opening_hook }}</p>
+          </div>
+        {% endif %}
+
+        {% if issue.closing_hook %}
+          <div class="comic-callout">
+            <strong>Closing hook</strong>
+            <p class="pre">{{ issue.closing_hook }}</p>
+          </div>
+        {% endif %}
+
+        {% if issue.notes %}
+          <div class="comic-callout">
+            <strong>Issue notes</strong>
+            <p class="pre">{{ issue.notes }}</p>
+          </div>
+        {% endif %}
+
+        <div class="comic-context-block">
+          <strong>Cast preview</strong>
+          <div class="comic-chip-row">
+            {% for character in project_characters %}
+              <span class="comic-chip">{{ character.name }}</span>
+            {% empty %}
+              <span class="muted">No characters yet.</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="comic-context-block">
+          <strong>Location preview</strong>
+          <div class="comic-chip-row">
+            {% for location in project_locations %}
+              <span class="comic-chip">{{ location.name }}</span>
+            {% empty %}
+              <span class="muted">No locations yet.</span>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+    </section>
+  </div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "main/base.html" %}
+
+{% block title %}Delete {{ object_kind }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Confirm delete</span>
+          <h1 class="page-title">Delete {{ object_kind }}</h1>
+        </div>
+      </div>
+      <p class="page-lead">This action removes <strong>{{ object }}</strong>. Continue only if you want it gone from the comic workflow.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="post" class="form">
+        {% csrf_token %}
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Delete {{ object_kind }}</button>
+          <a class="btn btn-secondary" href="{{ cancel_url }}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

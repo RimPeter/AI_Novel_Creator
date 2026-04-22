@@ -1,0 +1,51 @@
+{% extends "main/base.html" %}
+
+{% block title %}Locations | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Location board</span>
+          <h1 class="page-title">{{ project.title }} locations</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:location-create' slug=project.slug %}">New location</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
+      </div>
+      <p class="page-lead">Store environmental rules and visual cues once, then link them back into panels as you script pages.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="get" class="form">
+        <div class="form-row">
+          <label class="form-label" for="location-search">Search</label>
+          <input class="form-control" id="location-search" type="text" name="q" value="{{ q }}" placeholder="Filter by location name" />
+        </div>
+      </form>
+
+      {% if locations %}
+        <ul class="list">
+          {% for location in locations %}
+            <li class="list-item comic-list-item">
+              <div>
+                <div class="list-title">{{ location.name }}</div>
+                {% if location.description %}
+                  <div class="comic-list-copy">{{ location.description|truncatechars:180 }}</div>
+                {% endif %}
+              </div>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:location-edit' slug=project.slug pk=location.pk %}">Edit</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:location-delete' slug=project.slug pk=location.pk %}">Delete</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="page-panel-copy">No locations yet. Add recurring spaces so panel descriptions can link back to consistent visual references.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

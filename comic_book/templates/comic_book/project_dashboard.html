@@ -1,0 +1,184 @@
+{% extends "main/base.html" %}
+
+{% block title %}{{ project.title }} | Comic Project{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Comic command deck</span>
+          <h1 class="page-title">{{ project.title }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">New issue</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:bible-edit' slug=project.slug %}">Bible</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:character-list' slug=project.slug %}">Characters</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Locations</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-edit' slug=project.slug %}">Edit</a>
+        </div>
+      </div>
+      <p class="page-lead">
+        {% if project.logline %}
+          {{ project.logline }}
+        {% else %}
+          Build the series spine here, then shape each issue into pages, panels, and readable artist-ready beats.
+        {% endif %}
+      </p>
+      <div class="comic-chip-row">
+        {% if project.genre %}
+          <span class="comic-chip">{{ project.genre }}</span>
+        {% endif %}
+        {% if project.tone %}
+          <span class="comic-chip">{{ project.tone }}</span>
+        {% endif %}
+        {% if project.target_audience %}
+          <span class="comic-chip">{{ project.target_audience }}</span>
+        {% endif %}
+      </div>
+      <div class="page-summary-grid" aria-label="Project stats">
+        <article class="page-summary-card">
+          <strong>{{ issue_count }}</strong>
+          <span>Issues</span>
+        </article>
+        <article class="page-summary-card">
+          <strong>{{ page_total }}</strong>
+          <span>Total pages</span>
+        </article>
+        <article class="page-summary-card">
+          <strong>{{ panel_total }}</strong>
+          <span>Total panels</span>
+        </article>
+        <article class="page-summary-card">
+          <strong>{{ dialogue_total }}</strong>
+          <span>Dialogue words</span>
+        </article>
+      </div>
+    </section>
+
+    <div class="page-grid-2 comic-dashboard-grid">
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Series bible</span>
+            <h2 class="page-panel-title">Canon and visual rules</h2>
+          </div>
+          <div class="actions">
+            <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:bible-edit' slug=project.slug %}">Edit bible</a>
+          </div>
+        </div>
+
+        {% if bible %}
+          <div class="comic-small-stack">
+            {% if bible.premise %}
+              <div>
+                <strong>Premise</strong>
+                <p class="pre">{{ bible.premise }}</p>
+              </div>
+            {% endif %}
+            {% if bible.visual_rules %}
+              <div>
+                <strong>Visual rules</strong>
+                <p class="pre">{{ bible.visual_rules }}</p>
+              </div>
+            {% endif %}
+            {% if bible.continuity_rules %}
+              <div>
+                <strong>Continuity rules</strong>
+                <p class="pre">{{ bible.continuity_rules }}</p>
+              </div>
+            {% endif %}
+          </div>
+        {% else %}
+          <p class="page-panel-copy">No comic bible yet. Add the premise, world rules, and visual guardrails before scripting heavily.</p>
+        {% endif %}
+      </section>
+
+      <section class="card page-panel">
+        <div class="page-panel-head">
+          <div>
+            <span class="page-panel-kicker">Reference pools</span>
+            <h2 class="page-panel-title">Cast and locations</h2>
+          </div>
+        </div>
+
+        <div class="comic-fact-grid">
+          <div class="comic-fact">
+            <strong>{{ character_count }}</strong>
+            <span>Characters</span>
+          </div>
+          <div class="comic-fact">
+            <strong>{{ location_count }}</strong>
+            <span>Locations</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'comic_book:character-list' slug=project.slug %}">Open cast</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Open locations</a>
+        </div>
+      </section>
+    </div>
+
+    <section class="card page-panel">
+      <div class="page-panel-head">
+        <div>
+          <span class="page-panel-kicker">Issue board</span>
+          <h2 class="page-panel-title">Sequence the run</h2>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">Create issue</a>
+        </div>
+      </div>
+
+      {% if issues %}
+        <div class="comic-project-grid">
+          {% for issue in issues %}
+            <article class="comic-issue-card">
+              <div class="comic-project-card-head">
+                <div>
+                  <div class="page-panel-kicker">Issue {{ issue.number }}</div>
+                  <h3 class="comic-subtitle">{{ issue.title }}</h3>
+                </div>
+                <span class="comic-chip">{{ issue.get_status_display }}</span>
+              </div>
+
+              <p class="comic-project-copy">
+                {% if issue.summary %}
+                  {{ issue.summary|truncatechars:200 }}
+                {% else %}
+                  No issue summary yet. Define the opening, escalation, and closing hook so page planning has a clear arc.
+                {% endif %}
+              </p>
+
+              <div class="comic-fact-grid">
+                <div class="comic-fact">
+                  <strong>{{ issue.actual_page_count }}</strong>
+                  <span>Pages</span>
+                </div>
+                <div class="comic-fact">
+                  <strong>{{ issue.panel_total }}</strong>
+                  <span>Panels</span>
+                </div>
+              </div>
+
+              {% if issue.theme %}
+                <div class="comic-chip-row">
+                  <span class="comic-chip">{{ issue.theme }}</span>
+                </div>
+              {% endif %}
+
+              <div class="actions">
+                <a class="btn btn-primary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}">Open issue</a>
+                <a class="btn btn-secondary" href="{% url 'comic_book:issue-edit' slug=project.slug pk=issue.pk %}">Edit</a>
+                <a class="btn btn-secondary" href="{% url 'comic_book:issue-export' slug=project.slug pk=issue.pk %}">Export</a>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="page-panel-copy">No issues yet. Start with the first issue and let the app seed its page list from your planned page count.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

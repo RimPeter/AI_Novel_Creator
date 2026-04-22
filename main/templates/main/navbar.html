@@ -26,7 +26,7 @@
             <a href="{% url 'project-create' %}">New Project</a>
           </div>
         </details>
-        {% if comic_book_app_enabled %}
+        {% if comic_book_app_enabled and user.is_superuser %}
           <a href="{% url 'comic_book:index' %}">Comic Book</a>
         {% endif %}
         <details class="nav-dropdown">

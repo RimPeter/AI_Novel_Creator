@@ -51,6 +51,27 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, 'href="/comic-book/"', html=False)
         self.assertContains(response, "Open Comic Book")
 
+    def test_non_superuser_does_not_see_comic_book_navbar_link(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<a href="/comic-book/">Comic Book</a>', html=False)
+
+    def test_superuser_sees_comic_book_navbar_link(self):
+        admin_user = get_user_model().objects.create_superuser(
+            username="adminuser",
+            email="admin@example.com",
+            password="password123",
+        )
+        self.client.force_login(admin_user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<a href="/comic-book/">Comic Book</a>', html=False)
+
     def test_other_users_cannot_open_project_dashboard(self):
         other_user = get_user_model().objects.create_user(
             username="other",

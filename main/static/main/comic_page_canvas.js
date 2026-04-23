@@ -29,9 +29,18 @@
     return panel.dataset.canvasKey;
   };
 
+  const ensureMenuToggleListener = (menu) => {
+    if (!(menu instanceof HTMLDetailsElement) || menu.dataset.menuLayerSyncBound === "true") return;
+    menu.dataset.menuLayerSyncBound = "true";
+    menu.addEventListener("toggle", () => {
+      syncCanvasMenuLayering();
+    });
+  };
+
   const createMenu = (ownerPanel) => {
     const details = document.createElement("details");
     details.className = "comic-canvas-menu";
+    ensureMenuToggleListener(details);
 
     const summary = document.createElement("summary");
     summary.className = "comic-canvas-menu-toggle";
@@ -106,6 +115,25 @@
     if (!(confirmPanel instanceof HTMLElement) || !(deleteButton instanceof HTMLElement)) return;
     confirmPanel.hidden = !isVisible;
     deleteButton.hidden = isVisible;
+  };
+
+  const syncCanvasMenuLayering = () => {
+    rootPanel.querySelectorAll(".is-canvas-menu-active").forEach((node) => {
+      node.classList.remove("is-canvas-menu-active");
+    });
+
+    rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => {
+      if (!(menu instanceof HTMLDetailsElement) || !menu.open) {
+        setDeleteConfirmVisibility(menu, false);
+        return;
+      }
+
+      let panel = menu.closest("[data-canvas-panel]");
+      while (panel instanceof HTMLElement) {
+        panel.classList.add("is-canvas-menu-active");
+        panel = panel.parentElement?.closest?.("[data-canvas-panel]") || null;
+      }
+    });
   };
 
   const createSurface = () => {
@@ -461,6 +489,7 @@
       if (menu instanceof HTMLDetailsElement) {
         menu.open = false;
       }
+      syncCanvasMenuLayering();
       return;
     }
 
@@ -469,6 +498,7 @@
     if (menu instanceof HTMLDetailsElement) {
       menu.open = false;
     }
+    syncCanvasMenuLayering();
   });
 
   document.addEventListener("pointerdown", (event) => {
@@ -495,4 +525,6 @@
   ensureCanvasKey(rootPanel, "root");
   loadSavedLayout();
   updateMenuVisibilityButton();
+  rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => ensureMenuToggleListener(menu));
+  syncCanvasMenuLayering();
 })();

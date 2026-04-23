@@ -17,9 +17,99 @@
       </div>
     </section>
 
-    <section class="card page-panel">
+    <section
+      class="card page-panel"
+      data-comic-character-brainstorm-url="{% url 'comic_book:character-brainstorm' slug=project.slug %}"
+      data-comic-character-add-details-url="{% url 'comic_book:character-add-details' slug=project.slug %}"
+      data-comic-character-faces-url="{% if object %}{% url 'comic_book:character-faces' slug=project.slug pk=object.pk %}{% else %}{% url 'comic_book:character-faces-preview' slug=project.slug %}{% endif %}"
+      data-comic-character-full-body-url="{% if object %}{% url 'comic_book:character-full-body' slug=project.slug pk=object.pk %}{% else %}{% url 'comic_book:character-full-body-preview' slug=project.slug %}{% endif %}"
+      data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
+      data-ai-billing-url="{{ ai_billing_url|default:'' }}"
+      data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
+    >
+      <div class="character-portrait">
+        <div class="portrait-meta">
+          <div class="muted" id="comic-character-faces-status">
+            {% if object and object.frontal_face_image_data_url or object and object.sideways_face_image_data_url or object and object.full_body_image_data_url %}
+              Character references saved for this character.
+            {% else %}
+              Generate project-style references: frontal face, sideways face, and full body.
+            {% endif %}
+          </div>
+          <button class="btn btn-secondary" type="button" id="comic-character-faces-btn">Generate face images</button>
+          <button class="btn btn-secondary" type="button" id="comic-character-full-body-btn">Generate full body</button>
+        </div>
+        <div class="comic-face-grid">
+          <div>
+            <div class="muted">Frontal face</div>
+            <div class="portrait-frame">
+              <img
+                id="comic-character-face-frontal-img"
+                class="{% if not object or not object.frontal_face_image_data_url %}is-hidden{% endif %}"
+                src="{% if object %}{{ object.frontal_face_image_data_url }}{% endif %}"
+                alt="Frontal face reference"
+              />
+              <div
+                id="comic-character-face-frontal-placeholder"
+                class="portrait-placeholder {% if object and object.frontal_face_image_data_url %}is-hidden{% endif %}"
+              >
+                No frontal face image yet.
+              </div>
+            </div>
+            <div class="actions">
+              <label class="btn btn-secondary btn-sm" for="comic-character-face-frontal-upload">Upload image</label>
+              <input id="comic-character-face-frontal-upload" type="file" accept="image/*" class="is-hidden" />
+            </div>
+          </div>
+          <div>
+            <div class="muted">Sideways face</div>
+            <div class="portrait-frame">
+              <img
+                id="comic-character-face-sideways-img"
+                class="{% if not object or not object.sideways_face_image_data_url %}is-hidden{% endif %}"
+                src="{% if object %}{{ object.sideways_face_image_data_url }}{% endif %}"
+                alt="Sideways face reference"
+              />
+              <div
+                id="comic-character-face-sideways-placeholder"
+                class="portrait-placeholder {% if object and object.sideways_face_image_data_url %}is-hidden{% endif %}"
+              >
+                No sideways face image yet.
+              </div>
+            </div>
+            <div class="actions">
+              <label class="btn btn-secondary btn-sm" for="comic-character-face-sideways-upload">Upload image</label>
+              <input id="comic-character-face-sideways-upload" type="file" accept="image/*" class="is-hidden" />
+            </div>
+          </div>
+          <div>
+            <div class="muted">Full body</div>
+            <div class="portrait-frame">
+              <img
+                id="comic-character-full-body-img"
+                class="{% if not object or not object.full_body_image_data_url %}is-hidden{% endif %}"
+                src="{% if object %}{{ object.full_body_image_data_url }}{% endif %}"
+                alt="Full body reference"
+              />
+              <div
+                id="comic-character-full-body-placeholder"
+                class="portrait-placeholder {% if object and object.full_body_image_data_url %}is-hidden{% endif %}"
+              >
+                No full body image yet.
+              </div>
+            </div>
+            <div class="actions">
+              <label class="btn btn-secondary btn-sm" for="comic-character-full-body-upload">Upload image</label>
+              <input id="comic-character-full-body-upload" type="file" accept="image/*" class="is-hidden" />
+            </div>
+          </div>
+        </div>
+      </div>
       <form method="post" class="form">
         {% csrf_token %}
+        <input type="hidden" name="frontal_face_image_data_url" id="comic-character-face-frontal-input" value="{% if object %}{{ object.frontal_face_image_data_url }}{% endif %}" />
+        <input type="hidden" name="sideways_face_image_data_url" id="comic-character-face-sideways-input" value="{% if object %}{{ object.sideways_face_image_data_url }}{% endif %}" />
+        <input type="hidden" name="full_body_image_data_url" id="comic-character-full-body-input" value="{% if object %}{{ object.full_body_image_data_url }}{% endif %}" />
         {% if form.non_field_errors %}
           <div class="form-errors">{{ form.non_field_errors }}</div>
         {% endif %}
@@ -34,6 +124,8 @@
         {% endfor %}
         <div class="actions">
           <button class="btn btn-primary" type="submit">Save</button>
+          <button class="btn btn-secondary" type="button" id="comic-character-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="comic-character-add-details-btn">Add Detail</button>
           {% if object %}
             <a class="btn btn-secondary" href="{% url 'comic_book:character-delete' slug=project.slug pk=object.pk %}">Delete</a>
           {% endif %}
@@ -42,5 +134,341 @@
       </form>
     </section>
   </div>
+  <script src="{% static 'main/ui_helpers.js' %}" defer></script>
+  <script src="{% static 'main/ai_billing_guard.js' %}" defer></script>
   <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const section = document.querySelector("[data-comic-character-brainstorm-url]");
+      const brainstormBtn = document.getElementById("comic-character-brainstorm-btn");
+      const addDetailsBtn = document.getElementById("comic-character-add-details-btn");
+      if (!section || !brainstormBtn || !addDetailsBtn) return;
+
+      const brainstormUrl = section.getAttribute("data-comic-character-brainstorm-url");
+      const addDetailsUrl = section.getAttribute("data-comic-character-add-details-url");
+      const facesUrl = section.getAttribute("data-comic-character-faces-url");
+      const fullBodyUrl = section.getAttribute("data-comic-character-full-body-url");
+      const form = section.querySelector("form");
+      if (!brainstormUrl || !addDetailsUrl || !form) return;
+
+      const ui = window.AppUI;
+      if (!ui) return;
+      const csrfToken = ui.getCsrfToken();
+
+      const targetFields = ["name", "role", "age", "gender", "description", "costume_notes", "visual_notes", "voice_notes"];
+      const appendFields = new Set(["description", "costume_notes", "visual_notes", "voice_notes"]);
+      const facesBtn = document.getElementById("comic-character-faces-btn");
+      const fullBodyBtn = document.getElementById("comic-character-full-body-btn");
+      const facesStatus = document.getElementById("comic-character-faces-status");
+      const frontalImg = document.getElementById("comic-character-face-frontal-img");
+      const frontalPlaceholder = document.getElementById("comic-character-face-frontal-placeholder");
+      const sidewaysImg = document.getElementById("comic-character-face-sideways-img");
+      const sidewaysPlaceholder = document.getElementById("comic-character-face-sideways-placeholder");
+      const frontalInput = document.getElementById("comic-character-face-frontal-input");
+      const sidewaysInput = document.getElementById("comic-character-face-sideways-input");
+      const fullBodyImg = document.getElementById("comic-character-full-body-img");
+      const fullBodyPlaceholder = document.getElementById("comic-character-full-body-placeholder");
+      const fullBodyInput = document.getElementById("comic-character-full-body-input");
+      const frontalUploadInput = document.getElementById("comic-character-face-frontal-upload");
+      const sidewaysUploadInput = document.getElementById("comic-character-face-sideways-upload");
+      const fullBodyUploadInput = document.getElementById("comic-character-full-body-upload");
+
+      const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
+      const getCurrentValues = (names) => {
+        const values = {};
+        for (const name of names) {
+          const el = getFieldEl(name);
+          if (!el) continue;
+          values[name] = (el.value || "").trim();
+        }
+        return values;
+      };
+
+      const refreshFieldLayout = (el) => {
+        if (!el) return;
+        if (el.matches("textarea")) {
+          window.AppAutogrow?.resize?.(el);
+        }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+
+      const dedupeAppendedText = (existing, incoming) => {
+        const existingText = String(existing || "").trim();
+        const additionText = String(incoming || "").trim();
+        if (!additionText) return "";
+        if (!existingText) return additionText;
+
+        const existingLower = existingText.toLowerCase();
+        const additionLower = additionText.toLowerCase();
+        if (existingLower.includes(additionLower)) return "";
+
+        const trimOverlap = (text) => text.replace(/^[\s;,:.-]+/, "").trim();
+        if (additionLower.startsWith(existingLower)) {
+          return trimOverlap(additionText.slice(existingText.length));
+        }
+
+        const maxOverlap = Math.min(existingText.length, additionText.length);
+        for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+          if (existingLower.slice(-overlap) === additionLower.slice(0, overlap)) {
+            return trimOverlap(additionText.slice(overlap));
+          }
+        }
+
+        return additionText;
+      };
+
+      const setIfEmpty = (name, value) => {
+        const el = getFieldEl(name);
+        const next = String(value || "").trim();
+        if (!el || !next || (el.value || "").trim()) return false;
+        el.value = next;
+        refreshFieldLayout(el);
+        return true;
+      };
+
+      const appendOrSet = (name, value) => {
+        const el = getFieldEl(name);
+        const next = String(value || "").trim();
+        if (!el || !next) return false;
+
+        const existing = (el.value || "").trim();
+        if (!existing) {
+          el.value = next;
+          refreshFieldLayout(el);
+          return true;
+        }
+
+        const extra = dedupeAppendedText(existing, next);
+        if (!extra) return false;
+        el.value = `${existing}\n\n${extra}`.trim();
+        refreshFieldLayout(el);
+        return true;
+      };
+
+      const applyFaceImage = (dataUrl, imgEl, placeholderEl, inputEl) => {
+        const next = String(dataUrl || "").trim();
+        if (!next) return;
+        if (imgEl) {
+          imgEl.src = next;
+          imgEl.classList.remove("is-hidden");
+        }
+        if (placeholderEl) {
+          placeholderEl.classList.add("is-hidden");
+        }
+        if (inputEl) {
+          inputEl.value = next;
+        }
+      };
+
+      const bindFaceUpload = (fileInput, imgEl, placeholderEl, hiddenInput, label) => {
+        if (!fileInput) return;
+        fileInput.addEventListener("change", () => {
+          const file = fileInput.files?.[0];
+          if (!file) return;
+          if (!String(file.type || "").startsWith("image/")) {
+            ui.showMessage(`Choose a valid image file for the ${label}.`, "warning");
+            fileInput.value = "";
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.addEventListener("load", () => {
+            applyFaceImage(String(reader.result || ""), imgEl, placeholderEl, hiddenInput);
+            if (facesStatus) facesStatus.textContent = `${label} uploaded and ready to save.`;
+            ui.showMessage(`${label} uploaded.`, "success");
+            fileInput.value = "";
+          });
+          reader.addEventListener("error", () => {
+            ui.showMessage(`Could not read the ${label}.`, "error");
+            fileInput.value = "";
+          });
+          reader.readAsDataURL(file);
+        });
+      };
+
+      const postForSuggestions = async (url) => {
+        const current = getCurrentValues(targetFields);
+        const params = new URLSearchParams();
+        for (const [name, value] of Object.entries(current)) {
+          params.set(name, value || "");
+        }
+
+        const result = await ui.postFormUrlEncoded({
+          url,
+          params,
+          csrfToken,
+          failureLabel: "Request failed",
+        });
+        if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
+          return null;
+        }
+        if (!result.ok) {
+          ui.showMessage(result.error, "error");
+          return null;
+        }
+
+        return result.data?.suggestions || {};
+      };
+
+      brainstormBtn.addEventListener("click", async () => {
+        if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+        const current = getCurrentValues(targetFields);
+        const emptyFields = targetFields.filter((name) => !current[name]);
+        if (!emptyFields.length) {
+          ui.showMessage("Nothing to fill - all character fields already have values.", "info");
+          return;
+        }
+
+        brainstormBtn.disabled = true;
+        const originalText = brainstormBtn.textContent;
+        brainstormBtn.textContent = "Brainstorming...";
+
+        try {
+          const suggestions = await postForSuggestions(brainstormUrl);
+          if (!suggestions) return;
+          let changed = 0;
+          for (const [name, value] of Object.entries(suggestions)) {
+            if (setIfEmpty(name, value)) changed += 1;
+          }
+          if (!changed) ui.showMessage("No suggestions returned for empty character fields.", "warning");
+          else ui.showMessage(`Filled ${changed} character field(s).`, "success");
+        } finally {
+          brainstormBtn.disabled = false;
+          brainstormBtn.textContent = originalText;
+        }
+      });
+
+      addDetailsBtn.addEventListener("click", async () => {
+        if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+        const current = getCurrentValues(targetFields);
+        if (!current.name) {
+          ui.showMessage("Add a character name first.", "warning");
+          return;
+        }
+
+        addDetailsBtn.disabled = true;
+        const originalText = addDetailsBtn.textContent;
+        addDetailsBtn.textContent = "Adding...";
+
+        try {
+          const suggestions = await postForSuggestions(addDetailsUrl);
+          if (!suggestions) return;
+          let changed = 0;
+          for (const [name, value] of Object.entries(suggestions)) {
+            if (appendFields.has(name)) {
+              if (appendOrSet(name, value)) changed += 1;
+            } else if (setIfEmpty(name, value)) {
+              changed += 1;
+            }
+          }
+          if (!changed) ui.showMessage("No additional details to add right now.", "warning");
+          else ui.showMessage(`Enhanced ${changed} character field(s).`, "success");
+        } finally {
+          addDetailsBtn.disabled = false;
+          addDetailsBtn.textContent = originalText;
+        }
+      });
+
+      if (facesBtn && facesUrl) {
+        facesBtn.addEventListener("click", async () => {
+          if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+          const current = getCurrentValues(targetFields);
+          if (!current.name) {
+            ui.showMessage("Add a character name first.", "warning");
+            return;
+          }
+
+          facesBtn.disabled = true;
+          const originalText = facesBtn.textContent;
+          if (facesStatus) facesStatus.textContent = "Generating frontal and sideways face images...";
+          facesBtn.textContent = "Generating...";
+
+          try {
+            const params = new URLSearchParams();
+            for (const [name, value] of Object.entries(current)) {
+              params.set(name, value || "");
+            }
+            const result = await ui.postFormUrlEncoded({
+              url: facesUrl,
+              params,
+              csrfToken,
+              failureLabel: "Image generation failed",
+            });
+            if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
+              return;
+            }
+            if (!result.ok) {
+              ui.showMessage(result.error, "error");
+              if (facesStatus) facesStatus.textContent = result.error || "Image generation failed.";
+              return;
+            }
+
+            const frontalUrl = result.data?.frontal_face_image_url || "";
+            const sidewaysUrl = result.data?.sideways_face_image_url || "";
+            applyFaceImage(frontalUrl, frontalImg, frontalPlaceholder, frontalInput);
+            applyFaceImage(sidewaysUrl, sidewaysImg, sidewaysPlaceholder, sidewaysInput);
+            if (facesStatus) facesStatus.textContent = "Frontal and sideways face references generated.";
+            ui.showMessage("Generated both character face images.", "success");
+          } finally {
+            facesBtn.disabled = false;
+            facesBtn.textContent = originalText;
+          }
+        });
+      }
+
+      bindFaceUpload(frontalUploadInput, frontalImg, frontalPlaceholder, frontalInput, "Frontal face");
+      bindFaceUpload(sidewaysUploadInput, sidewaysImg, sidewaysPlaceholder, sidewaysInput, "Sideways face");
+      bindFaceUpload(fullBodyUploadInput, fullBodyImg, fullBodyPlaceholder, fullBodyInput, "Full body");
+
+      if (fullBodyBtn && fullBodyUrl) {
+        fullBodyBtn.addEventListener("click", async () => {
+          if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+          const current = getCurrentValues(targetFields);
+          if (!current.name) {
+            ui.showMessage("Add a character name first.", "warning");
+            return;
+          }
+
+          fullBodyBtn.disabled = true;
+          const originalText = fullBodyBtn.textContent;
+          if (facesStatus) facesStatus.textContent = "Generating full body image...";
+          fullBodyBtn.textContent = "Generating...";
+
+          try {
+            const params = new URLSearchParams();
+            for (const [name, value] of Object.entries(current)) {
+              params.set(name, value || "");
+            }
+            const result = await ui.postFormUrlEncoded({
+              url: fullBodyUrl,
+              params,
+              csrfToken,
+              failureLabel: "Image generation failed",
+            });
+            if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
+              return;
+            }
+            if (!result.ok) {
+              ui.showMessage(result.error, "error");
+              if (facesStatus) facesStatus.textContent = result.error || "Image generation failed.";
+              return;
+            }
+
+            const bodyUrl = result.data?.full_body_image_url || "";
+            applyFaceImage(bodyUrl, fullBodyImg, fullBodyPlaceholder, fullBodyInput);
+            if (facesStatus) facesStatus.textContent = "Full body reference generated.";
+            ui.showMessage("Generated full body image.", "success");
+          } finally {
+            fullBodyBtn.disabled = false;
+            fullBodyBtn.textContent = originalText;
+          }
+        });
+      }
+    });
+  </script>
 {% endblock %}

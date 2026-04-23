@@ -6,6 +6,9 @@ from openai import OpenAI
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash character (U+2014); use a plain hyphen instead."
+IMAGE_MODEL_ALIASES = {
+    "gpt-image-2": "gpt-image-1",
+}
 
 
 @dataclass
@@ -67,6 +70,13 @@ def _responses_reasoning_effort(model_name: str) -> str | None:
     if normalized.startswith("gpt-5") or normalized.startswith("o"):
         return "low"
     return None
+
+
+def normalize_image_model_name(model_name: str) -> str:
+    normalized = (model_name or "").strip()
+    if not normalized:
+        return "gpt-image-1"
+    return IMAGE_MODEL_ALIASES.get(normalized.lower(), normalized)
 
 
 def _iter_nested_text_fragments(value, *, depth: int = 0):
@@ -205,8 +215,9 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
 
 
 def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1024") -> str:
+    resolved_model_name = normalize_image_model_name(model_name)
     response = client.images.generate(
-        model=model_name,
+        model=resolved_model_name,
         prompt=prompt,
         size=size,
         response_format="b64_json",

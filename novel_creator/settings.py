@@ -41,6 +41,8 @@ def env_str(name, default=""):
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_IMAGE_MODEL = env_str("OPENAI_IMAGE_MODEL", "gpt-image-2")
+OPENAI_IMAGE_FALLBACK_MODEL = env_str("OPENAI_IMAGE_FALLBACK_MODEL", "")
 RUNNING_TESTS = "test" in sys.argv
 STRIPE_PUBLISHABLE_KEY = env_str("STRIPE_PUBLISHABLE_KEY")
 STRIPE_SECRET_KEY = env_str("STRIPE_SECRET_KEY")

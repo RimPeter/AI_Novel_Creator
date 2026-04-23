@@ -57,6 +57,8 @@ class ComicCharacterForm(forms.ModelForm):
         fields = [
             "name",
             "role",
+            "age",
+            "gender",
             "description",
             "costume_notes",
             "visual_notes",
@@ -65,6 +67,8 @@ class ComicCharacterForm(forms.ModelForm):
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "role": forms.TextInput(attrs={"class": "form-control"}),
+            "age": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": 1}),
+            "gender": forms.TextInput(attrs={"class": "form-control"}),
             "description": _autogrow_textarea(rows=5),
             "costume_notes": _autogrow_textarea(rows=4),
             "visual_notes": _autogrow_textarea(rows=4),

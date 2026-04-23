@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from unittest.mock import patch
 
@@ -205,6 +205,428 @@ class ComicBookAppTests(TestCase):
             {"ok": True, "suggestions": {"summary": "Imperial drones lock down the district."}},
         )
 
+    def test_character_create_page_renders_brainstorm_and_add_detail_controls(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:character-create", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-character-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-character-add-details-btn"', html=False)
+        self.assertContains(response, 'id="comic-character-faces-btn"', html=False)
+        self.assertContains(response, 'id="comic-character-full-body-btn"', html=False)
+        self.assertContains(response, 'id="comic-character-face-frontal-upload"', html=False)
+        self.assertContains(response, 'id="comic-character-face-sideways-upload"', html=False)
+        self.assertContains(response, 'id="comic-character-full-body-upload"', html=False)
+        self.assertContains(response, reverse("comic_book:character-brainstorm", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:character-add-details", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:character-faces-preview", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:character-full-body-preview", kwargs={"slug": project.slug}))
+        self.assertContains(response, 'name="age"', html=False)
+        self.assertContains(response, 'name="gender"', html=False)
+
+    def test_character_edit_page_renders_face_generation_controls(self):
+        project = self._create_project()
+        character = ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:character-edit", kwargs={"slug": project.slug, "pk": character.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-character-faces-btn"', html=False)
+        self.assertContains(response, 'id="comic-character-full-body-btn"', html=False)
+        self.assertContains(
+            response,
+            reverse("comic_book:character-faces", kwargs={"slug": project.slug, "pk": character.pk}),
+        )
+        self.assertContains(
+            response,
+            reverse("comic_book:character-full-body", kwargs={"slug": project.slug, "pk": character.pk}),
+        )
+        self.assertContains(response, "Frontal face")
+        self.assertContains(response, "Sideways face")
+        self.assertContains(response, "Full body")
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_preview_character_faces_returns_two_images_for_unsaved_character(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return f"data:image/png;base64,preview{len(prompts)}"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:character-faces-preview", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "description": "Lean, guarded, and always reading exits before people.",
+                    "costume_notes": "Dark utility jacket with signal-thread seams.",
+                    "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                    "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "frontal_face_image_url": "data:image/png;base64,preview1",
+                "sideways_face_image_url": "data:image/png;base64,preview2",
+            },
+        )
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("Pose target: straight-on frontal face.", prompts[0])
+        self.assertIn("Pose target: sideways profile face.", prompts[1])
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_preview_character_full_body_returns_image_for_unsaved_character(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return "data:image/png;base64,bodypreview"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:character-full-body-preview", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "description": "Lean, guarded, and always reading exits before people.",
+                    "costume_notes": "Dark utility jacket with signal-thread seams.",
+                    "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                    "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "full_body_image_url": "data:image/png;base64,bodypreview"})
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Pose target: full-body frontal view.", prompts[0])
+
+    def test_character_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"age":29,"gender":"Woman","description":"- A smuggler with a rigid code.\\n- Hides panic behind clipped competence.","visual_notes":"- Sharp undercut silhouette.\\n- Tired eyes.\\n- Always scanning exits.","voice_notes":"- Short, tactical sentences.\\n- Dry deflection under stress."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:character-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "",
+                    "gender": "",
+                    "description": "",
+                    "costume_notes": "",
+                    "visual_notes": "",
+                    "voice_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "age": "29",
+                    "gender": "Woman",
+                    "description": "- A smuggler with a rigid code.\n- Hides panic behind clipped competence.",
+                    "visual_notes": "- Sharp undercut silhouette.\n- Tired eyes.\n- Always scanning exits.",
+                    "voice_notes": "- Short, tactical sentences.\n- Dry deflection under stress.",
+                },
+            },
+        )
+        self.assertIn("Project title: Star Signal", mock_call.call_args.kwargs["prompt"])
+        self.assertIn("Key characters:", mock_call.call_args.kwargs["prompt"])
+
+    def test_character_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"description":"- She keeps one hand near a stolen key at all times."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:character-add-details", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "",
+                    "gender": "",
+                    "description": "A smuggler with a rigid code who hides panic behind clipped competence.",
+                    "costume_notes": "",
+                    "visual_notes": "",
+                    "voice_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"description": "- She keeps one hand near a stolen key at all times."}},
+        )
+
+    def test_character_brainstorm_splits_inline_bullets_into_new_lines(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"visual_notes":"- Sharp undercut silhouette. - Tired eyes. - Always scanning exits."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:character-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "",
+                    "gender": "",
+                    "description": "",
+                    "costume_notes": "",
+                    "visual_notes": "",
+                    "voice_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["suggestions"]["visual_notes"],
+            "- Sharp undercut silhouette.\n- Tired eyes.\n- Always scanning exits.",
+        )
+
+    def test_character_brainstorm_drops_brackets_and_apostrophes_from_bullets(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text="{\"voice_notes\":\"- [Clipped] tactical sentences. - Dry deflection when someone's pressing.\"}",
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:character-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "",
+                    "gender": "",
+                    "description": "",
+                    "costume_notes": "",
+                    "visual_notes": "",
+                    "voice_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["suggestions"]["voice_notes"],
+            "- Clipped tactical sentences.\n- Dry deflection when someones pressing.",
+        )
+
+    def test_character_create_saves_generated_face_images_from_hidden_inputs(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:character-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Sera Flint",
+                "role": "Cipher thief",
+                "age": "29",
+                "gender": "Woman",
+                "description": "Lean, guarded, and always reading exits before people.",
+                "costume_notes": "Dark utility jacket with signal-thread seams.",
+                "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                "frontal_face_image_data_url": "data:image/png;base64,front",
+                "sideways_face_image_data_url": "data:image/png;base64,side",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        character = ComicCharacter.objects.get(project=project, name="Sera Flint")
+        self.assertEqual(character.age, 29)
+        self.assertEqual(character.gender, "Woman")
+        self.assertEqual(character.frontal_face_image_data_url, "data:image/png;base64,front")
+        self.assertEqual(character.sideways_face_image_data_url, "data:image/png;base64,side")
+
+    def test_character_create_saves_generated_full_body_image_from_hidden_input(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:character-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Sera Flint",
+                "role": "Cipher thief",
+                "age": "29",
+                "gender": "Woman",
+                "description": "Lean, guarded, and always reading exits before people.",
+                "costume_notes": "Dark utility jacket with signal-thread seams.",
+                "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                "full_body_image_data_url": "data:image/png;base64,body",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        character = ComicCharacter.objects.get(project=project, name="Sera Flint")
+        self.assertEqual(character.age, 29)
+        self.assertEqual(character.gender, "Woman")
+        self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,body")
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_generate_character_faces_saves_both_project_style_images(self):
+        project = self._create_project()
+        project.art_style_notes = "Clean European sci-fi line art with restrained cel shading."
+        project.save(update_fields=["art_style_notes", "updated_at"])
+        character = ComicCharacter.objects.create(
+            project=project,
+            name="Sera Flint",
+            role="Cipher thief",
+            age=29,
+            gender="Woman",
+            description="Lean, guarded, and always reading exits before people.",
+            costume_notes="Dark utility jacket with signal-thread seams.",
+            visual_notes="Shaved sidecut, narrow face, tired eyes.",
+            voice_notes="Short tactical phrasing with dry sarcasm.",
+        )
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return f"data:image/png;base64,{len(prompts)}"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:character-faces", kwargs={"slug": project.slug, "pk": character.pk}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "29",
+                    "gender": "Woman",
+                    "description": "Lean, guarded, and always reading exits before people.",
+                    "costume_notes": "Dark utility jacket with signal-thread seams.",
+                    "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                    "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "frontal_face_image_url": "data:image/png;base64,1",
+                "sideways_face_image_url": "data:image/png;base64,2",
+            },
+        )
+        character.refresh_from_db()
+        self.assertEqual(character.frontal_face_image_data_url, "data:image/png;base64,1")
+        self.assertEqual(character.sideways_face_image_data_url, "data:image/png;base64,2")
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("Project style context:", prompts[0])
+        self.assertIn("Art style notes: Clean European sci-fi line art with restrained cel shading.", prompts[0])
+        self.assertIn("Pose target: straight-on frontal face.", prompts[0])
+        self.assertIn("Pose target: sideways profile face.", prompts[1])
+        self.assertIn("Age: 29", prompts[0])
+        self.assertIn("Gender: Woman", prompts[0])
+        self.assertIn("Visual notes: Shaved sidecut, narrow face, tired eyes.", prompts[0])
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_generate_character_full_body_saves_project_style_image(self):
+        project = self._create_project()
+        project.art_style_notes = "Clean European sci-fi line art with restrained cel shading."
+        project.save(update_fields=["art_style_notes", "updated_at"])
+        character = ComicCharacter.objects.create(
+            project=project,
+            name="Sera Flint",
+            role="Cipher thief",
+            age=29,
+            gender="Woman",
+            description="Lean, guarded, and always reading exits before people.",
+            costume_notes="Dark utility jacket with signal-thread seams.",
+            visual_notes="Shaved sidecut, narrow face, tired eyes.",
+            voice_notes="Short tactical phrasing with dry sarcasm.",
+        )
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return "data:image/png;base64,fullbody"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:character-full-body", kwargs={"slug": project.slug, "pk": character.pk}),
+                data={
+                    "name": "Sera Flint",
+                    "role": "Cipher thief",
+                    "age": "29",
+                    "gender": "Woman",
+                    "description": "Lean, guarded, and always reading exits before people.",
+                    "costume_notes": "Dark utility jacket with signal-thread seams.",
+                    "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                    "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "full_body_image_url": "data:image/png;base64,fullbody"})
+        character.refresh_from_db()
+        self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,fullbody")
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Pose target: full-body frontal view.", prompts[0])
+        self.assertIn("Age: 29", prompts[0])
+        self.assertIn("Gender: Woman", prompts[0])
+        self.assertIn("Art style notes: Clean European sci-fi line art with restrained cel shading.", prompts[0])
+
     def test_comic_forms_mark_textareas_for_autogrow(self):
         forms_to_check = [
             ComicProjectForm(),
@@ -275,6 +697,25 @@ class ComicBookAppTests(TestCase):
         page_two.refresh_from_db()
         self.assertEqual(page_two.page_number, 1)
         self.assertEqual(page_one.page_number, 2)
+
+    def test_issue_workspace_page_tiles_link_to_page_edit(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=2)
+        ComicPage.objects.create(issue=issue, page_number=1, title="Old first")
+        page_two = ComicPage.objects.create(issue=issue, page_number=2, title="Old second")
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:issue-workspace", kwargs={"slug": project.slug, "pk": issue.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page_two.pk},
+            ),
+        )
+        self.assertNotContains(response, f'?page={page_two.pk}')
 
     def test_issue_export_renders_panel_content(self):
         project = self._create_project()

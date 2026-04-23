@@ -2940,6 +2940,12 @@ textarea.auto-grow {
   gap: 10px;
 }
 
+.comic-face-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .location-image {
   display: flex;
   gap: 16px;

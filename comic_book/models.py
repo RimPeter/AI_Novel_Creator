@@ -58,10 +58,15 @@ class ComicCharacter(TimeStampedModel):
     project = models.ForeignKey(ComicProject, on_delete=models.CASCADE, related_name="characters")
     name = models.CharField(max_length=120)
     role = models.CharField(max_length=120, blank=True, default="")
+    age = models.PositiveIntegerField(blank=True, null=True)
+    gender = models.CharField(max_length=80, blank=True, default="")
     description = models.TextField(blank=True, default="")
     costume_notes = models.TextField(blank=True, default="")
     visual_notes = models.TextField(blank=True, default="")
     voice_notes = models.TextField(blank=True, default="")
+    frontal_face_image_data_url = models.TextField(blank=True, default="")
+    sideways_face_image_data_url = models.TextField(blank=True, default="")
+    full_body_image_data_url = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["name", "created_at"]

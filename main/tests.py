@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 from .billing import ensure_stripe_customer, process_webhook_event, sync_checkout_session, sync_subscription_record
-from .llm import LLMResult, SYSTEM_PROMPT, call_llm
+from .llm import LLMResult, SYSTEM_PROMPT, call_llm, generate_image_data_url, normalize_image_model_name
 from .models import (
     BillingCompanyProfile,
     BillingInformationProfile,
@@ -507,6 +507,19 @@ class ContactViewTests(TestCase):
 
 
 class LLMTests(TestCase):
+    def test_normalize_image_model_name_maps_gpt_image_2_to_supported_model(self):
+        self.assertEqual(normalize_image_model_name("gpt-image-2"), "gpt-image-1")
+        self.assertEqual(normalize_image_model_name("gpt-image-1"), "gpt-image-1")
+
+    def test_generate_image_data_url_normalizes_image_model_before_api_call(self):
+        fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
+
+        with patch("main.llm.client.images.generate", return_value=fake_response) as mocked:
+            data_url = generate_image_data_url(prompt="Test prompt", model_name="gpt-image-2", size="1024x1024")
+
+        self.assertEqual(data_url, "data:image/png;base64,abc123")
+        self.assertEqual(mocked.call_args.kwargs["model"], "gpt-image-1")
+
     def test_call_llm_replaces_em_dash_and_uses_global_instruction(self):
         fake_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="Wait\u2014no. Use this\u2014instead."))],

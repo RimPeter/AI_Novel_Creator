@@ -19,7 +19,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
 from main.billing import billing_enabled, user_has_active_plan
-from main.llm import call_llm
+from main.llm import call_llm, generate_image_data_url
 from main.text_models import get_user_text_model
 
 from .forms import ComicBibleForm, ComicCanvasNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
@@ -42,6 +42,18 @@ PAGE_AI_FIELDS = [
     "notes",
 ]
 PAGE_AI_APPEND_FIELDS = {"summary", "page_turn_hook", "notes"}
+CHARACTER_AI_FIELDS = [
+    "name",
+    "role",
+    "age",
+    "gender",
+    "description",
+    "costume_notes",
+    "visual_notes",
+    "voice_notes",
+]
+CHARACTER_AI_APPEND_FIELDS = {"description", "costume_notes", "visual_notes", "voice_notes"}
+CHARACTER_AI_BULLET_FIELDS = {"description", "costume_notes", "visual_notes", "voice_notes"}
 
 
 def _project_queryset_for_user(user):
@@ -168,12 +180,54 @@ def _dedupe_appended_text(existing: str, addition: str) -> str:
     return addition_text
 
 
+def _normalize_bullet_block(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+
+    normalized = raw.replace("\r\n", "\n").replace("\r", "\n")
+
+    def clean_line(value: str) -> str:
+        cleaned = str(value or "").replace("[", "").replace("]", "").replace("'", "").strip()
+        return cleaned
+
+    if "- " not in normalized:
+        lines = [clean_line(line) for line in normalized.split("\n") if clean_line(line)]
+        return "\n".join(f"- {line}" for line in lines)
+
+    bullet_lines = []
+    for chunk in normalized.split("\n"):
+        chunk = clean_line(chunk)
+        if not chunk:
+            continue
+        if "- " not in chunk:
+            bullet_lines.append(f"- {chunk}")
+            continue
+
+        parts = chunk.split("- ")
+        prefix = clean_line(parts[0])
+        if prefix:
+            bullet_lines.append(f"- {prefix}")
+        for part in parts[1:]:
+            item = clean_line(part)
+            if item:
+                bullet_lines.append(f"- {item}")
+
+    return "\n".join(bullet_lines)
+
+
 def _truncate_ai_context(value: str, *, max_length: int = 220) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= max_length:
         return text
     truncated = text[: max_length - 3].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return (truncated or text[: max_length - 3]) + "..."
+
+
+def _append_detail_line(prompt_lines: list[str], label: str, value: str, *, limit: int = 220) -> None:
+    text = _truncate_ai_context(value, max_length=limit)
+    if text:
+        prompt_lines.append(f"{label}: {text}")
 
 
 def _comic_project_context_lines(project: ComicProject) -> list[str]:
@@ -221,9 +275,15 @@ def _comic_character_context_lines(project: ComicProject) -> list[str]:
     for character in characters:
         parts = [character.name]
         role = _truncate_ai_context(character.role, max_length=80)
+        age = character.age
+        gender = _truncate_ai_context(character.gender, max_length=40)
         description = _truncate_ai_context(character.description, max_length=140)
         if role:
             parts.append(role)
+        if age is not None:
+            parts.append(f"age {age}")
+        if gender:
+            parts.append(gender)
         if description:
             parts.append(description)
         lines.append("- " + " | ".join(parts))
@@ -243,6 +303,62 @@ def _comic_location_context_lines(project: ComicProject) -> list[str]:
             parts.append(description)
         lines.append("- " + " | ".join(parts))
     return lines
+
+
+def _comic_character_image_prompt(*, project: ComicProject, character: ComicCharacter, current: dict[str, str], pose: str) -> str:
+    if pose == "frontal":
+        pose_label = "straight-on frontal face"
+        composition = "show only the head and upper shoulders, facing the viewer directly"
+        framing = "face must fill most of the frame with a clean neutral background and no props."
+        output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
+    elif pose == "sideways":
+        pose_label = "sideways profile face"
+        composition = "show a clean side profile of the face and upper shoulders, looking to the side"
+        framing = "face must fill most of the frame with a clean neutral background and no props."
+        output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
+    else:
+        pose_label = "full-body frontal view"
+        composition = "show the full body from head to boots, standing upright and facing forward"
+        framing = "the entire figure must be visible in frame with a clean neutral background and no props."
+        output_goal = "high-clarity full-body character reference art with readable silhouette, costume, proportions, and consistent styling."
+    prompt_lines = [
+        "Create a polished comic-book character reference portrait.",
+        "The image must match the project's established comic style, rendering language, and tone.",
+        "This is a character design reference, not a photoreal portrait.",
+        f"Pose target: {pose_label}.",
+        f"Composition: exactly one person only, {composition}.",
+        "Subject count: a single face only. Never show two people, duplicate faces, mirrored faces, reflections, split views, or multiple angles in one image.",
+        "Framing: " + framing,
+        "Expression: neutral and readable, suitable for a design sheet.",
+        "Output goal: " + output_goal,
+        "No text, no logos, no watermarks, no speech balloons, no border labels.",
+        "",
+        "Project style context:",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Character details:",
+        ]
+    )
+    _append_detail_line(prompt_lines, "Name", current.get("name") or character.name, limit=80)
+    _append_detail_line(prompt_lines, "Role", current.get("role") or character.role, limit=80)
+    age_value = current.get("age")
+    if age_value in (None, ""):
+        age_value = character.age
+    if age_value not in (None, ""):
+        prompt_lines.append(f"Age: {age_value}")
+    _append_detail_line(prompt_lines, "Gender", current.get("gender") or character.gender, limit=80)
+    _append_detail_line(prompt_lines, "Description", current.get("description") or character.description)
+    _append_detail_line(prompt_lines, "Costume notes", current.get("costume_notes") or character.costume_notes)
+    _append_detail_line(prompt_lines, "Visual notes", current.get("visual_notes") or character.visual_notes)
+    _append_detail_line(prompt_lines, "Voice notes", current.get("voice_notes") or character.voice_notes)
+    return "\n".join(prompt_lines).strip()
 
 
 def _issue_ai_current(request) -> dict[str, str]:
@@ -267,6 +383,19 @@ def _page_ai_meta(request) -> dict[str, str]:
         "page_role": (request.POST.get("page_role") or "").strip(),
         "layout_type": (request.POST.get("layout_type") or "").strip(),
     }
+
+
+def _character_ai_current(request) -> dict[str, str]:
+    current = {field: (request.POST.get(field) or "").strip() for field in CHARACTER_AI_FIELDS}
+    age_value = current.get("age", "")
+    if age_value:
+        try:
+            age_int = int(age_value)
+        except Exception:
+            current["age"] = ""
+        else:
+            current["age"] = str(age_int) if 0 <= age_int <= 130 else ""
+    return current
 
 
 def _issue_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
@@ -519,6 +648,145 @@ def _page_add_detail_suggestions(*, project: ComicProject, issue: ComicIssue, cu
             continue
 
         if key in PAGE_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _character_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    empty_fields = [field for field in CHARACTER_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book character development assistant.",
+        "Goal: fill ONLY the currently-empty character fields so they fit the comic project's tone, world, and cast.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(CHARACTER_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- name: 2-4 words.",
+        "- role: a short label or phrase.",
+        "- age: integer only, omit it if unsure.",
+        "- gender: a short plain-language label.",
+        "- description: 2-5 bullet points covering story function, attitude, and core tension.",
+        "- costume_notes, visual_notes, voice_notes: 2-5 bullet points each with concrete, production-friendly detail.",
+        "- For description, costume_notes, visual_notes, and voice_notes, each bullet must start with '- '.",
+        "- Keep details specific enough to guide scripting and art direction without contradicting the project bible.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current character fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        if key == "age":
+            try:
+                age_int = int(value)
+            except Exception:
+                continue
+            if 0 <= age_int <= 130:
+                filtered[key] = str(age_int)
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in CHARACTER_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        filtered[key] = text
+    return filtered
+
+
+def _character_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book character development assistant.",
+        "Goal: add fresh detail to the current character profile without repeating or contradicting what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(CHARACTER_AI_FIELDS),
+        "- name, role, age, and gender: only include them if they are currently blank.",
+        "- description, costume_notes, visual_notes, and voice_notes: return ONLY additive bullet points to append, not a rewrite.",
+        "- For description, costume_notes, visual_notes, and voice_notes, each added bullet must start with '- '.",
+        "- Keep additions aligned with the project's tone, genre, visual rules, and existing cast.",
+        "- Make additions concrete and useful for scripting, acting, and visual continuity.",
+        "- age: integer only, omit it if unsure.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current character fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in CHARACTER_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in CHARACTER_AI_APPEND_FIELDS and existing:
+            continue
+
+        if key == "age":
+            try:
+                age_int = int(value)
+            except Exception:
+                continue
+            if 0 <= age_int <= 130:
+                filtered[key] = str(age_int)
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+
+        if key in CHARACTER_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        if key in CHARACTER_AI_APPEND_FIELDS:
             text = _dedupe_appended_text(existing, text)
         if not text:
             continue
@@ -802,12 +1070,19 @@ class ComicCharacterCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.project = self.project
+        raw_age = (self.request.POST.get("age") or "").strip()
+        form.instance.age = int(raw_age) if raw_age.isdigit() else None
+        form.instance.gender = (self.request.POST.get("gender") or "").strip()
+        form.instance.frontal_face_image_data_url = (self.request.POST.get("frontal_face_image_data_url") or "").strip()
+        form.instance.sideways_face_image_data_url = (self.request.POST.get("sideways_face_image_data_url") or "").strip()
+        form.instance.full_body_image_data_url = (self.request.POST.get("full_body_image_data_url") or "").strip()
         messages.success(self.request, "Comic character created.")
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -826,16 +1101,222 @@ class ComicCharacterUpdateView(LoginRequiredMixin, UpdateView):
         return ComicCharacter.objects.filter(project=self.project)
 
     def form_valid(self, form):
+        raw_age = (self.request.POST.get("age") or "").strip()
+        form.instance.age = int(raw_age) if raw_age.isdigit() else None
+        form.instance.gender = (self.request.POST.get("gender") or "").strip()
+        form.instance.frontal_face_image_data_url = (
+            self.request.POST.get("frontal_face_image_data_url") or form.instance.frontal_face_image_data_url or ""
+        ).strip()
+        form.instance.sideways_face_image_data_url = (
+            self.request.POST.get("sideways_face_image_data_url") or form.instance.sideways_face_image_data_url or ""
+        ).strip()
+        form.instance.full_body_image_data_url = (
+            self.request.POST.get("full_body_image_data_url") or form.instance.full_body_image_data_url or ""
+        ).strip()
         messages.success(self.request, "Comic character saved.")
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
         return reverse("comic_book:character-list", kwargs={"slug": self.project.slug})
+
+
+@login_required
+@require_POST
+def preview_character_faces(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    current = {
+        "name": (request.POST.get("name") or "").strip(),
+        "role": (request.POST.get("role") or "").strip(),
+        "age": (request.POST.get("age") or "").strip(),
+        "gender": (request.POST.get("gender") or "").strip(),
+        "description": (request.POST.get("description") or "").strip(),
+        "costume_notes": (request.POST.get("costume_notes") or "").strip(),
+        "visual_notes": (request.POST.get("visual_notes") or "").strip(),
+        "voice_notes": (request.POST.get("voice_notes") or "").strip(),
+    }
+    if not current["name"]:
+        return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
+
+    temp_character = ComicCharacter(project=project, **current)
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    def render_with_fallback(prompt: str) -> str:
+        try:
+            return generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if fallback_model and fallback_model != model_name:
+                return generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+            raise
+
+    try:
+        frontal_url = render_with_fallback(
+            _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="frontal")
+        )
+        sideways_url = render_with_fallback(
+            _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="sideways")
+        )
+    except Exception:
+        return _json_internal_error()
+
+    return JsonResponse({"ok": True, "frontal_face_image_url": frontal_url, "sideways_face_image_url": sideways_url})
+
+
+@login_required
+@require_POST
+def preview_character_full_body(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    current = {
+        "name": (request.POST.get("name") or "").strip(),
+        "role": (request.POST.get("role") or "").strip(),
+        "age": (request.POST.get("age") or "").strip(),
+        "gender": (request.POST.get("gender") or "").strip(),
+        "description": (request.POST.get("description") or "").strip(),
+        "costume_notes": (request.POST.get("costume_notes") or "").strip(),
+        "visual_notes": (request.POST.get("visual_notes") or "").strip(),
+        "voice_notes": (request.POST.get("voice_notes") or "").strip(),
+    }
+    if not current["name"]:
+        return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
+
+    temp_character = ComicCharacter(project=project, **current)
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    prompt = _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="full_body")
+    try:
+        try:
+            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if fallback_model and fallback_model != model_name:
+                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+            else:
+                raise
+    except Exception:
+        return _json_internal_error()
+
+    return JsonResponse({"ok": True, "full_body_image_url": body_url})
+
+
+@login_required
+@require_POST
+def generate_character_faces(request, slug: str, pk):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    character = get_object_or_404(ComicCharacter, id=pk, project=project)
+    current = {
+        "name": (request.POST.get("name") or character.name or "").strip(),
+        "role": (request.POST.get("role") or character.role or "").strip(),
+        "age": (request.POST.get("age") or ("" if character.age is None else str(character.age))).strip(),
+        "gender": (request.POST.get("gender") or character.gender or "").strip(),
+        "description": (request.POST.get("description") or character.description or "").strip(),
+        "costume_notes": (request.POST.get("costume_notes") or character.costume_notes or "").strip(),
+        "visual_notes": (request.POST.get("visual_notes") or character.visual_notes or "").strip(),
+        "voice_notes": (request.POST.get("voice_notes") or character.voice_notes or "").strip(),
+    }
+    if not current["name"]:
+        return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
+
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    def render_with_fallback(prompt: str) -> str:
+        try:
+            return generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if fallback_model and fallback_model != model_name:
+                return generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+            raise
+
+    try:
+        frontal_url = render_with_fallback(
+            _comic_character_image_prompt(project=project, character=character, current=current, pose="frontal")
+        )
+        sideways_url = render_with_fallback(
+            _comic_character_image_prompt(project=project, character=character, current=current, pose="sideways")
+        )
+    except Exception:
+        return _json_internal_error()
+
+    character.frontal_face_image_data_url = frontal_url
+    character.sideways_face_image_data_url = sideways_url
+    character.save(update_fields=["frontal_face_image_data_url", "sideways_face_image_data_url", "updated_at"])
+    return JsonResponse({"ok": True, "frontal_face_image_url": frontal_url, "sideways_face_image_url": sideways_url})
+
+
+@login_required
+@require_POST
+def generate_character_full_body(request, slug: str, pk):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    character = get_object_or_404(ComicCharacter, id=pk, project=project)
+    current = {
+        "name": (request.POST.get("name") or character.name or "").strip(),
+        "role": (request.POST.get("role") or character.role or "").strip(),
+        "age": (request.POST.get("age") or ("" if character.age is None else str(character.age))).strip(),
+        "gender": (request.POST.get("gender") or character.gender or "").strip(),
+        "description": (request.POST.get("description") or character.description or "").strip(),
+        "costume_notes": (request.POST.get("costume_notes") or character.costume_notes or "").strip(),
+        "visual_notes": (request.POST.get("visual_notes") or character.visual_notes or "").strip(),
+        "voice_notes": (request.POST.get("voice_notes") or character.voice_notes or "").strip(),
+    }
+    if not current["name"]:
+        return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
+
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    prompt = _comic_character_image_prompt(project=project, character=character, current=current, pose="full_body")
+    try:
+        try:
+            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if fallback_model and fallback_model != model_name:
+                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+            else:
+                raise
+    except Exception:
+        return _json_internal_error()
+
+    character.full_body_image_data_url = body_url
+    character.save(update_fields=["full_body_image_data_url", "updated_at"])
+    return JsonResponse({"ok": True, "full_body_image_url": body_url})
 
 
 class ComicCharacterDeleteView(LoginRequiredMixin, DeleteView):
@@ -1361,6 +1842,41 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse("comic_book:page-edit", kwargs={"slug": self.project.slug, "issue_pk": self.issue.pk, "pk": self.page.pk})
+
+
+@login_required
+@require_POST
+def brainstorm_character(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _character_ai_current(request)
+    try:
+        suggestions = _character_brainstorm_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_character_details(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _character_ai_current(request)
+    if not current.get("name"):
+        return JsonResponse({"ok": False, "error": "Add a character name first."}, status=400)
+
+    try:
+        suggestions = _character_add_detail_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
 
 
 @login_required

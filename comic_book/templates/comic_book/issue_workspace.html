@@ -48,7 +48,7 @@
         <div class="comic-outline-list">
           {% for page in pages %}
             <article class="comic-outline-item {% if selected_page and page.pk == selected_page.pk %}is-active{% endif %}">
-              <a class="comic-outline-link" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}?page={{ page.pk }}">
+              <a class="comic-outline-link" href="{% url 'comic_book:page-edit' slug=project.slug issue_pk=issue.pk pk=page.pk %}">
                 <strong>Page {{ page.page_number }}</strong>
                 {% if page.title %}
                   <span>{{ page.title }}</span>

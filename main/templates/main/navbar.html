@@ -26,27 +26,32 @@
             <a href="{% url 'project-create' %}">New Project</a>
           </div>
         </details>
-        {% if comic_book_app_enabled and user.is_superuser %}
-          <a href="{% url 'comic_book:index' %}">Comic Book</a>
-        {% endif %}
         <details class="nav-dropdown">
           <summary>More</summary>
           <div class="nav-dropdown-menu">
             <a href="{% url 'token-usage' %}">Token Usage</a>
             <a href="{% url 'billing' %}">Billing</a>
             <a href="{% url 'contact' %}">Contact</a>
-            {% if user.is_superuser and youtube_app_enabled %}
-              <a href="{% url 'youtube:index' %}">Channel List</a>
-            {% endif %}
-            {% if user.is_superuser %}
-              <a href="{% url 'home-update-create' %}">Post Update</a>
-              <a href="{% url 'admin:index' %}">Admin</a>
-            {% endif %}
             <a href="{% url 'account_email' %}">Account</a>
             <a href="{% url 'account_change_password' %}">Change Password</a>
             <a href="{% url 'account_logout' %}">Sign out</a>
           </div>
         </details>
+        {% if user.is_superuser %}
+          <details class="nav-dropdown">
+            <summary>SuperUsers</summary>
+            <div class="nav-dropdown-menu">
+              {% if comic_book_app_enabled %}
+                <a href="{% url 'comic_book:index' %}">Comic Book</a>
+              {% endif %}
+              {% if youtube_app_enabled %}
+                <a href="{% url 'youtube:index' %}">Channel List</a>
+              {% endif %}
+              <a href="{% url 'home-update-create' %}">Post Update</a>
+              <a href="{% url 'admin:index' %}">Admin</a>
+            </div>
+          </details>
+        {% endif %}
       {% endif %}
       {% if user.is_authenticated %}
         <a class="nav-model-badge" href="{% url 'token-usage' %}" title="Active text generation model">

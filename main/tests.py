@@ -372,6 +372,7 @@ class NavbarVisibilityTests(TestCase):
         self.assertContains(response, "Sign in")
         self.assertNotContains(response, "<summary>Projects</summary>", html=False)
         self.assertNotContains(response, "<summary>More</summary>", html=False)
+        self.assertNotContains(response, "<summary>SuperUsers</summary>", html=False)
 
     def test_authenticated_users_see_contact_in_more_dropdown(self):
         user = get_user_model().objects.create_user(
@@ -386,9 +387,10 @@ class NavbarVisibilityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "<summary>More</summary>", html=False)
         self.assertContains(response, '<a href="/contact/">Contact</a>', html=False)
+        self.assertNotContains(response, "<summary>SuperUsers</summary>", html=False)
         self.assertNotContains(response, '<a href="/admin/">Admin</a>', html=False)
 
-    def test_superusers_see_admin_in_more_dropdown(self):
+    def test_superusers_see_superusers_dropdown(self):
         user = get_user_model().objects.create_superuser(
             username="adminuser",
             email="admin@example.com",
@@ -399,6 +401,7 @@ class NavbarVisibilityTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<summary>SuperUsers</summary>", html=False)
         self.assertContains(response, '<a href="/admin/">Admin</a>', html=False)
 
 

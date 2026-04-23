@@ -1,4 +1,5 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}{% if object %}Edit comic project{% else %}New comic project{% endif %}{% endblock %}
 
@@ -56,4 +57,5 @@
       </form>
     </section>
   </div>
+  <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
 {% endblock %}

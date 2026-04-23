@@ -1,22 +1,40 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import timedelta
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Count, Max, Prefetch
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
+from main.billing import billing_enabled, user_has_active_plan
+from main.llm import call_llm
+from main.text_models import get_user_text_model
+
 from .forms import ComicBibleForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
 from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+
+logger = logging.getLogger(__name__)
+ISSUE_AI_FIELDS = [
+    "title",
+    "summary",
+    "theme",
+    "opening_hook",
+    "closing_hook",
+    "notes",
+]
+ISSUE_AI_APPEND_FIELDS = {"summary", "opening_hook", "closing_hook", "notes"}
 
 
 def _project_queryset_for_user(user):
@@ -42,6 +60,326 @@ def _issue_workspace_url(issue: ComicIssue, *, page: ComicPage | None = None) ->
     if page is not None:
         url += "?" + urlencode({"page": str(page.pk)})
     return url
+
+
+def _log_exception(message: str, *args) -> None:
+    logger.error(message, *args, exc_info=not getattr(settings, "RUNNING_TESTS", False))
+
+
+def _get_billing_url(request, *, reason: str = "") -> str:
+    billing_url = reverse("billing")
+    params = {}
+    next_url = request.get_full_path()
+    if next_url:
+        params["next"] = next_url
+    if reason:
+        params["required"] = reason
+    if params:
+        billing_url = f"{billing_url}?{urlencode(params)}"
+    return billing_url
+
+
+def _ai_context_for_request(request) -> dict[str, object]:
+    return {
+        "billing_enabled": billing_enabled(),
+        "has_active_plan": user_has_active_plan(request.user),
+        "ai_billing_url": _get_billing_url(request, reason="active-plan"),
+    }
+
+
+def _subscription_required_response(request):
+    if not billing_enabled():
+        return None
+    if user_has_active_plan(request.user):
+        return None
+    error = "An active plan is required to generate text and use tokens."
+    billing_url = _get_billing_url(request, reason="active-plan")
+    return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
+
+
+def _ensure_json_ai_request(request):
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+    return None
+
+
+def _json_internal_error() -> JsonResponse:
+    _log_exception("Comic book issue AI request failed.")
+    return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
+
+
+def _extract_json_object(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return "{}"
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("Response did not contain a JSON object.")
+    return text[start : end + 1]
+
+
+def _call_llm_json_object(*, prompt: str, model_name: str, params: dict) -> dict:
+    result = call_llm(prompt=prompt, model_name=model_name, params=params)
+    raw_text = (result.text or "").strip()
+    data = json.loads(_extract_json_object(raw_text) if raw_text else "{}")
+    if not isinstance(data, dict):
+        raise ValueError("Model response must be a JSON object.")
+    return data
+
+
+def _dedupe_appended_text(existing: str, addition: str) -> str:
+    existing_text = (existing or "").strip()
+    addition_text = (addition or "").strip()
+    if not addition_text:
+        return ""
+    if not existing_text:
+        return addition_text
+
+    existing_lower = existing_text.lower()
+    addition_lower = addition_text.lower()
+    if addition_lower in existing_lower:
+        return ""
+
+    def trim_overlap(text: str) -> str:
+        return text.lstrip(" \t\r\n;,:.-").strip()
+
+    if addition_lower.startswith(existing_lower):
+        return trim_overlap(addition_text[len(existing_text) :])
+
+    max_overlap = min(len(existing_text), len(addition_text))
+    for overlap in range(max_overlap, 0, -1):
+        if existing_lower[-overlap:] == addition_lower[:overlap]:
+            return trim_overlap(addition_text[overlap:])
+
+    return addition_text
+
+
+def _truncate_ai_context(value: str, *, max_length: int = 220) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_length:
+        return text
+    truncated = text[: max_length - 3].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return (truncated or text[: max_length - 3]) + "..."
+
+
+def _comic_project_context_lines(project: ComicProject) -> list[str]:
+    lines = ["Project title: " + (project.title or "")]
+    for label, value in [
+        ("Project logline", project.logline),
+        ("Genre", project.genre),
+        ("Tone", project.tone),
+        ("Target audience", project.target_audience),
+        ("Art style notes", project.art_style_notes),
+        ("Format notes", project.format_notes),
+    ]:
+        text = _truncate_ai_context(value)
+        if text:
+            lines.append(f"{label}: {text}")
+    return lines
+
+
+def _comic_bible_context_lines(project: ComicProject) -> list[str]:
+    try:
+        bible = project.bible
+    except ComicBible.DoesNotExist:
+        return []
+
+    lines = []
+    for label, value in [
+        ("Comic bible premise", bible.premise),
+        ("Comic bible world rules", bible.world_rules),
+        ("Comic bible visual rules", bible.visual_rules),
+        ("Comic bible continuity rules", bible.continuity_rules),
+        ("Comic bible cast notes", bible.cast_notes),
+    ]:
+        text = _truncate_ai_context(value)
+        if text:
+            lines.append(f"{label}: {text}")
+    return lines
+
+
+def _comic_character_context_lines(project: ComicProject) -> list[str]:
+    characters = list(project.characters.order_by("name")[:8])
+    if not characters:
+        return []
+
+    lines = ["Key characters:"]
+    for character in characters:
+        parts = [character.name]
+        role = _truncate_ai_context(character.role, max_length=80)
+        description = _truncate_ai_context(character.description, max_length=140)
+        if role:
+            parts.append(role)
+        if description:
+            parts.append(description)
+        lines.append("- " + " | ".join(parts))
+    return lines
+
+
+def _comic_location_context_lines(project: ComicProject) -> list[str]:
+    locations = list(project.locations.order_by("name")[:8])
+    if not locations:
+        return []
+
+    lines = ["Key locations:"]
+    for location in locations:
+        parts = [location.name]
+        description = _truncate_ai_context(location.description, max_length=140)
+        if description:
+            parts.append(description)
+        lines.append("- " + " | ".join(parts))
+    return lines
+
+
+def _issue_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in ISSUE_AI_FIELDS}
+
+
+def _issue_ai_meta(request) -> dict[str, str]:
+    return {
+        "number": (request.POST.get("number") or "").strip(),
+        "planned_page_count": (request.POST.get("planned_page_count") or "").strip(),
+        "status": (request.POST.get("status") or "").strip(),
+    }
+
+
+def _issue_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
+    empty_fields = [field for field in ISSUE_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book issue planning assistant.",
+        "Goal: fill ONLY the currently-empty issue fields so they fit the wider comic project.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(ISSUE_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- title: 2-6 words.",
+        "- theme: a short phrase.",
+        "- summary: 3-6 sentences describing the issue arc.",
+        "- opening_hook: 1-2 punchy sentences.",
+        "- closing_hook: 1-2 punchy sentences that create forward momentum.",
+        "- notes: 3-6 short lines for pacing, continuity, or visual emphasis.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    prompt_lines.extend(
+        [
+            "Issue number: " + (meta.get("number") or ""),
+            "Planned page count: " + (meta.get("planned_page_count") or ""),
+            "Issue status: " + (meta.get("status") or ""),
+        ]
+    )
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current issue fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 650},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _issue_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book issue planning assistant.",
+        "Goal: add fresh detail to the current issue plan without repeating or contradicting what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(ISSUE_AI_FIELDS),
+        "- title and theme: only include them if they are currently blank.",
+        "- summary, opening_hook, closing_hook, and notes: return ONLY additive text to append, not a full rewrite.",
+        "- Keep additions aligned with the planned page count, project tone, and cast/location context.",
+        "- notes: 2-5 short lines for pacing, continuity, or visual emphasis.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    prompt_lines.extend(
+        [
+            "Issue number: " + (meta.get("number") or ""),
+            "Planned page count: " + (meta.get("planned_page_count") or ""),
+            "Issue status: " + (meta.get("status") or ""),
+        ]
+    )
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current issue fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 650},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in ISSUE_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in ISSUE_AI_APPEND_FIELDS and existing:
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+
+        if key in ISSUE_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
 
 
 def _renumber_issue_pages(issue: ComicIssue) -> None:
@@ -456,6 +794,7 @@ class ComicIssueCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -480,6 +819,7 @@ class ComicIssueUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -778,6 +1118,43 @@ class ComicPanelDeleteView(LoginRequiredMixin, DeleteView):
         _renumber_page_panels(self.page)
         messages.success(self.request, "Panel deleted.")
         return response
+
+
+@login_required
+@require_POST
+def brainstorm_issue(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _issue_ai_current(request)
+    meta = _issue_ai_meta(request)
+    try:
+        suggestions = _issue_brainstorm_suggestions(project=project, current=current, meta=meta, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_issue_details(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _issue_ai_current(request)
+    if not any(current.values()):
+        return JsonResponse({"ok": False, "error": "Add at least one issue detail first."}, status=400)
+
+    meta = _issue_ai_meta(request)
+    try:
+        suggestions = _issue_add_detail_suggestions(project=project, current=current, meta=meta, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
 
 
 @login_required

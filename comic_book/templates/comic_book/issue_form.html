@@ -1,4 +1,5 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}{% if object %}Edit issue{% else %}New issue{% endif %} | {{ project.title }}{% endblock %}
 
@@ -17,7 +18,14 @@
       <p class="page-lead">Define the issue arc first, then let the workspace break it into pages and panels.</p>
     </section>
 
-    <section class="card page-panel">
+    <section
+      class="card page-panel"
+      data-comic-issue-brainstorm-url="{% url 'comic_book:issue-brainstorm' slug=project.slug %}"
+      data-comic-issue-add-details-url="{% url 'comic_book:issue-add-details' slug=project.slug %}"
+      data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
+      data-ai-billing-url="{{ ai_billing_url|default:'' }}"
+      data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
+    >
       <form method="post" class="form">
         {% csrf_token %}
         {% if form.non_field_errors %}
@@ -34,6 +42,8 @@
         {% endfor %}
         <div class="actions">
           <button class="btn btn-primary" type="submit">Save issue</button>
+          <button class="btn btn-secondary" type="button" id="comic-issue-brainstorm-btn">Brainstorm</button>
+          <button class="btn btn-secondary" type="button" id="comic-issue-add-details-btn">Add Detail</button>
           {% if object %}
             <a class="btn btn-secondary" href="{% url 'comic_book:issue-delete' slug=project.slug pk=object.pk %}">Delete</a>
           {% endif %}
@@ -42,4 +52,191 @@
       </form>
     </section>
   </div>
+
+  <script src="{% static 'main/ui_helpers.js' %}" defer></script>
+  <script src="{% static 'main/ai_billing_guard.js' %}" defer></script>
+  <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const section = document.querySelector("[data-comic-issue-brainstorm-url]");
+      const brainstormBtn = document.getElementById("comic-issue-brainstorm-btn");
+      const addDetailsBtn = document.getElementById("comic-issue-add-details-btn");
+      if (!section || !brainstormBtn || !addDetailsBtn) return;
+
+      const brainstormUrl = section.getAttribute("data-comic-issue-brainstorm-url");
+      const addDetailsUrl = section.getAttribute("data-comic-issue-add-details-url");
+      const form = section.querySelector("form");
+      if (!brainstormUrl || !addDetailsUrl || !form) return;
+
+      const ui = window.AppUI;
+      if (!ui) return;
+      const csrfToken = ui.getCsrfToken();
+
+      const targetFields = ["title", "summary", "theme", "opening_hook", "closing_hook", "notes"];
+      const contextFields = ["number", "planned_page_count", "status"];
+      const appendFields = new Set(["summary", "opening_hook", "closing_hook", "notes"]);
+
+      const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
+      const getCurrentValues = (names) => {
+        const values = {};
+        for (const name of names) {
+          const el = getFieldEl(name);
+          if (!el) continue;
+          values[name] = (el.value || "").trim();
+        }
+        return values;
+      };
+
+      const refreshFieldLayout = (el) => {
+        if (!el) return;
+        if (el.matches("textarea")) {
+          window.AppAutogrow?.resize?.(el);
+        }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+
+      const dedupeAppendedText = (existing, incoming) => {
+        const existingText = String(existing || "").trim();
+        const additionText = String(incoming || "").trim();
+        if (!additionText) return "";
+        if (!existingText) return additionText;
+
+        const existingLower = existingText.toLowerCase();
+        const additionLower = additionText.toLowerCase();
+        if (existingLower.includes(additionLower)) return "";
+
+        const trimOverlap = (text) => text.replace(/^[\s;,:.-]+/, "").trim();
+        if (additionLower.startsWith(existingLower)) {
+          return trimOverlap(additionText.slice(existingText.length));
+        }
+
+        const maxOverlap = Math.min(existingText.length, additionText.length);
+        for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+          if (existingLower.slice(-overlap) === additionLower.slice(0, overlap)) {
+            return trimOverlap(additionText.slice(overlap));
+          }
+        }
+
+        return additionText;
+      };
+
+      const setIfEmpty = (name, value) => {
+        const el = getFieldEl(name);
+        const next = String(value || "").trim();
+        if (!el || !next || (el.value || "").trim()) return false;
+        el.value = next;
+        refreshFieldLayout(el);
+        return true;
+      };
+
+      const appendOrSet = (name, value) => {
+        const el = getFieldEl(name);
+        const next = String(value || "").trim();
+        if (!el || !next) return false;
+
+        const existing = (el.value || "").trim();
+        if (!existing) {
+          el.value = next;
+          refreshFieldLayout(el);
+          return true;
+        }
+
+        const extra = dedupeAppendedText(existing, next);
+        if (!extra) return false;
+        el.value = `${existing}\n\n${extra}`.trim();
+        refreshFieldLayout(el);
+        return true;
+      };
+
+      const postForSuggestions = async (url) => {
+        const current = getCurrentValues(targetFields);
+        const meta = getCurrentValues(contextFields);
+        const params = new URLSearchParams();
+        for (const [name, value] of Object.entries(meta)) {
+          params.set(name, value || "");
+        }
+        for (const [name, value] of Object.entries(current)) {
+          params.set(name, value || "");
+        }
+
+        const result = await ui.postFormUrlEncoded({
+          url,
+          params,
+          csrfToken,
+          failureLabel: "Request failed",
+        });
+        if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) {
+          return null;
+        }
+        if (!result.ok) {
+          ui.showMessage(result.error, "error");
+          return null;
+        }
+
+        return result.data?.suggestions || {};
+      };
+
+      brainstormBtn.addEventListener("click", async () => {
+        if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+        const current = getCurrentValues(targetFields);
+        const emptyFields = targetFields.filter((name) => !current[name]);
+        if (!emptyFields.length) {
+          ui.showMessage("Nothing to fill - all issue fields already have values.", "info");
+          return;
+        }
+
+        brainstormBtn.disabled = true;
+        const originalText = brainstormBtn.textContent;
+        brainstormBtn.textContent = "Brainstorming...";
+
+        try {
+          const suggestions = await postForSuggestions(brainstormUrl);
+          if (!suggestions) return;
+          let changed = 0;
+          for (const [name, value] of Object.entries(suggestions)) {
+            if (setIfEmpty(name, value)) changed += 1;
+          }
+          if (!changed) ui.showMessage("No suggestions returned for empty issue fields.", "warning");
+          else ui.showMessage(`Filled ${changed} issue field(s).`, "success");
+        } finally {
+          brainstormBtn.disabled = false;
+          brainstormBtn.textContent = originalText;
+        }
+      });
+
+      addDetailsBtn.addEventListener("click", async () => {
+        if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+
+        const current = getCurrentValues(targetFields);
+        if (!Object.values(current).some(Boolean)) {
+          ui.showMessage("Add at least one issue detail first.", "warning");
+          return;
+        }
+
+        addDetailsBtn.disabled = true;
+        const originalText = addDetailsBtn.textContent;
+        addDetailsBtn.textContent = "Adding...";
+
+        try {
+          const suggestions = await postForSuggestions(addDetailsUrl);
+          if (!suggestions) return;
+          let changed = 0;
+          for (const [name, value] of Object.entries(suggestions)) {
+            if (appendFields.has(name)) {
+              if (appendOrSet(name, value)) changed += 1;
+            } else if (setIfEmpty(name, value)) {
+              changed += 1;
+            }
+          }
+          if (!changed) ui.showMessage("No additional details to add right now.", "warning");
+          else ui.showMessage(`Enhanced ${changed} issue field(s).`, "success");
+        } finally {
+          addDetailsBtn.disabled = false;
+          addDetailsBtn.textContent = originalText;
+        }
+      });
+    });
+  </script>
 {% endblock %}

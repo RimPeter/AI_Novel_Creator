@@ -3,6 +3,10 @@ from django import forms
 from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
+def _autogrow_textarea(*, rows: int):
+    return forms.Textarea(attrs={"class": "form-control", "rows": rows, "data-autogrow": "true"})
+
+
 class ComicProjectForm(forms.ModelForm):
     class Meta:
         model = ComicProject
@@ -19,12 +23,12 @@ class ComicProjectForm(forms.ModelForm):
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "slug": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. neon-afterglow"}),
-            "logline": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "logline": _autogrow_textarea(rows=5),
             "genre": forms.TextInput(attrs={"class": "form-control"}),
             "tone": forms.TextInput(attrs={"class": "form-control"}),
             "target_audience": forms.TextInput(attrs={"class": "form-control"}),
-            "art_style_notes": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
-            "format_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "art_style_notes": _autogrow_textarea(rows=5),
+            "format_notes": _autogrow_textarea(rows=4),
         }
 
 
@@ -39,11 +43,11 @@ class ComicBibleForm(forms.ModelForm):
             "cast_notes",
         ]
         widgets = {
-            "premise": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "world_rules": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "visual_rules": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "continuity_rules": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "cast_notes": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "premise": _autogrow_textarea(rows=6),
+            "world_rules": _autogrow_textarea(rows=6),
+            "visual_rules": _autogrow_textarea(rows=6),
+            "continuity_rules": _autogrow_textarea(rows=6),
+            "cast_notes": _autogrow_textarea(rows=6),
         }
 
 
@@ -61,10 +65,10 @@ class ComicCharacterForm(forms.ModelForm):
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "role": forms.TextInput(attrs={"class": "form-control"}),
-            "description": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
-            "costume_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "visual_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "voice_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "description": _autogrow_textarea(rows=5),
+            "costume_notes": _autogrow_textarea(rows=4),
+            "visual_notes": _autogrow_textarea(rows=4),
+            "voice_notes": _autogrow_textarea(rows=4),
         }
 
 
@@ -79,9 +83,9 @@ class ComicLocationForm(forms.ModelForm):
         ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
-            "description": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
-            "visual_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "continuity_notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "description": _autogrow_textarea(rows=5),
+            "visual_notes": _autogrow_textarea(rows=4),
+            "continuity_notes": _autogrow_textarea(rows=4),
         }
 
 
@@ -102,13 +106,13 @@ class ComicIssueForm(forms.ModelForm):
         widgets = {
             "number": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
             "title": forms.TextInput(attrs={"class": "form-control"}),
-            "summary": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "summary": _autogrow_textarea(rows=5),
             "theme": forms.TextInput(attrs={"class": "form-control"}),
             "status": forms.Select(attrs={"class": "form-control"}),
             "planned_page_count": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
-            "opening_hook": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "closing_hook": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "opening_hook": _autogrow_textarea(rows=4),
+            "closing_hook": _autogrow_textarea(rows=4),
+            "notes": _autogrow_textarea(rows=5),
         }
 
 
@@ -127,11 +131,11 @@ class ComicPageForm(forms.ModelForm):
         widgets = {
             "page_number": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
             "title": forms.TextInput(attrs={"class": "form-control"}),
-            "summary": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "summary": _autogrow_textarea(rows=5),
             "page_role": forms.Select(attrs={"class": "form-control"}),
             "layout_type": forms.Select(attrs={"class": "form-control"}),
-            "page_turn_hook": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "page_turn_hook": _autogrow_textarea(rows=4),
+            "notes": _autogrow_textarea(rows=4),
         }
 
 
@@ -158,11 +162,11 @@ class ComicPanelForm(forms.ModelForm):
             "focus": forms.TextInput(attrs={"class": "form-control"}),
             "location": forms.Select(attrs={"class": "form-control"}),
             "characters": forms.SelectMultiple(attrs={"class": "form-control multi-select", "size": 6}),
-            "action": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
-            "dialogue": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "caption": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "sfx": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
-            "notes": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "action": _autogrow_textarea(rows=5),
+            "dialogue": _autogrow_textarea(rows=4),
+            "caption": _autogrow_textarea(rows=4),
+            "sfx": _autogrow_textarea(rows=3),
+            "notes": _autogrow_textarea(rows=4),
         }
 
     def __init__(self, *args, project=None, **kwargs):

@@ -1,7 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from unittest.mock import patch
 
+from .forms import ComicBibleForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
+from main.llm import LLMResult
 from .models import ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
@@ -70,6 +73,7 @@ class ComicBookAppTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<summary>SuperUsers</summary>", html=False)
         self.assertContains(response, '<a href="/comic-book/">Comic Book</a>', html=False)
 
     def test_other_users_cannot_open_project_dashboard(self):
@@ -111,6 +115,112 @@ class ComicBookAppTests(TestCase):
             list(issue.pages.order_by("page_number").values_list("page_number", flat=True)),
             [1, 2, 3, 4],
         )
+
+    def test_issue_create_page_renders_brainstorm_and_add_detail_controls(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:issue-create", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-issue-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-issue-add-details-btn"', html=False)
+        self.assertContains(response, reverse("comic_book:issue-brainstorm", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:issue-add-details", kwargs={"slug": project.slug}))
+
+    def test_issue_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"A courier chases a dead transmission across a quarantined city.","theme":"Trust under pressure","opening_hook":"A dead satellite wakes up and speaks Nika\'s name.","notes":"Lean into rain, neon, and failed surveillance."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:issue-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "number": 1,
+                    "title": "Issue One",
+                    "summary": "",
+                    "theme": "",
+                    "status": ComicIssue.Status.PLANNING,
+                    "planned_page_count": 22,
+                    "opening_hook": "",
+                    "closing_hook": "",
+                    "notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "summary": "A courier chases a dead transmission across a quarantined city.",
+                    "theme": "Trust under pressure",
+                    "opening_hook": "A dead satellite wakes up and speaks Nika's name.",
+                    "notes": "Lean into rain, neon, and failed surveillance.",
+                },
+            },
+        )
+        self.assertIn("Project title: Star Signal", mock_call.call_args.kwargs["prompt"])
+
+    def test_issue_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"summary":"The courier receives the signal and triggers a chase. Imperial drones lock down the district."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:issue-add-details", kwargs={"slug": project.slug}),
+                data={
+                    "number": 1,
+                    "title": "Issue One",
+                    "summary": "The courier receives the signal and triggers a chase.",
+                    "theme": "Trust",
+                    "status": ComicIssue.Status.PLANNING,
+                    "planned_page_count": 22,
+                    "opening_hook": "",
+                    "closing_hook": "",
+                    "notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"summary": "Imperial drones lock down the district."}},
+        )
+
+    def test_comic_forms_mark_textareas_for_autogrow(self):
+        forms_to_check = [
+            ComicProjectForm(),
+            ComicBibleForm(),
+            ComicCharacterForm(),
+            ComicLocationForm(),
+            ComicIssueForm(),
+            ComicPageForm(),
+            ComicPanelForm(),
+        ]
+
+        for form in forms_to_check:
+            for field in form.fields.values():
+                if field.widget.__class__.__name__ != "Textarea":
+                    continue
+                self.assertEqual(field.widget.attrs.get("data-autogrow"), "true")
 
     def test_panel_create_links_project_characters_and_location(self):
         project = self._create_project()

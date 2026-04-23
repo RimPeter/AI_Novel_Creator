@@ -1,16 +1,18 @@
 (() => {
+  const EXTRA_HEIGHT_PX = 10;
   const textareas = Array.from(document.querySelectorAll("textarea[data-autogrow='true']"));
   if (!textareas.length) return;
 
   const resize = (textarea) => {
     textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    const nextHeight = textarea.scrollHeight + EXTRA_HEIGHT_PX;
+    textarea.style.height = `${nextHeight}px`;
 
     const editor = textarea.closest("[data-draft-editor]");
     if (editor) {
       const highlight = editor.querySelector(".draft-highlight");
       if (highlight) {
-        highlight.style.height = `${textarea.scrollHeight}px`;
+        highlight.style.height = `${nextHeight}px`;
       }
     }
   };

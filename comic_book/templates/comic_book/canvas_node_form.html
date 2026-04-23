@@ -1,0 +1,55 @@
+{% extends "main/base.html" %}
+
+{% block title %}Edit canvas brief | Page {{ page.page_number }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Canvas brief</span>
+          <h1 class="page-title">Canvas {{ canvas_node.canvas_key }}</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-secondary" href="{% url 'comic_book:page-edit' slug=project.slug issue_pk=issue.pk pk=page.pk %}">Back to page</a>
+        </div>
+      </div>
+      <p class="page-lead">Store only child-canvas-specific framing and generation details here. Project, issue, page, character, and location context stays inherited through related models.</p>
+    </section>
+
+    <section class="card page-panel">
+      <div class="comic-chip-row">
+        <span class="comic-chip">{{ canvas_node.get_node_type_display }}</span>
+        {% if canvas_node.split_direction %}
+          <span class="comic-chip">{{ canvas_node.get_split_direction_display }}</span>
+        {% endif %}
+        {% if canvas_node.split_ratio %}
+          <span class="comic-chip">Ratio {{ canvas_node.split_ratio }}</span>
+        {% endif %}
+      </div>
+
+      <form method="post" class="form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+        {% for field in form %}
+          <div class="form-row">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="muted">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="field-error">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Save canvas brief</button>
+          <a class="btn btn-secondary" href="{% url 'comic_book:page-edit' slug=project.slug issue_pk=issue.pk pk=page.pk %}">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

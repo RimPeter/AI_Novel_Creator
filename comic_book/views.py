@@ -22,8 +22,8 @@ from main.billing import billing_enabled, user_has_active_plan
 from main.llm import call_llm
 from main.text_models import get_user_text_model
 
-from .forms import ComicBibleForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
-from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .forms import ComicBibleForm, ComicCanvasNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
+from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 logger = logging.getLogger(__name__)
 ISSUE_AI_FIELDS = [
@@ -35,6 +35,13 @@ ISSUE_AI_FIELDS = [
     "notes",
 ]
 ISSUE_AI_APPEND_FIELDS = {"summary", "opening_hook", "closing_hook", "notes"}
+PAGE_AI_FIELDS = [
+    "title",
+    "summary",
+    "page_turn_hook",
+    "notes",
+]
+PAGE_AI_APPEND_FIELDS = {"summary", "page_turn_hook", "notes"}
 
 
 def _project_queryset_for_user(user):
@@ -250,6 +257,18 @@ def _issue_ai_meta(request) -> dict[str, str]:
     }
 
 
+def _page_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in PAGE_AI_FIELDS}
+
+
+def _page_ai_meta(request) -> dict[str, str]:
+    return {
+        "page_number": (request.POST.get("page_number") or "").strip(),
+        "page_role": (request.POST.get("page_role") or "").strip(),
+        "layout_type": (request.POST.get("layout_type") or "").strip(),
+    }
+
+
 def _issue_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
     empty_fields = [field for field in ISSUE_AI_FIELDS if not current.get(field)]
     if not empty_fields:
@@ -382,6 +401,131 @@ def _issue_add_detail_suggestions(*, project: ComicProject, current: dict[str, s
     return filtered
 
 
+def _comic_issue_context_lines(issue: ComicIssue) -> list[str]:
+    lines = [f"Issue number: {issue.number}", "Issue title: " + (issue.title or "")]
+    for label, value in [
+        ("Issue summary", issue.summary),
+        ("Issue theme", issue.theme),
+        ("Issue opening hook", issue.opening_hook),
+        ("Issue closing hook", issue.closing_hook),
+        ("Issue notes", issue.notes),
+    ]:
+        text = _truncate_ai_context(value)
+        if text:
+            lines.append(f"{label}: {text}")
+    return lines
+
+
+def _page_brainstorm_suggestions(*, project: ComicProject, issue: ComicIssue, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
+    empty_fields = [field for field in PAGE_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book page planning assistant.",
+        "Goal: fill ONLY the currently-empty page fields so they fit the issue and project context.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(PAGE_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- title: 2-6 words.",
+        "- summary: 2-5 sentences covering the page beat, pacing, and visual purpose.",
+        "- page_turn_hook: 1-2 punchy sentences only if this page should push into the next beat.",
+        "- notes: 2-5 short lines for composition, pacing, continuity, or emphasis.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_issue_context_lines(issue))
+    prompt_lines.extend(
+        [
+            "Page number: " + (meta.get("page_number") or ""),
+            "Page role: " + (meta.get("page_role") or ""),
+            "Layout type: " + (meta.get("layout_type") or ""),
+        ]
+    )
+    prompt_lines.extend(
+        [
+            "",
+            "Current page fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 500},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _page_add_detail_suggestions(*, project: ComicProject, issue: ComicIssue, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book page planning assistant.",
+        "Goal: add fresh detail to the current page plan without repeating or contradicting what is already there.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(PAGE_AI_FIELDS),
+        "- title: only include it if it is currently blank.",
+        "- summary, page_turn_hook, and notes: return ONLY additive text to append, not a rewrite.",
+        "- Keep additions aligned with the issue arc, page role, and layout type.",
+        "- notes: 2-5 short lines for composition, pacing, continuity, or emphasis.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_issue_context_lines(issue))
+    prompt_lines.extend(
+        [
+            "Page number: " + (meta.get("page_number") or ""),
+            "Page role: " + (meta.get("page_role") or ""),
+            "Layout type: " + (meta.get("layout_type") or ""),
+        ]
+    )
+    prompt_lines.extend(
+        [
+            "",
+            "Current page fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 500},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in PAGE_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in PAGE_AI_APPEND_FIELDS and existing:
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+
+        if key in PAGE_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
 def _renumber_issue_pages(issue: ComicIssue) -> None:
     for index, page in enumerate(issue.pages.order_by("page_number", "created_at", "id"), start=1):
         if page.page_number != index:
@@ -394,6 +538,56 @@ def _renumber_page_panels(page: ComicPage) -> None:
         if panel.panel_number != index:
             panel.panel_number = index
             panel.save(update_fields=["panel_number", "updated_at"])
+
+
+def _find_canvas_layout_node(layout: dict, canvas_key: str, *, parent_key: str = "") -> dict | None:
+    if not isinstance(layout, dict):
+        return None
+
+    node_key = str(layout.get("canvas_key") or "").strip()
+    if node_key == canvas_key:
+        return {
+            "node": layout,
+            "parent_key": parent_key,
+        }
+
+    for index, child in enumerate(layout.get("children") or []):
+        if not isinstance(child, dict):
+            continue
+        match = _find_canvas_layout_node(child, canvas_key, parent_key=node_key)
+        if match is not None:
+            match["child_index"] = index
+            return match
+    return None
+
+
+def _sync_canvas_node_from_layout(node: ComicCanvasNode) -> ComicCanvasNode:
+    layout = node.page.canvas_layout or {}
+    match = _find_canvas_layout_node(layout, node.canvas_key)
+    if match is None:
+        node.node_type = ComicCanvasNode.NodeType.PANEL
+        node.parent = None
+        node.child_index = 0
+        node.split_direction = ""
+        node.split_ratio = None
+        return node
+
+    layout_node = match["node"]
+    parent_key = str(match.get("parent_key") or "").strip()
+    node.node_type = (
+        ComicCanvasNode.NodeType.SPLIT
+        if str(layout_node.get("type") or "").strip() == "split"
+        else ComicCanvasNode.NodeType.PANEL
+    )
+    node.child_index = int(match.get("child_index") or 0)
+    split_direction = str(layout_node.get("direction") or "").strip()
+    node.split_direction = split_direction if split_direction in {choice for choice, _label in ComicCanvasNode.SplitDirection.choices} else ""
+    ratio = layout_node.get("ratio")
+    node.split_ratio = ratio if ratio is not None else None
+    node.parent = None
+    if parent_key:
+        node.parent = ComicCanvasNode.objects.filter(page=node.page, canvas_key=parent_key).first()
+    return node
 
 
 def _seed_issue_pages(issue: ComicIssue) -> int:
@@ -952,6 +1146,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -980,6 +1175,7 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -1120,6 +1316,53 @@ class ComicPanelDeleteView(LoginRequiredMixin, DeleteView):
         return response
 
 
+class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
+    form_class = ComicCanvasNodeForm
+    template_name = "comic_book/canvas_node_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
+        self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])
+        self.canvas_key = (kwargs.get("canvas_key") or "").strip()
+        if not self.canvas_key:
+            raise Http404("Canvas key is required.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        obj, _created = ComicCanvasNode.objects.get_or_create(
+            page=self.page,
+            canvas_key=self.canvas_key,
+            defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        )
+        _sync_canvas_node_from_layout(obj)
+        return obj
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.project
+        return kwargs
+
+    def form_valid(self, form):
+        form.instance.page = self.page
+        _sync_canvas_node_from_layout(form.instance)
+        response = super().form_valid(form)
+        messages.success(self.request, "Canvas brief saved.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        canvas_node = self.object
+        ctx["project"] = self.project
+        ctx["issue"] = self.issue
+        ctx["page"] = self.page
+        ctx["canvas_node"] = canvas_node
+        return ctx
+
+    def get_success_url(self):
+        return reverse("comic_book:page-edit", kwargs={"slug": self.project.slug, "issue_pk": self.issue.pk, "pk": self.page.pk})
+
+
 @login_required
 @require_POST
 def brainstorm_issue(request, slug: str):
@@ -1152,6 +1395,47 @@ def add_issue_details(request, slug: str):
     meta = _issue_ai_meta(request)
     try:
         suggestions = _issue_add_detail_suggestions(project=project, current=current, meta=meta, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def brainstorm_page(request, slug: str, issue_pk, pk):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    _get_page_for_issue(issue, pk)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _page_ai_current(request)
+    meta = _page_ai_meta(request)
+    try:
+        suggestions = _page_brainstorm_suggestions(project=project, issue=issue, current=current, meta=meta, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_page_details(request, slug: str, issue_pk, pk):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    _get_page_for_issue(issue, pk)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _page_ai_current(request)
+    if not any(current.values()):
+        return JsonResponse({"ok": False, "error": "Add at least one page detail first."}, status=400)
+
+    meta = _page_ai_meta(request)
+    try:
+        suggestions = _page_add_detail_suggestions(project=project, issue=issue, current=current, meta=meta, user=request.user)
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()

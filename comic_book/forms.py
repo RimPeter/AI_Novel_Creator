@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
 def _autogrow_textarea(*, rows: int):
@@ -127,6 +127,7 @@ class ComicPageForm(forms.ModelForm):
             "layout_type",
             "page_turn_hook",
             "notes",
+            "canvas_layout",
         ]
         widgets = {
             "page_number": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
@@ -136,6 +137,7 @@ class ComicPageForm(forms.ModelForm):
             "layout_type": forms.Select(attrs={"class": "form-control"}),
             "page_turn_hook": _autogrow_textarea(rows=4),
             "notes": _autogrow_textarea(rows=4),
+            "canvas_layout": forms.HiddenInput(attrs={"data-canvas-layout-input": "true"}),
         }
 
 
@@ -166,6 +168,55 @@ class ComicPanelForm(forms.ModelForm):
             "dialogue": _autogrow_textarea(rows=4),
             "caption": _autogrow_textarea(rows=4),
             "sfx": _autogrow_textarea(rows=3),
+            "notes": _autogrow_textarea(rows=4),
+        }
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        resolved_project = project
+        if resolved_project is None and getattr(self.instance, "page_id", None):
+            resolved_project = self.instance.page.issue.project
+
+        if resolved_project is None:
+            self.fields["location"].queryset = ComicLocation.objects.none()
+            self.fields["characters"].queryset = ComicCharacter.objects.none()
+            return
+
+        self.fields["location"].queryset = ComicLocation.objects.filter(project=resolved_project).order_by("name")
+        self.fields["characters"].queryset = ComicCharacter.objects.filter(project=resolved_project).order_by("name")
+
+
+class ComicCanvasNodeForm(forms.ModelForm):
+    class Meta:
+        model = ComicCanvasNode
+        fields = [
+            "focus",
+            "shot_type",
+            "camera_angle",
+            "location",
+            "characters",
+            "action",
+            "mood",
+            "lighting_notes",
+            "dialogue_space",
+            "must_include",
+            "must_avoid",
+            "style_override",
+            "notes",
+        ]
+        widgets = {
+            "focus": forms.TextInput(attrs={"class": "form-control"}),
+            "shot_type": forms.Select(attrs={"class": "form-control"}),
+            "camera_angle": forms.TextInput(attrs={"class": "form-control"}),
+            "location": forms.Select(attrs={"class": "form-control"}),
+            "characters": forms.SelectMultiple(attrs={"class": "form-control multi-select", "size": 6}),
+            "action": _autogrow_textarea(rows=5),
+            "mood": forms.TextInput(attrs={"class": "form-control"}),
+            "lighting_notes": _autogrow_textarea(rows=4),
+            "dialogue_space": forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. top-left, lower third clear"}),
+            "must_include": _autogrow_textarea(rows=4),
+            "must_avoid": _autogrow_textarea(rows=4),
+            "style_override": _autogrow_textarea(rows=4),
             "notes": _autogrow_textarea(rows=4),
         }
 

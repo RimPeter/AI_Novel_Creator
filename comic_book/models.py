@@ -149,6 +149,7 @@ class ComicPage(TimeStampedModel):
     layout_type = models.CharField(max_length=20, choices=LayoutType.choices, default=LayoutType.STANDARD)
     page_turn_hook = models.TextField(blank=True, default="")
     notes = models.TextField(blank=True, default="")
+    canvas_layout = models.JSONField(blank=True, default=dict)
 
     class Meta:
         ordering = ["page_number", "created_at", "id"]
@@ -162,6 +163,76 @@ class ComicPage(TimeStampedModel):
         for panel in self.panels.all():
             total += panel.balloon_word_count
         return total
+
+
+class ComicCanvasNode(TimeStampedModel):
+    class NodeType(models.TextChoices):
+        PANEL = "PANEL", "Panel"
+        SPLIT = "SPLIT", "Split"
+
+    class SplitDirection(models.TextChoices):
+        HORIZONTAL = "horizontal", "Horizontal"
+        VERTICAL = "vertical", "Vertical"
+
+    class ImageStatus(models.TextChoices):
+        IDLE = "IDLE", "Idle"
+        READY = "READY", "Ready"
+        FAILED = "FAILED", "Failed"
+
+    class ShotType(models.TextChoices):
+        FULL = "FULL", "Full"
+        WIDE = "WIDE", "Wide"
+        MEDIUM = "MEDIUM", "Medium"
+        CLOSE = "CLOSE", "Close"
+        EXTREME_CLOSE = "EXTREME_CLOSE", "Extreme close"
+        INSERT = "INSERT", "Insert"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    page = models.ForeignKey(ComicPage, on_delete=models.CASCADE, related_name="canvas_nodes")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        related_name="children",
+        blank=True,
+        null=True,
+    )
+    canvas_key = models.CharField(max_length=120)
+    node_type = models.CharField(max_length=10, choices=NodeType.choices, default=NodeType.PANEL)
+    child_index = models.PositiveSmallIntegerField(default=0)
+    split_direction = models.CharField(max_length=20, choices=SplitDirection.choices, blank=True, default="")
+    split_ratio = models.DecimalField(max_digits=4, decimal_places=3, blank=True, null=True)
+    focus = models.CharField(max_length=160, blank=True, default="")
+    action = models.TextField(blank=True, default="")
+    shot_type = models.CharField(max_length=20, choices=ShotType.choices, default=ShotType.MEDIUM)
+    camera_angle = models.CharField(max_length=120, blank=True, default="")
+    mood = models.CharField(max_length=120, blank=True, default="")
+    lighting_notes = models.TextField(blank=True, default="")
+    dialogue_space = models.CharField(max_length=120, blank=True, default="")
+    must_include = models.TextField(blank=True, default="")
+    must_avoid = models.TextField(blank=True, default="")
+    style_override = models.TextField(blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    location = models.ForeignKey(
+        ComicLocation,
+        on_delete=models.SET_NULL,
+        related_name="canvas_nodes",
+        blank=True,
+        null=True,
+    )
+    characters = models.ManyToManyField(ComicCharacter, related_name="canvas_nodes", blank=True)
+    image_prompt = models.TextField(blank=True, default="")
+    image_data_url = models.TextField(blank=True, default="")
+    image_status = models.CharField(max_length=12, choices=ImageStatus.choices, default=ImageStatus.IDLE)
+    last_generated_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["page", "canvas_key"], name="uniq_comic_canvas_node_page_key"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.page} / {self.canvas_key}"
 
 
 class ComicPanel(TimeStampedModel):

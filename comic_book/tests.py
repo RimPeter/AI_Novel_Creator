@@ -507,8 +507,61 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="comic-location-brainstorm-btn"', html=False)
         self.assertContains(response, 'id="comic-location-add-details-btn"', html=False)
+        self.assertContains(response, 'id="comic-location-image-btn"', html=False)
         self.assertContains(response, reverse("comic_book:location-brainstorm", kwargs={"slug": project.slug}))
         self.assertContains(response, reverse("comic_book:location-add-details", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:location-image-preview", kwargs={"slug": project.slug}))
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_preview_location_image_returns_project_style_image(self):
+        project = self._create_project()
+        ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return "data:image/png;base64,locationpreview"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:location-image-preview", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Static Market",
+                    "description": "A black-market concourse built inside a dead transmitter.",
+                    "visual_notes": "- Hanging cable veils.",
+                    "continuity_notes": "- Security drones cannot enter the inner ring.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "image_url": "data:image/png;base64,locationpreview"})
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Create a polished comic-book establishing shot", prompts[0])
+        self.assertIn("Name: Static Market", prompts[0])
+        self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompts[0])
+
+    def test_location_create_saves_generated_image_from_hidden_input(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:location-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Static Market",
+                "description": "A black-market concourse built inside a dead transmitter.",
+                "visual_notes": "",
+                "continuity_notes": "",
+                "image_data_url": "data:image/png;base64,location",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        location = ComicLocation.objects.get(project=project, name="Static Market")
+        self.assertEqual(location.image_data_url, "data:image/png;base64,location")
 
     def test_location_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()

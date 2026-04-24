@@ -377,6 +377,34 @@ def _comic_character_image_prompt(*, project: ComicProject, character: ComicChar
     return "\n".join(prompt_lines).strip()
 
 
+def _comic_location_image_prompt(*, project: ComicProject, current: dict[str, str]) -> str:
+    prompt_lines = [
+        "Create a polished comic-book establishing shot of a fictional location.",
+        "Composition: wide environmental view suitable as a reusable location reference.",
+        "The image must match the project's established comic style, rendering language, and tone.",
+        "No text, captions, logos, speech bubbles, signage text, or watermarks.",
+        "Avoid making characters the focus; the place itself must be the subject.",
+        "",
+        "Project style context:",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Location details:",
+        ]
+    )
+    _append_detail_line(prompt_lines, "Name", current.get("name"), limit=100)
+    _append_detail_line(prompt_lines, "Description", current.get("description"))
+    _append_detail_line(prompt_lines, "Visual notes", current.get("visual_notes"))
+    _append_detail_line(prompt_lines, "Continuity notes", current.get("continuity_notes"))
+    return "\n".join(prompt_lines).strip()
+
+
 def _issue_ai_current(request) -> dict[str, str]:
     return {field: (request.POST.get(field) or "").strip() for field in ISSUE_AI_FIELDS}
 
@@ -1619,6 +1647,40 @@ def generate_character_full_body(request, slug: str, pk):
     return JsonResponse({"ok": True, "full_body_image_url": body_url})
 
 
+@login_required
+@require_POST
+def preview_location_image(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    current = _location_ai_current(request)
+    if not current.get("name"):
+        return JsonResponse({"ok": False, "error": "Location name is required."}, status=400)
+
+    prompt = _comic_location_image_prompt(project=project, current=current)
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    try:
+        try:
+            image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if fallback_model and fallback_model != model_name:
+                image_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+            else:
+                raise
+    except Exception:
+        return _json_internal_error()
+
+    return JsonResponse({"ok": True, "image_url": image_url})
+
+
 class ComicCharacterDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
@@ -1682,6 +1744,7 @@ class ComicLocationCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.project = self.project
+        form.instance.image_data_url = (self.request.POST.get("image_data_url") or "").strip()
         messages.success(self.request, "Comic location created.")
         return super().form_valid(form)
 
@@ -1709,6 +1772,9 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
         return ComicLocation.objects.filter(project=self.project)
 
     def form_valid(self, form):
+        form.instance.image_data_url = (
+            self.request.POST.get("image_data_url") or form.instance.image_data_url or ""
+        ).strip()
         messages.success(self.request, "Comic location saved.")
         return super().form_valid(form)
 

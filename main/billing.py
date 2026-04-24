@@ -16,6 +16,7 @@ ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
 VAT_RATE_PERCENT = Decimal("20")
 VAT_MULTIPLIER = Decimal("1.20")
 BILLING_METADATA_PREFIX = "billing_"
+AI_GENERATION_BYPASS_SUPERUSER_USERNAME = "ferdinand"
 
 
 def billing_enabled() -> bool:
@@ -141,7 +142,18 @@ def user_has_active_subscription(user) -> bool:
     return bool(record and record.is_active)
 
 
+def user_has_ai_generation_billing_bypass(user) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if not getattr(user, "is_superuser", False):
+        return False
+    username = str(getattr(user, "username", "") or "").strip().lower()
+    return username == AI_GENERATION_BYPASS_SUPERUSER_USERNAME
+
+
 def user_has_active_plan(user) -> bool:
+    if user_has_ai_generation_billing_bypass(user):
+        return True
     record = get_subscription_record(user)
     if record is None:
         return False

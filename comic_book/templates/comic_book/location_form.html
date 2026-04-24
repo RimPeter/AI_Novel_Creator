@@ -21,12 +21,41 @@
       class="card page-panel"
       data-comic-location-brainstorm-url="{% url 'comic_book:location-brainstorm' slug=project.slug %}"
       data-comic-location-add-details-url="{% url 'comic_book:location-add-details' slug=project.slug %}"
+      data-comic-location-image-url="{% url 'comic_book:location-image-preview' slug=project.slug %}"
       data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
       data-ai-billing-url="{{ ai_billing_url|default:'' }}"
       data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
     >
+      <div class="location-image">
+        <div class="location-banner-frame">
+          <img
+            id="comic-location-image-img"
+            class="{% if not object or not object.image_data_url %}is-hidden{% endif %}"
+            src="{% if object %}{{ object.image_data_url }}{% endif %}"
+            alt="Image of {% if object %}{{ object.name }}{% else %}this comic location{% endif %}"
+          />
+          <div
+            id="comic-location-image-placeholder"
+            class="portrait-placeholder {% if object and object.image_data_url %}is-hidden{% endif %}"
+          >
+            No image yet.
+          </div>
+        </div>
+        <div class="portrait-meta">
+          <div class="muted" id="comic-location-image-status">
+            {% if object and object.image_data_url %}
+              Image saved for this location.
+            {% else %}
+              Generate an image from the current location details.
+            {% endif %}
+          </div>
+          <button class="btn btn-secondary" type="button" id="comic-location-image-btn">Generate image</button>
+        </div>
+      </div>
+
       <form method="post" class="form">
         {% csrf_token %}
+        <input type="hidden" name="image_data_url" id="comic-location-image-input" value="{% if object %}{{ object.image_data_url }}{% endif %}" />
         {% if form.non_field_errors %}
           <div class="form-errors">{{ form.non_field_errors }}</div>
         {% endif %}
@@ -59,17 +88,23 @@
       const section = document.querySelector("[data-comic-location-brainstorm-url]");
       const brainstormBtn = document.getElementById("comic-location-brainstorm-btn");
       const addDetailsBtn = document.getElementById("comic-location-add-details-btn");
-      if (!section || !brainstormBtn || !addDetailsBtn) return;
+      const imageBtn = document.getElementById("comic-location-image-btn");
+      if (!section || !brainstormBtn || !addDetailsBtn || !imageBtn) return;
 
       const brainstormUrl = section.getAttribute("data-comic-location-brainstorm-url");
       const addDetailsUrl = section.getAttribute("data-comic-location-add-details-url");
+      const imageUrl = section.getAttribute("data-comic-location-image-url");
       const form = section.querySelector("form");
       const ui = window.AppUI;
-      if (!brainstormUrl || !addDetailsUrl || !form || !ui) return;
+      if (!brainstormUrl || !addDetailsUrl || !imageUrl || !form || !ui) return;
 
       const csrfToken = ui.getCsrfToken();
       const targetFields = ["name", "description", "visual_notes", "continuity_notes"];
       const appendFields = new Set(["description", "visual_notes", "continuity_notes"]);
+      const imageEl = document.getElementById("comic-location-image-img");
+      const imagePlaceholder = document.getElementById("comic-location-image-placeholder");
+      const imageStatus = document.getElementById("comic-location-image-status");
+      const imageInput = document.getElementById("comic-location-image-input");
 
       const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
       const getCurrentValues = () => {
@@ -154,6 +189,22 @@
         return result.data?.suggestions || {};
       };
 
+      const generateImage = async () => {
+        const result = await ui.postFormUrlEncoded({
+          url: imageUrl,
+          params: new URLSearchParams(new FormData(form)),
+          csrfToken,
+          failureLabel: "Image failed",
+        });
+        if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) return null;
+        if (!result.ok) {
+          ui.showMessage(result.error, "error");
+          if (imageStatus) imageStatus.textContent = result.error;
+          return null;
+        }
+        return result.data?.image_url || "";
+      };
+
       brainstormBtn.addEventListener("click", async () => {
         if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
         const current = getCurrentValues();
@@ -204,6 +255,33 @@
         } finally {
           addDetailsBtn.disabled = false;
           addDetailsBtn.textContent = originalText;
+        }
+      });
+
+      imageBtn.addEventListener("click", async () => {
+        if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
+        if (!getCurrentValues().name) {
+          ui.showMessage("Add a location name first.", "warning");
+          return;
+        }
+        imageBtn.disabled = true;
+        const originalText = imageBtn.textContent;
+        imageBtn.textContent = "Generating...";
+        if (imageStatus) imageStatus.textContent = "Generating location image...";
+        try {
+          const nextUrl = await generateImage();
+          if (!nextUrl) return;
+          if (imageEl) {
+            imageEl.src = nextUrl;
+            imageEl.classList.remove("is-hidden");
+          }
+          if (imagePlaceholder) imagePlaceholder.classList.add("is-hidden");
+          if (imageInput) imageInput.value = nextUrl;
+          if (imageStatus) imageStatus.textContent = "Image generated and ready to save.";
+          ui.showMessage("Image generated.", "success");
+        } finally {
+          imageBtn.disabled = false;
+          imageBtn.textContent = originalText;
         }
       });
     });

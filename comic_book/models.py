@@ -85,6 +85,7 @@ class ComicLocation(TimeStampedModel):
     description = models.TextField(blank=True, default="")
     visual_notes = models.TextField(blank=True, default="")
     continuity_notes = models.TextField(blank=True, default="")
+    image_data_url = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["name", "created_at"]

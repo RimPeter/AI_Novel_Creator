@@ -22,7 +22,7 @@ from django.utils import timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
-from .billing import ensure_stripe_customer, process_webhook_event, sync_checkout_session, sync_subscription_record
+from .billing import ensure_stripe_customer, process_webhook_event, sync_checkout_session, sync_subscription_record, user_has_active_plan
 from .llm import LLMResult, SYSTEM_PROMPT, call_llm, generate_image_data_url, normalize_image_model_name
 from .models import (
     BillingCompanyProfile,
@@ -1095,6 +1095,41 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp.json()["ok"], False)
         self.assertIn("active plan", resp.json()["error"].lower())
         self.assertIn(reverse("billing"), resp.json()["billing_url"])
+
+    def test_ferdinand_superuser_has_active_plan_without_subscription(self):
+        self.user.username = "Ferdinand"
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["username", "is_superuser", "is_staff"])
+
+        self.assertTrue(user_has_active_plan(self.user))
+
+    def test_generation_endpoint_allows_ferdinand_superuser_without_subscription(self):
+        self.user.username = "Ferdinand"
+        self.user.is_superuser = True
+        self.user.is_staff = True
+        self.user.save(update_fields=["username", "is_superuser", "is_staff"])
+
+        with patch(
+            "main.views.call_llm",
+            return_value=LLMResult(
+                text='{"genre": "Speculative mystery"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            resp = self.client.post(
+                reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
+                data={
+                    "seed_idea": "",
+                    "genre": "",
+                    "tone": "",
+                    "style_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(resp.status_code, 200)
 
     def test_dashboard_generation_redirects_to_billing_without_subscription(self):
         resp = self.client.post(

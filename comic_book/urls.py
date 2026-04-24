@@ -26,6 +26,7 @@ urlpatterns = [
     path("projects/<slug:slug>/locations/", views.ComicLocationListView.as_view(), name="location-list"),
     path("projects/<slug:slug>/locations/brainstorm/", views.brainstorm_location, name="location-brainstorm"),
     path("projects/<slug:slug>/locations/add-details/", views.add_location_details, name="location-add-details"),
+    path("projects/<slug:slug>/locations/image/preview/", views.preview_location_image, name="location-image-preview"),
     path("projects/<slug:slug>/locations/new/", views.ComicLocationCreateView.as_view(), name="location-create"),
     path("projects/<slug:slug>/locations/<uuid:pk>/edit/", views.ComicLocationUpdateView.as_view(), name="location-edit"),
     path("projects/<slug:slug>/locations/<uuid:pk>/delete/", views.ComicLocationDeleteView.as_view(), name="location-delete"),

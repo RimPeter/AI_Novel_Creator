@@ -35,6 +35,14 @@ ISSUE_AI_FIELDS = [
     "notes",
 ]
 ISSUE_AI_APPEND_FIELDS = {"summary", "opening_hook", "closing_hook", "notes"}
+COMIC_BIBLE_AI_FIELDS = [
+    "premise",
+    "world_rules",
+    "visual_rules",
+    "continuity_rules",
+    "cast_notes",
+]
+COMIC_BIBLE_AI_APPEND_FIELDS = set(COMIC_BIBLE_AI_FIELDS)
 PAGE_AI_FIELDS = [
     "title",
     "summary",
@@ -54,6 +62,14 @@ CHARACTER_AI_FIELDS = [
 ]
 CHARACTER_AI_APPEND_FIELDS = {"description", "costume_notes", "visual_notes", "voice_notes"}
 CHARACTER_AI_BULLET_FIELDS = {"description", "costume_notes", "visual_notes", "voice_notes"}
+LOCATION_AI_FIELDS = [
+    "name",
+    "description",
+    "visual_notes",
+    "continuity_notes",
+]
+LOCATION_AI_APPEND_FIELDS = {"description", "visual_notes", "continuity_notes"}
+LOCATION_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
 
 
 def _project_queryset_for_user(user):
@@ -383,6 +399,125 @@ def _page_ai_meta(request) -> dict[str, str]:
         "page_role": (request.POST.get("page_role") or "").strip(),
         "layout_type": (request.POST.get("layout_type") or "").strip(),
     }
+
+
+def _comic_bible_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in COMIC_BIBLE_AI_FIELDS}
+
+
+def _comic_bible_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    empty_fields = [field for field in COMIC_BIBLE_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book series bible development assistant.",
+        "Goal: fill ONLY the currently-empty bible fields so they create a clear shared foundation for future issues, pages, and character work.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(COMIC_BIBLE_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- premise: 2-4 sentences defining the core comic concept and dramatic engine.",
+        "- world_rules: 3-6 short lines describing the setting logic, constraints, and recurring world assumptions.",
+        "- visual_rules: 3-6 short lines describing the visual language, design guardrails, and recurring art direction signals.",
+        "- continuity_rules: 3-6 short lines covering canon, chronology, power limits, and consistency requirements.",
+        "- cast_notes: 3-6 short lines clarifying ensemble function, relationship tension, and recurring role boundaries.",
+        "- Keep the bible specific, production-friendly, and aligned with the existing project details.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.append("Saved series bible context:")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current comic bible fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 700},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _comic_bible_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book series bible development assistant.",
+        "Goal: add fresh detail to the current comic bible without repeating or contradicting what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(COMIC_BIBLE_AI_FIELDS),
+        "- premise, world_rules, visual_rules, continuity_rules, and cast_notes: return ONLY additive text to append, not a full rewrite.",
+        "- Keep additions aligned with the existing project direction, cast, and locations.",
+        "- Focus on details that improve scripting clarity, art consistency, and canon control.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.append("Saved series bible context:")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current comic bible fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 700},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in COMIC_BIBLE_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in COMIC_BIBLE_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
 
 
 def _character_ai_current(request) -> dict[str, str]:
@@ -794,6 +929,135 @@ def _character_add_detail_suggestions(*, project: ComicProject, current: dict[st
     return filtered
 
 
+def _location_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in LOCATION_AI_FIELDS}
+
+
+def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    empty_fields = [field for field in LOCATION_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book location development assistant.",
+        "Goal: fill ONLY the currently-empty location fields so the setting fits the comic project's world, tone, and visual language.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(LOCATION_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- name: 2-5 words.",
+        "- description: 2-4 sentences covering story purpose, atmosphere, and recurring use.",
+        "- visual_notes and continuity_notes: 2-5 bullet points each with concrete, production-friendly detail.",
+        "- For visual_notes and continuity_notes, each bullet must start with '- '.",
+        "- Keep details specific enough to guide scripting and art direction without contradicting the series bible.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current location fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in LOCATION_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        filtered[key] = text
+    return filtered
+
+
+def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book location development assistant.",
+        "Goal: add fresh detail to the current location profile without repeating or contradicting what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(LOCATION_AI_FIELDS),
+        "- name: only include it if it is currently blank.",
+        "- description, visual_notes, and continuity_notes: return ONLY additive text to append, not a rewrite.",
+        "- For visual_notes and continuity_notes, each added bullet must start with '- '.",
+        "- Keep additions aligned with the project's tone, genre, visual rules, existing cast, and series bible.",
+        "- Make additions concrete and useful for scripting, staging, art direction, and continuity.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Current location fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in LOCATION_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in LOCATION_AI_APPEND_FIELDS and existing:
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in LOCATION_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        if key in LOCATION_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
 def _renumber_issue_pages(issue: ComicIssue) -> None:
     for index, page in enumerate(issue.pages.order_by("page_number", "created_at", "id"), start=1):
         if page.page_number != index:
@@ -1026,6 +1290,7 @@ class ComicBibleUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def form_valid(self, form):
@@ -1034,6 +1299,41 @@ class ComicBibleUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse_lazy("comic_book:bible-edit", kwargs={"slug": self.project.slug})
+
+
+@login_required
+@require_POST
+def brainstorm_bible(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _comic_bible_ai_current(request)
+    try:
+        suggestions = _comic_bible_brainstorm_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_bible_details(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _comic_bible_ai_current(request)
+    if not any(current.values()):
+        return JsonResponse({"ok": False, "error": "Add at least one bible detail first."}, status=400)
+
+    try:
+        suggestions = _comic_bible_add_detail_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
 
 
 class ComicCharacterListView(LoginRequiredMixin, ListView):
@@ -1350,6 +1650,8 @@ class ComicLocationListView(LoginRequiredMixin, ListView):
     context_object_name = "locations"
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1373,6 +1675,8 @@ class ComicLocationCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1384,6 +1688,7 @@ class ComicLocationCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -1395,6 +1700,8 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1408,6 +1715,7 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
@@ -1418,6 +1726,8 @@ class ComicLocationDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1874,6 +2184,41 @@ def add_character_details(request, slug: str):
 
     try:
         suggestions = _character_add_detail_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def brainstorm_location(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _location_ai_current(request)
+    try:
+        suggestions = _location_brainstorm_suggestions(project=project, current=current, user=request.user)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_location_details(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _location_ai_current(request)
+    if not current.get("name"):
+        return JsonResponse({"ok": False, "error": "Add a location name first."}, status=400)
+
+    try:
+        suggestions = _location_add_detail_suggestions(project=project, current=current, user=request.user)
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()

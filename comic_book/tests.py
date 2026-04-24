@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from .forms import ComicBibleForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
 from main.llm import LLMResult
-from .models import ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
 class ComicBookAppTests(TestCase):
@@ -205,6 +205,108 @@ class ComicBookAppTests(TestCase):
             {"ok": True, "suggestions": {"summary": "Imperial drones lock down the district."}},
         )
 
+    def test_bible_edit_page_renders_brainstorm_and_add_detail_controls(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:bible-edit", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-bible-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-bible-add-details-btn"', html=False)
+        self.assertContains(response, reverse("comic_book:bible-brainstorm", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:bible-add-details", kwargs={"slug": project.slug}))
+
+    def test_bible_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        ComicBible.objects.create(
+            project=project,
+            continuity_rules="Signals cannot be decoded without a living relay pilot.",
+        )
+        ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        ComicLocation.objects.create(project=project, name="Relay Port", description="A decaying orbital dock.")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"premise":"A courier carries a forbidden signal through a collapsing empire while rival factions race to control what it reveals.","visual_rules":"Use hard-edged sci-fi silhouettes, signal glow, and dense industrial decay.","cast_notes":"Keep the core cast small and tension-driven so every interaction shifts trust."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:bible-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "premise": "",
+                    "world_rules": "FTL travel is unstable and expensive.",
+                    "visual_rules": "",
+                    "continuity_rules": "",
+                    "cast_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "premise": "A courier carries a forbidden signal through a collapsing empire while rival factions race to control what it reveals.",
+                    "visual_rules": "Use hard-edged sci-fi silhouettes, signal glow, and dense industrial decay.",
+                    "cast_notes": "Keep the core cast small and tension-driven so every interaction shifts trust.",
+                },
+            },
+        )
+        self.assertIn("Project title: Star Signal", mock_call.call_args.kwargs["prompt"])
+        self.assertIn("Saved series bible context:", mock_call.call_args.kwargs["prompt"])
+        self.assertIn(
+            "Comic bible continuity rules: Signals cannot be decoded without a living relay pilot.",
+            mock_call.call_args.kwargs["prompt"],
+        )
+        self.assertIn("Key characters:", mock_call.call_args.kwargs["prompt"])
+        self.assertIn("Key locations:", mock_call.call_args.kwargs["prompt"])
+
+    def test_bible_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        ComicBible.objects.create(
+            project=project,
+            premise="A courier carries a forbidden signal through a collapsing empire.",
+        )
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"premise":"A courier carries a forbidden signal through a collapsing empire. Rival factions begin hunting the message before it can be decoded."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:bible-add-details", kwargs={"slug": project.slug}),
+                data={
+                    "premise": "A courier carries a forbidden signal through a collapsing empire.",
+                    "world_rules": "",
+                    "visual_rules": "",
+                    "continuity_rules": "",
+                    "cast_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"premise": "Rival factions begin hunting the message before it can be decoded."}},
+        )
+        self.assertIn("Saved series bible context:", mock_call.call_args.kwargs["prompt"])
+        self.assertIn(
+            "Comic bible premise: A courier carries a forbidden signal through a collapsing empire.",
+            mock_call.call_args.kwargs["prompt"],
+        )
+
     def test_character_create_page_renders_brainstorm_and_add_detail_controls(self):
         project = self._create_project()
         self.client.force_login(self.user)
@@ -394,6 +496,91 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(
             response.json(),
             {"ok": True, "suggestions": {"description": "- She keeps one hand near a stolen key at all times."}},
+        )
+
+    def test_location_create_page_renders_brainstorm_and_add_detail_controls(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:location-create", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-location-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-location-add-details-btn"', html=False)
+        self.assertContains(response, reverse("comic_book:location-brainstorm", kwargs={"slug": project.slug}))
+        self.assertContains(response, reverse("comic_book:location-add-details", kwargs={"slug": project.slug}))
+
+    def test_location_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
+        ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        ComicLocation.objects.create(project=project, name="Relay Port", description="A decaying orbital dock.")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"name":"Static Market","description":"A black-market concourse built inside a dead transmitter.","visual_notes":"- Hanging cable veils.\\n- Vendor lights pulse like warning beacons.","continuity_notes":"- Security drones cannot enter the inner ring."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:location-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "",
+                    "description": "Existing location description.",
+                    "visual_notes": "",
+                    "continuity_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "name": "Static Market",
+                    "visual_notes": "- Hanging cable veils.\n- Vendor lights pulse like warning beacons.",
+                    "continuity_notes": "- Security drones cannot enter the inner ring.",
+                },
+            },
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Project title: Star Signal", prompt)
+        self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompt)
+        self.assertIn("Key characters:", prompt)
+        self.assertIn("Key locations:", prompt)
+
+    def test_location_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"description":"A black-market concourse built inside a dead transmitter. Its lowest deck floods whenever the relay overheats."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:location-add-details", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Static Market",
+                    "description": "A black-market concourse built inside a dead transmitter.",
+                    "visual_notes": "",
+                    "continuity_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"description": "Its lowest deck floods whenever the relay overheats."}},
         )
 
     def test_character_brainstorm_splits_inline_bullets_into_new_lines(self):

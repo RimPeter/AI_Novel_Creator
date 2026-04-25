@@ -573,6 +573,51 @@ class LLMTests(TestCase):
         self.assertEqual(kwargs["max_completion_tokens"], 64)
         self.assertNotIn("max_tokens", kwargs)
 
+    def test_call_llm_sends_image_data_url_to_chat_completions(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Plain text."))],
+            usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+            call_llm(
+                prompt="Describe this location.",
+                model_name="gpt-4.1-mini",
+                params={"max_tokens": 64},
+                image_data_url="data:image/png;base64,abc123",
+            )
+
+        content = mocked.call_args.kwargs["messages"][1]["content"]
+        self.assertEqual(content[0], {"type": "text", "text": "Describe this location."})
+        self.assertEqual(content[1], {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}})
+
+    def test_call_llm_sends_image_data_url_to_responses_api(self):
+        fake_response = SimpleNamespace(
+            output_text="Plain text.",
+            usage=SimpleNamespace(input_tokens=9, output_tokens=4, total_tokens=13),
+        )
+
+        with patch("main.llm.client.responses.create", return_value=fake_response) as mocked:
+            call_llm(
+                prompt="Describe this location.",
+                model_name="gpt-5-mini",
+                params={"max_tokens": 64},
+                image_data_url="data:image/png;base64,abc123",
+            )
+
+        self.assertEqual(
+            mocked.call_args.kwargs["input"],
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Describe this location."},
+                        {"type": "input_image", "image_url": "data:image/png;base64,abc123"},
+                    ],
+                }
+            ],
+        )
+
     def test_call_llm_omits_temperature_for_gpt5_family_models(self):
         fake_response = SimpleNamespace(
             output_text="Plain text.",

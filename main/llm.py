@@ -137,13 +137,36 @@ def _extract_responses_text(response) -> str:
     return ""
 
 
-def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
+def _chat_user_content(prompt: str, image_data_url: str = ""):
+    if not image_data_url:
+        return prompt
+    return [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": image_data_url}},
+    ]
+
+
+def _responses_input(prompt: str, image_data_url: str = ""):
+    if not image_data_url:
+        return prompt
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_image", "image_url": image_data_url},
+            ],
+        }
+    ]
+
+
+def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str = "") -> LLMResult:
     max_completion_tokens = params.get("max_completion_tokens", params.get("max_tokens", 1500))
     request_kwargs = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": _chat_user_content(prompt, image_data_url)},
         ],
         "max_completion_tokens": max_completion_tokens,
     }
@@ -163,14 +186,15 @@ def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict) ->
     )
 
 
-def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
+def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str = "") -> LLMResult:
     max_output_tokens = params.get("max_completion_tokens", params.get("max_tokens", 1500))
+    image_data_url = (image_data_url or "").strip()
 
     if _uses_responses_api(model_name):
         request_kwargs = {
             "model": model_name,
             "instructions": SYSTEM_PROMPT,
-            "input": prompt,
+            "input": _responses_input(prompt, image_data_url),
             "max_output_tokens": max_output_tokens,
         }
         reasoning_effort = _responses_reasoning_effort(model_name)
@@ -198,7 +222,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
                 finish_reason=finish_reason,
             )
 
-        fallback_result = _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params)
+        fallback_result = _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params, image_data_url=image_data_url)
         fallback_usage = fallback_result.usage or {}
         combined_prompt_tokens = prompt_tokens + int(fallback_usage.get("prompt_tokens", 0) or 0)
         combined_completion_tokens = completion_tokens + int(fallback_usage.get("completion_tokens", 0) or 0)
@@ -215,7 +239,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
             finish_reason=fallback_result.finish_reason,
         )
 
-    return _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params)
+    return _call_chat_completions_llm(prompt=prompt, model_name=model_name, params=params, image_data_url=image_data_url)
 
 
 def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1024") -> str:

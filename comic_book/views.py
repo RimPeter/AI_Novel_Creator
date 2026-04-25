@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import re
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -70,6 +72,27 @@ LOCATION_AI_FIELDS = [
 ]
 LOCATION_AI_APPEND_FIELDS = {"description", "visual_notes", "continuity_notes"}
 LOCATION_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
+CANVAS_NODE_AI_FIELDS = [
+    "focus",
+    "camera_angle",
+    "action",
+    "mood",
+    "lighting_notes",
+    "dialogue_space",
+    "must_include",
+    "must_avoid",
+    "style_override",
+    "notes",
+]
+CANVAS_NODE_AI_OUTPUT_FIELDS = CANVAS_NODE_AI_FIELDS + ["characters"]
+CANVAS_NODE_AI_APPEND_FIELDS = {
+    "action",
+    "lighting_notes",
+    "must_include",
+    "must_avoid",
+    "style_override",
+    "notes",
+}
 
 
 def _project_queryset_for_user(user):
@@ -168,13 +191,37 @@ def _extract_json_object(raw: str) -> str:
     return text[start : end + 1]
 
 
-def _call_llm_json_object(*, prompt: str, model_name: str, params: dict) -> dict:
-    result = call_llm(prompt=prompt, model_name=model_name, params=params)
+def _call_llm_json_object(*, prompt: str, model_name: str, params: dict, image_data_url: str = "") -> dict:
+    call_kwargs = {"prompt": prompt, "model_name": model_name, "params": params}
+    image_data_url = (image_data_url or "").strip()
+    if image_data_url:
+        call_kwargs["image_data_url"] = image_data_url
+    result = call_llm(**call_kwargs)
     raw_text = (result.text or "").strip()
     data = json.loads(_extract_json_object(raw_text) if raw_text else "{}")
     if not isinstance(data, dict):
         raise ValueError("Model response must be a JSON object.")
     return data
+
+
+def _image_data_url_from_upload(uploaded_file) -> str:
+    if not uploaded_file:
+        return ""
+    content_type = (getattr(uploaded_file, "content_type", "") or "").strip().lower()
+    if not content_type.startswith("image/"):
+        return ""
+    encoded = base64.b64encode(uploaded_file.read()).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
+def _location_image_data_url_from_request(request, *, fallback: str = "") -> str:
+    posted_data_url = (request.POST.get("image_data_url") or "").strip()
+    if posted_data_url:
+        return posted_data_url
+    uploaded_data_url = _image_data_url_from_upload(request.FILES.get("image_upload"))
+    if uploaded_data_url:
+        return uploaded_data_url
+    return (fallback or "").strip()
 
 
 def _dedupe_appended_text(existing: str, addition: str) -> str:
@@ -413,6 +460,80 @@ def _comic_location_image_prompt(*, project: ComicProject, current: dict[str, st
     return "\n".join(prompt_lines).strip()
 
 
+def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue, page: ComicPage, node: ComicCanvasNode) -> str:
+    _sync_canvas_node_from_layout(node)
+    characters = list(node.characters.order_by("name"))
+    location = node.location
+    shot_type = node.get_shot_type_display()
+
+    prompt_lines = [
+        "Create a polished comic-book canvas image.",
+        "This image is one canvas/panel inside a comic page, not a full page.",
+        "The image must match the project's established comic style, rendering language, and tone.",
+        "No text, captions, logos, speech bubbles, signage text, watermarks, panel borders, or UI.",
+        "Respect the canvas brief exactly; do not add unrelated characters, props, or story events.",
+        "",
+        "Project style context:",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_issue_context_lines(issue))
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_page_context_lines(page))
+    prompt_lines.extend(
+        [
+            "",
+            "Canvas brief:",
+            f"Canvas key: {node.canvas_key}",
+            f"Canvas type: {node.get_node_type_display()}",
+            f"Shot type: {shot_type}",
+        ]
+    )
+    if node.split_direction:
+        prompt_lines.append(f"Split direction: {node.get_split_direction_display()}")
+    if node.split_ratio:
+        prompt_lines.append(f"Split ratio: {node.split_ratio}")
+
+    for label, value in [
+        ("Focus", node.focus),
+        ("Camera angle", node.camera_angle),
+        ("Action", node.action),
+        ("Mood", node.mood),
+        ("Lighting notes", node.lighting_notes),
+        ("Dialogue space", node.dialogue_space),
+        ("Must include", node.must_include),
+        ("Must avoid", node.must_avoid),
+        ("Style override", node.style_override),
+        ("Canvas notes", node.notes),
+    ]:
+        _append_detail_line(prompt_lines, label, value, limit=360)
+
+    if location:
+        prompt_lines.extend(["", "Selected location details:"])
+        _append_detail_line(prompt_lines, "Location name", location.name, limit=100)
+        _append_detail_line(prompt_lines, "Location description", location.description, limit=360)
+        _append_detail_line(prompt_lines, "Location visual notes", location.visual_notes, limit=360)
+        _append_detail_line(prompt_lines, "Location continuity notes", location.continuity_notes, limit=260)
+
+    if characters:
+        prompt_lines.extend(["", "Selected character details:"])
+        for character in characters:
+            prompt_lines.append(f"- Character: {character.name}")
+            _append_detail_line(prompt_lines, "  Role", character.role, limit=120)
+            if character.age is not None:
+                prompt_lines.append(f"  Age: {character.age}")
+            _append_detail_line(prompt_lines, "  Gender", character.gender, limit=80)
+            _append_detail_line(prompt_lines, "  Description", character.description, limit=300)
+            _append_detail_line(prompt_lines, "  Costume notes", character.costume_notes, limit=260)
+            _append_detail_line(prompt_lines, "  Visual notes", character.visual_notes, limit=260)
+
+    return "\n".join(prompt_lines).strip()
+
+
 def _issue_ai_current(request) -> dict[str, str]:
     return {field: (request.POST.get(field) or "").strip() for field in ISSUE_AI_FIELDS}
 
@@ -434,6 +555,23 @@ def _page_ai_meta(request) -> dict[str, str]:
         "page_number": (request.POST.get("page_number") or "").strip(),
         "page_role": (request.POST.get("page_role") or "").strip(),
         "layout_type": (request.POST.get("layout_type") or "").strip(),
+    }
+
+
+def _canvas_node_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in CANVAS_NODE_AI_FIELDS}
+
+
+def _canvas_node_ai_meta(request, node: ComicCanvasNode) -> dict[str, str]:
+    return {
+        "canvas_key": node.canvas_key,
+        "node_type": node.get_node_type_display(),
+        "split_direction": node.get_split_direction_display() if node.split_direction else "",
+        "split_ratio": str(node.split_ratio or ""),
+        "shot_type": (request.POST.get("shot_type") or node.shot_type or "").strip(),
+        "location": (request.POST.get("location_label") or "").strip(),
+        "characters": (request.POST.get("characters_label") or "").strip(),
+        "available_characters": ", ".join(ComicCharacter.objects.filter(project=node.page.issue.project).order_by("name").values_list("name", flat=True)),
     }
 
 
@@ -716,6 +854,52 @@ def _comic_issue_context_lines(issue: ComicIssue) -> list[str]:
     return lines
 
 
+def _comic_page_context_lines(page: ComicPage) -> list[str]:
+    lines = [f"Page number: {page.page_number}", "Page title: " + (page.title or "")]
+    for label, value in [
+        ("Page summary", page.summary),
+        ("Page role", page.get_page_role_display()),
+        ("Layout type", page.get_layout_type_display()),
+        ("Page-turn hook", page.page_turn_hook),
+        ("Page notes", page.notes),
+    ]:
+        text = _truncate_ai_context(value)
+        if text:
+            lines.append(f"{label}: {text}")
+    return lines
+
+
+def _canvas_character_suggestions(value, *, project: ComicProject, selected_labels: str = "") -> list[str]:
+    allowed = {
+        name.casefold(): name
+        for name in ComicCharacter.objects.filter(project=project).order_by("name").values_list("name", flat=True)
+        if name
+    }
+    if not allowed:
+        return []
+
+    selected = {
+        item.strip().casefold()
+        for item in str(selected_labels or "").split(",")
+        if item.strip()
+    }
+
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = str(value or "").replace("\n", ",").split(",")
+
+    names = []
+    seen = set()
+    for item in raw_items:
+        key = str(item or "").strip().casefold()
+        if not key or key in selected or key in seen or key not in allowed:
+            continue
+        seen.add(key)
+        names.append(allowed[key])
+    return names
+
+
 def _page_brainstorm_suggestions(*, project: ComicProject, issue: ComicIssue, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
     empty_fields = [field for field in PAGE_AI_FIELDS if not current.get(field)]
     if not empty_fields:
@@ -819,6 +1003,170 @@ def _page_add_detail_suggestions(*, project: ComicProject, issue: ComicIssue, cu
             continue
 
         if key in PAGE_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _canvas_node_brainstorm_suggestions(
+    *,
+    project: ComicProject,
+    issue: ComicIssue,
+    page: ComicPage,
+    node: ComicCanvasNode,
+    current: dict[str, str],
+    meta: dict[str, str],
+    user,
+) -> dict[str, str]:
+    empty_fields = [field for field in CANVAS_NODE_AI_FIELDS if not current.get(field)]
+    selected_characters = meta.get("characters") or ""
+    if not selected_characters:
+        empty_fields.append("characters")
+    if not empty_fields:
+        return {}
+
+    prompt_lines = [
+        "You are a comic-book canvas brief assistant.",
+        "Goal: fill ONLY the currently-empty canvas brief fields so this canvas has clear framing, staging, and generation notes.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(CANVAS_NODE_AI_OUTPUT_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- focus: a short phrase naming the visual subject.",
+        "- characters: an array of exact names selected from Available characters only. Omit characters if none fit.",
+        "- camera_angle, mood, and dialogue_space: concise production notes.",
+        "- action: 1-3 sentences describing what is visibly happening in this canvas.",
+        "- lighting_notes, must_include, must_avoid, style_override, and notes: 2-5 short concrete lines each.",
+        "- Keep additions aligned with the project, issue, page, selected shot type, location, and characters.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_issue_context_lines(issue))
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_page_context_lines(page))
+    prompt_lines.extend(
+        [
+            "",
+            "Canvas metadata:",
+            "Canvas key: " + (meta.get("canvas_key") or node.canvas_key),
+            "Canvas type: " + (meta.get("node_type") or ""),
+            "Split direction: " + (meta.get("split_direction") or ""),
+            "Split ratio: " + (meta.get("split_ratio") or ""),
+            "Shot type: " + (meta.get("shot_type") or ""),
+            "Selected location: " + (meta.get("location") or ""),
+            "Selected characters: " + (meta.get("characters") or ""),
+            "Available characters: " + (meta.get("available_characters") or ""),
+            "",
+            "Current canvas fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 650},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key == "characters":
+            if key not in empty_fields:
+                continue
+            names = _canvas_character_suggestions(value, project=project, selected_labels=selected_characters)
+            if names:
+                filtered[key] = names
+            continue
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        filtered[key] = text
+    return filtered
+
+
+def _canvas_node_add_detail_suggestions(
+    *,
+    project: ComicProject,
+    issue: ComicIssue,
+    page: ComicPage,
+    node: ComicCanvasNode,
+    current: dict[str, str],
+    meta: dict[str, str],
+    user,
+) -> dict[str, str]:
+    prompt_lines = [
+        "You are a comic-book canvas brief assistant.",
+        "Goal: add fresh detail to the current canvas brief without repeating or contradicting what is already there.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(CANVAS_NODE_AI_OUTPUT_FIELDS),
+        "- characters: an array of exact names selected from Available characters only. Include only names not already selected.",
+        "- focus, camera_angle, mood, and dialogue_space: only include them if they are currently blank.",
+        "- action, lighting_notes, must_include, must_avoid, style_override, and notes: return ONLY additive text to append, not a rewrite.",
+        "- Keep additions visually actionable for comic layout, staging, and image generation.",
+        "- Respect the page purpose, selected shot type, selected location, and selected characters.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_issue_context_lines(issue))
+    prompt_lines.append("")
+    prompt_lines.extend(_comic_page_context_lines(page))
+    prompt_lines.extend(
+        [
+            "",
+            "Canvas metadata:",
+            "Canvas key: " + (meta.get("canvas_key") or node.canvas_key),
+            "Canvas type: " + (meta.get("node_type") or ""),
+            "Split direction: " + (meta.get("split_direction") or ""),
+            "Split ratio: " + (meta.get("split_ratio") or ""),
+            "Shot type: " + (meta.get("shot_type") or ""),
+            "Selected location: " + (meta.get("location") or ""),
+            "Selected characters: " + (meta.get("characters") or ""),
+            "Available characters: " + (meta.get("available_characters") or ""),
+            "",
+            "Current canvas fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 650},
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key == "characters":
+            names = _canvas_character_suggestions(value, project=project, selected_labels=meta.get("characters") or "")
+            if names:
+                filtered[key] = names
+            continue
+        if key not in CANVAS_NODE_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in CANVAS_NODE_AI_APPEND_FIELDS and existing:
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+
+        if key in CANVAS_NODE_AI_APPEND_FIELDS:
             text = _dedupe_appended_text(existing, text)
         if not text:
             continue
@@ -969,11 +1317,16 @@ def _location_ai_current(request) -> dict[str, str]:
     return {field: (request.POST.get(field) or "").strip() for field in LOCATION_AI_FIELDS}
 
 
-def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+def _location_ai_image_data_url(request) -> str:
+    return _location_image_data_url_from_request(request)
+
+
+def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user, image_data_url: str = "") -> dict[str, str]:
     empty_fields = [field for field in LOCATION_AI_FIELDS if not current.get(field)]
     if not empty_fields:
         return {}
 
+    has_image = bool((image_data_url or "").strip())
     prompt_lines = [
         "You are a comic-book location development assistant.",
         "Goal: fill ONLY the currently-empty location fields so the setting fits the comic project's world, tone, and visual language.",
@@ -986,6 +1339,8 @@ def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str
         "- visual_notes and continuity_notes: 2-5 bullet points each with concrete, production-friendly detail.",
         "- For visual_notes and continuity_notes, each bullet must start with '- '.",
         "- Keep details specific enough to guide scripting and art direction without contradicting the series bible.",
+        "- If an image is provided, use visible architecture, materials, lighting, geography, signage-free details, and atmosphere as visual evidence.",
+        "- Do not invent hard story canon from the image alone; keep image-derived continuity notes as practical visual constraints.",
         "",
     ]
     prompt_lines.extend(_comic_project_context_lines(project))
@@ -1004,6 +1359,7 @@ def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str
     prompt_lines.extend(
         [
             "",
+            "Image provided: " + ("yes" if has_image else "no"),
             "Current location fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
@@ -1013,6 +1369,7 @@ def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str
         prompt="\n".join(prompt_lines).strip(),
         model_name=get_user_text_model(user),
         params={"temperature": 0.7, "max_tokens": 550},
+        image_data_url=image_data_url,
     )
 
     filtered = {}
@@ -1030,7 +1387,8 @@ def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str
     return filtered
 
 
-def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user) -> dict[str, str]:
+def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user, image_data_url: str = "") -> dict[str, str]:
+    has_image = bool((image_data_url or "").strip())
     prompt_lines = [
         "You are a comic-book location development assistant.",
         "Goal: add fresh detail to the current location profile without repeating or contradicting what already exists.",
@@ -1042,6 +1400,8 @@ def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str
         "- For visual_notes and continuity_notes, each added bullet must start with '- '.",
         "- Keep additions aligned with the project's tone, genre, visual rules, existing cast, and series bible.",
         "- Make additions concrete and useful for scripting, staging, art direction, and continuity.",
+        "- If an image is provided, use visible architecture, materials, lighting, geography, signage-free details, and atmosphere as visual evidence.",
+        "- Do not invent hard story canon from the image alone; keep image-derived continuity notes as practical visual constraints.",
         "",
     ]
     prompt_lines.extend(_comic_project_context_lines(project))
@@ -1060,6 +1420,7 @@ def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str
     prompt_lines.extend(
         [
             "",
+            "Image provided: " + ("yes" if has_image else "no"),
             "Current location fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
@@ -1069,6 +1430,7 @@ def _location_add_detail_suggestions(*, project: ComicProject, current: dict[str
         prompt="\n".join(prompt_lines).strip(),
         model_name=get_user_text_model(user),
         params={"temperature": 0.7, "max_tokens": 550},
+        image_data_url=image_data_url,
     )
 
     filtered = {}
@@ -1127,6 +1489,58 @@ def _find_canvas_layout_node(layout: dict, canvas_key: str, *, parent_key: str =
             match["child_index"] = index
             return match
     return None
+
+
+def _ensure_unique_canvas_layout_keys(layout) -> dict:
+    if not isinstance(layout, dict):
+        return {"type": "panel", "canvas_key": "root"}
+
+    max_sequence = 0
+
+    def scan(node) -> None:
+        nonlocal max_sequence
+        if not isinstance(node, dict):
+            return
+        key = str(node.get("canvas_key") or "").strip()
+        match = re.fullmatch(r"canvas-(\d+)", key)
+        if match:
+            max_sequence = max(max_sequence, int(match.group(1)))
+        for child in node.get("children") or []:
+            scan(child)
+
+    scan(layout)
+    used = set()
+
+    def next_key() -> str:
+        nonlocal max_sequence
+        while True:
+            max_sequence += 1
+            candidate = f"canvas-{max_sequence}"
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+
+    def normalize(node, *, is_root=False) -> dict:
+        if not isinstance(node, dict):
+            node = {}
+        next_node = dict(node)
+        desired_key = str(next_node.get("canvas_key") or "").strip()
+        if not desired_key and is_root:
+            desired_key = "root"
+        if not desired_key or desired_key in used:
+            desired_key = next_key()
+        else:
+            used.add(desired_key)
+        next_node["canvas_key"] = desired_key
+
+        if str(next_node.get("type") or "").strip() == "split":
+            children = [child for child in (next_node.get("children") or []) if isinstance(child, dict)]
+            next_node["children"] = [normalize(child) for child in children[:2]]
+        else:
+            next_node.pop("children", None)
+        return next_node
+
+    return normalize(layout, is_root=True)
 
 
 def _sync_canvas_node_from_layout(node: ComicCanvasNode) -> ComicCanvasNode:
@@ -1762,7 +2176,7 @@ class ComicLocationCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.project = self.project
-        form.instance.image_data_url = (self.request.POST.get("image_data_url") or "").strip()
+        form.instance.image_data_url = _location_image_data_url_from_request(self.request)
         messages.success(self.request, "Comic location created.")
         return super().form_valid(form)
 
@@ -1790,9 +2204,10 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
         return ComicLocation.objects.filter(project=self.project)
 
     def form_valid(self, form):
-        form.instance.image_data_url = (
-            self.request.POST.get("image_data_url") or form.instance.image_data_url or ""
-        ).strip()
+        form.instance.image_data_url = _location_image_data_url_from_request(
+            self.request,
+            fallback=form.instance.image_data_url,
+        )
         messages.success(self.request, "Comic location saved.")
         return super().form_valid(form)
 
@@ -1803,7 +2218,7 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
         return ctx
 
     def get_success_url(self):
-        return reverse("comic_book:location-list", kwargs={"slug": self.project.slug})
+        return reverse("comic_book:location-edit", kwargs={"slug": self.project.slug, "pk": self.object.pk})
 
 
 class ComicLocationDeleteView(LoginRequiredMixin, DeleteView):
@@ -2024,6 +2439,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.issue = self.issue
+        form.instance.canvas_layout = _ensure_unique_canvas_layout_keys(form.instance.canvas_layout)
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         messages.success(self.request, "Page created.")
@@ -2033,6 +2449,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
+        ctx["canvas_image_map"] = {}
         ctx.update(_ai_context_for_request(self.request))
         return ctx
 
@@ -2055,6 +2472,7 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         return ComicPage.objects.filter(issue=self.issue)
 
     def form_valid(self, form):
+        form.instance.canvas_layout = _ensure_unique_canvas_layout_keys(form.instance.canvas_layout)
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         messages.success(self.request, "Page saved.")
@@ -2064,6 +2482,10 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
+        ctx["canvas_image_map"] = {
+            node.canvas_key: node.image_data_url
+            for node in self.object.canvas_nodes.exclude(image_data_url="").only("canvas_key", "image_data_url")
+        }
         ctx.update(_ai_context_for_request(self.request))
         return ctx
 
@@ -2252,14 +2674,31 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         canvas_node = self.object
+        form = ctx.get("form")
+        selected_character_ids = []
+        if form is not None:
+            raw_value = form["characters"].value()
+            if raw_value:
+                selected_character_ids = [str(value) for value in raw_value]
         ctx["project"] = self.project
         ctx["issue"] = self.issue
         ctx["page"] = self.page
         ctx["canvas_node"] = canvas_node
+        ctx["character_list"] = self.project.characters.order_by("name")
+        ctx["selected_character_ids"] = selected_character_ids
+        ctx.update(_ai_context_for_request(self.request))
         return ctx
 
     def get_success_url(self):
-        return reverse("comic_book:page-edit", kwargs={"slug": self.project.slug, "issue_pk": self.issue.pk, "pk": self.page.pk})
+        return reverse(
+            "comic_book:canvas-node-edit",
+            kwargs={
+                "slug": self.project.slug,
+                "issue_pk": self.issue.pk,
+                "page_pk": self.page.pk,
+                "canvas_key": self.canvas_key,
+            },
+        )
 
 
 @login_required
@@ -2306,8 +2745,9 @@ def brainstorm_location(request, slug: str):
         return blocked
 
     current = _location_ai_current(request)
+    image_data_url = _location_ai_image_data_url(request)
     try:
-        suggestions = _location_brainstorm_suggestions(project=project, current=current, user=request.user)
+        suggestions = _location_brainstorm_suggestions(project=project, current=current, user=request.user, image_data_url=image_data_url)
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()
@@ -2325,8 +2765,9 @@ def add_location_details(request, slug: str):
     if not current.get("name"):
         return JsonResponse({"ok": False, "error": "Add a location name first."}, status=400)
 
+    image_data_url = _location_ai_image_data_url(request)
     try:
-        suggestions = _location_add_detail_suggestions(project=project, current=current, user=request.user)
+        suggestions = _location_add_detail_suggestions(project=project, current=current, user=request.user, image_data_url=image_data_url)
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()
@@ -2408,6 +2849,125 @@ def add_page_details(request, slug: str, issue_pk, pk):
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()
+
+
+@login_required
+@require_POST
+def brainstorm_canvas_node(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _canvas_node_ai_current(request)
+    meta = _canvas_node_ai_meta(request, node)
+    try:
+        suggestions = _canvas_node_brainstorm_suggestions(
+            project=project,
+            issue=issue,
+            page=page,
+            node=node,
+            current=current,
+            meta=meta,
+            user=request.user,
+        )
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_canvas_node_details(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _canvas_node_ai_current(request)
+    if not any(current.values()) and not (request.POST.get("characters_label") or "").strip():
+        return JsonResponse({"ok": False, "error": "Add at least one canvas brief detail first."}, status=400)
+
+    meta = _canvas_node_ai_meta(request, node)
+    try:
+        suggestions = _canvas_node_add_detail_suggestions(
+            project=project,
+            issue=issue,
+            page=page,
+            node=node,
+            current=current,
+            meta=meta,
+            user=request.user,
+        )
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    prompt = _comic_canvas_node_image_prompt(project=project, issue=issue, page=page, node=node)
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
+    if not fallback_model and model_name == "gpt-image-1":
+        fallback_model = "dall-e-3"
+
+    try:
+        try:
+            image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+        except Exception:
+            if not fallback_model or fallback_model == model_name:
+                raise
+            image_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+    except Exception:
+        node.image_status = ComicCanvasNode.ImageStatus.FAILED
+        node.save(update_fields=["image_status", "updated_at"])
+        return _json_internal_error()
+
+    node.image_prompt = prompt
+    node.image_data_url = image_url
+    node.image_status = ComicCanvasNode.ImageStatus.READY
+    node.last_generated_at = timezone.now()
+    node.save(update_fields=["image_prompt", "image_data_url", "image_status", "last_generated_at", "updated_at"])
+    return JsonResponse({"ok": True, "image_url": image_url})
 
 
 @login_required

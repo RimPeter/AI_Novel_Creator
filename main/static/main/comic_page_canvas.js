@@ -8,11 +8,13 @@
   const canvasResetCancelButton = document.querySelector("[data-canvas-reset-cancel]");
   const canvasResetConfirmButton = document.querySelector("[data-canvas-reset-confirm]");
   const canvasNodeUrlTemplate = pageEditor?.dataset.canvasNodeUrlTemplate || "";
+  const canvasGenerateUrlTemplate = pageEditor?.dataset.canvasGenerateUrlTemplate || "";
   if (!rootPanel || !(layoutInput instanceof HTMLInputElement) || !(pageEditor instanceof HTMLElement)) return;
 
   const MIN_PANEL_SIZE = 80;
   let splitIdSequence = 0;
   let canvasKeySequence = 0;
+  const usedCanvasKeys = new Set();
 
   const updateMenuVisibilityButton = () => {
     if (!(menuVisibilityToggle instanceof HTMLButtonElement)) return;
@@ -23,14 +25,53 @@
 
   const buildCanvasNodeUrl = (canvasKey) =>
     canvasNodeUrlTemplate && canvasKey ? canvasNodeUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey)) : "";
+  const buildCanvasGenerateUrl = (canvasKey) =>
+    canvasGenerateUrlTemplate && canvasKey ? canvasGenerateUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey)) : "";
+
+  const registerCanvasKey = (key) => {
+    const normalized = String(key || "").trim();
+    if (!normalized) return "";
+    usedCanvasKeys.add(normalized);
+    const match = normalized.match(/^canvas-(\d+)$/);
+    if (match) {
+      canvasKeySequence = Math.max(canvasKeySequence, Number(match[1]) || 0);
+    }
+    return normalized;
+  };
+
+  const nextCanvasKey = () => {
+    do {
+      canvasKeySequence += 1;
+    } while (usedCanvasKeys.has(`canvas-${canvasKeySequence}`));
+    return registerCanvasKey(`canvas-${canvasKeySequence}`);
+  };
+
+  const assignCanvasKey = (panel, key) => {
+    if (!(panel instanceof HTMLElement)) return "";
+    const current = (panel.dataset.canvasKey || "").trim();
+    const desired = String(key || "").trim();
+    if (current && current !== desired && panel.dataset.canvasKeyRegistered === "true") {
+      usedCanvasKeys.delete(current);
+    }
+    let nextKey = desired || nextCanvasKey();
+    if (usedCanvasKeys.has(nextKey) && current !== nextKey) {
+      nextKey = nextCanvasKey();
+    } else {
+      registerCanvasKey(nextKey);
+    }
+    panel.dataset.canvasKey = nextKey;
+    panel.dataset.canvasKeyRegistered = "true";
+    return nextKey;
+  };
 
   const ensureCanvasKey = (panel, fallback = "") => {
     if (!(panel instanceof HTMLElement)) return "";
+    const normalizedFallback = String(fallback || "").trim();
+    if (normalizedFallback) return assignCanvasKey(panel, normalizedFallback);
     const existing = (panel.dataset.canvasKey || "").trim();
-    if (existing) return existing;
-    canvasKeySequence += 1;
-    panel.dataset.canvasKey = fallback || `canvas-${canvasKeySequence}`;
-    return panel.dataset.canvasKey;
+    if (existing && panel.dataset.canvasKeyRegistered === "true") return existing;
+    if (existing && !usedCanvasKeys.has(existing)) return assignCanvasKey(panel, existing);
+    return assignCanvasKey(panel, "");
   };
 
   const ensureMenuToggleListener = (menu) => {
@@ -54,12 +95,21 @@
     panel.className = "comic-canvas-menu-panel";
 
     const canvasEditUrl = buildCanvasNodeUrl(ensureCanvasKey(ownerPanel));
+    const canvasGenerateUrl = buildCanvasGenerateUrl(ensureCanvasKey(ownerPanel));
     if (canvasEditUrl) {
       const link = document.createElement("a");
       link.className = "comic-canvas-menu-action comic-canvas-menu-link";
       link.href = canvasEditUrl;
       link.textContent = "Edit canvas brief";
       panel.appendChild(link);
+    }
+    if (canvasGenerateUrl) {
+      const generateButton = document.createElement("button");
+      generateButton.type = "button";
+      generateButton.className = "comic-canvas-menu-action";
+      generateButton.dataset.canvasAction = "generate";
+      generateButton.textContent = "Generate";
+      panel.appendChild(generateButton);
     }
 
     for (const option of [
@@ -144,6 +194,73 @@
     const surface = document.createElement("div");
     surface.className = "comic-canvas-surface";
     return surface;
+  };
+
+  const setCanvasImage = (panel, imageUrl) => {
+    if (!(panel instanceof HTMLElement) || !imageUrl) return;
+    const surface = panel.querySelector(":scope > .comic-canvas-surface");
+    if (!(surface instanceof HTMLElement)) return;
+    surface.replaceChildren();
+    const image = document.createElement("img");
+    image.className = "comic-canvas-image";
+    image.src = imageUrl;
+    image.alt = `Generated image for ${ensureCanvasKey(panel) || "canvas"}`;
+    surface.appendChild(image);
+  };
+
+  const loadCanvasImages = () => {
+    const dataScript = document.getElementById("comic-canvas-image-data");
+    if (!dataScript) return;
+    let imageMap = {};
+    try {
+      imageMap = JSON.parse(dataScript.textContent || "{}");
+    } catch (_error) {
+      imageMap = {};
+    }
+    if (!imageMap || typeof imageMap !== "object") return;
+    rootPanel.querySelectorAll("[data-canvas-panel]").forEach((panel) => {
+      if (!(panel instanceof HTMLElement)) return;
+      const imageUrl = imageMap[ensureCanvasKey(panel)];
+      if (imageUrl) setCanvasImage(panel, imageUrl);
+    });
+  };
+
+  const generateCanvasImage = async (panel, action, menu) => {
+    const ui = window.AppUI;
+    if (!ui || !(panel instanceof HTMLElement)) return;
+    const canvasKey = ensureCanvasKey(panel);
+    const url = buildCanvasGenerateUrl(canvasKey);
+    if (!url) return;
+
+    const originalText = action.textContent;
+    action.textContent = "Generating...";
+    action.setAttribute("aria-busy", "true");
+    action.disabled = true;
+    try {
+      const result = await ui.postFormUrlEncoded({
+        url,
+        params: new URLSearchParams(),
+        csrfToken: ui.getCsrfToken(),
+        failureLabel: "Generate failed",
+      });
+      if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) return;
+      if (!result.ok) {
+        ui.showMessage(result.error, "error");
+        return;
+      }
+      const imageUrl = result.data?.image_url || "";
+      if (!imageUrl) {
+        ui.showMessage("No image returned.", "warning");
+        return;
+      }
+      setCanvasImage(panel, imageUrl);
+      ui.showMessage("Canvas image generated.", "success");
+      if (menu instanceof HTMLDetailsElement) menu.open = false;
+    } finally {
+      action.textContent = originalText;
+      action.removeAttribute("aria-busy");
+      action.disabled = false;
+    }
   };
 
   const setPanelRatio = (panel, ratio) => {
@@ -508,6 +625,11 @@
       return;
     }
 
+    if ((action.dataset.canvasAction || "") === "generate") {
+      generateCanvasImage(panel, action, menu);
+      return;
+    }
+
     splitPanel(panel, action.dataset.splitDirection || "");
 
     if (menu instanceof HTMLDetailsElement) {
@@ -562,6 +684,7 @@
 
   ensureCanvasKey(rootPanel, "root");
   loadSavedLayout();
+  loadCanvasImages();
   updateMenuVisibilityButton();
   rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => ensureMenuToggleListener(menu));
   syncCanvasMenuLayering();

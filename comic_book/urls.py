@@ -44,6 +44,21 @@ urlpatterns = [
     path("projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:pk>/delete/", views.ComicPageDeleteView.as_view(), name="page-delete"),
     path("projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:pk>/shift/", views.shift_page, name="page-shift"),
     path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/brainstorm/",
+        views.brainstorm_canvas_node,
+        name="canvas-node-brainstorm",
+    ),
+    path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/add-details/",
+        views.add_canvas_node_details,
+        name="canvas-node-add-details",
+    ),
+    path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/generate/",
+        views.generate_canvas_node_image,
+        name="canvas-node-generate",
+    ),
+    path(
         "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/edit/",
         views.ComicCanvasNodeUpdateView.as_view(),
         name="canvas-node-edit",

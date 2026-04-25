@@ -1027,6 +1027,16 @@ ul {
 .comic-canvas-surface {
   width: 100%;
   height: 100%;
+  display: grid;
+  place-items: stretch;
+  overflow: hidden;
+}
+
+.comic-canvas-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .comic-canvas-split {

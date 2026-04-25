@@ -53,9 +53,14 @@
         </div>
       </div>
 
-      <form method="post" class="form">
+      <form method="post" class="form" enctype="multipart/form-data">
         {% csrf_token %}
         <input type="hidden" name="image_data_url" id="comic-location-image-input" value="{% if object %}{{ object.image_data_url }}{% endif %}" />
+        <div class="form-row">
+          <label class="form-label" for="comic-location-image-upload">Upload image</label>
+          <input class="form-control" type="file" name="image_upload" id="comic-location-image-upload" accept="image/*" />
+          <div class="muted">Choose an image file to preview and save for this location.</div>
+        </div>
         {% if form.non_field_errors %}
           <div class="form-errors">{{ form.non_field_errors }}</div>
         {% endif %}
@@ -105,6 +110,7 @@
       const imagePlaceholder = document.getElementById("comic-location-image-placeholder");
       const imageStatus = document.getElementById("comic-location-image-status");
       const imageInput = document.getElementById("comic-location-image-input");
+      const imageUpload = document.getElementById("comic-location-image-upload");
 
       const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
       const getCurrentValues = () => {
@@ -175,6 +181,7 @@
         for (const [name, value] of Object.entries(getCurrentValues())) {
           params.set(name, value || "");
         }
+        params.set("image_data_url", imageInput?.value || "");
         const result = await ui.postFormUrlEncoded({
           url,
           params,
@@ -204,6 +211,30 @@
         }
         return result.data?.image_url || "";
       };
+
+      imageUpload?.addEventListener("change", () => {
+        const file = imageUpload.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          ui.showMessage("Choose an image file.", "warning");
+          imageUpload.value = "";
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          const nextUrl = String(reader.result || "");
+          if (!nextUrl) return;
+          if (imageEl) {
+            imageEl.src = nextUrl;
+            imageEl.classList.remove("is-hidden");
+          }
+          if (imagePlaceholder) imagePlaceholder.classList.add("is-hidden");
+          if (imageInput) imageInput.value = nextUrl;
+          if (imageStatus) imageStatus.textContent = "Uploaded image ready to save.";
+        });
+        reader.readAsDataURL(file);
+      });
 
       brainstormBtn.addEventListener("click", async () => {
         if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;

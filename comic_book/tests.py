@@ -1,11 +1,23 @@
+import json
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from unittest.mock import patch
 
-from .forms import ComicBibleForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
+from .forms import (
+    ComicBibleForm,
+    ComicCanvasNodeForm,
+    ComicCharacterForm,
+    ComicIssueForm,
+    ComicLocationForm,
+    ComicPageForm,
+    ComicPanelForm,
+    ComicProjectForm,
+)
 from main.llm import LLMResult
-from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
 class ComicBookAppTests(TestCase):
@@ -585,6 +597,9 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, 'id="comic-location-brainstorm-btn"', html=False)
         self.assertContains(response, 'id="comic-location-add-details-btn"', html=False)
         self.assertContains(response, 'id="comic-location-image-btn"', html=False)
+        self.assertContains(response, 'enctype="multipart/form-data"', html=False)
+        self.assertContains(response, 'name="image_upload"', html=False)
+        self.assertContains(response, 'accept="image/*"', html=False)
         self.assertContains(response, reverse("comic_book:location-brainstorm", kwargs={"slug": project.slug}))
         self.assertContains(response, reverse("comic_book:location-add-details", kwargs={"slug": project.slug}))
         self.assertContains(response, reverse("comic_book:location-image-preview", kwargs={"slug": project.slug}))
@@ -640,6 +655,53 @@ class ComicBookAppTests(TestCase):
         location = ComicLocation.objects.get(project=project, name="Static Market")
         self.assertEqual(location.image_data_url, "data:image/png;base64,location")
 
+    def test_location_create_saves_uploaded_image_as_data_url(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+        uploaded = SimpleUploadedFile(
+            "market.png",
+            b"\x89PNG\r\n\x1a\nuploaded-image",
+            content_type="image/png",
+        )
+
+        response = self.client.post(
+            reverse("comic_book:location-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Static Market",
+                "description": "A black-market concourse built inside a dead transmitter.",
+                "visual_notes": "",
+                "continuity_notes": "",
+                "image_upload": uploaded,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        location = ComicLocation.objects.get(project=project, name="Static Market")
+        self.assertTrue(location.image_data_url.startswith("data:image/png;base64,"))
+        self.assertEqual(location.image_data_url, "data:image/png;base64,iVBORw0KGgp1cGxvYWRlZC1pbWFnZQ==")
+
+    def test_location_update_save_redirects_back_to_same_location_edit_page(self):
+        project = self._create_project()
+        location = ComicLocation.objects.create(project=project, name="Static Market")
+        self.client.force_login(self.user)
+
+        edit_url = reverse("comic_book:location-edit", kwargs={"slug": project.slug, "pk": location.pk})
+        response = self.client.post(
+            edit_url,
+            data={
+                "name": "Static Market",
+                "description": "A black-market concourse built inside a dead transmitter.",
+                "visual_notes": "- Hanging cable veils.",
+                "continuity_notes": "- Security drones cannot enter the inner ring.",
+                "image_data_url": "data:image/png;base64,location",
+            },
+        )
+
+        self.assertRedirects(response, edit_url, fetch_redirect_response=False)
+        location.refresh_from_db()
+        self.assertEqual(location.description, "A black-market concourse built inside a dead transmitter.")
+        self.assertEqual(location.image_data_url, "data:image/png;base64,location")
+
     def test_location_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()
         ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
@@ -683,6 +745,38 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompt)
         self.assertIn("Key characters:", prompt)
         self.assertIn("Key locations:", prompt)
+
+    def test_location_brainstorm_passes_uploaded_image_to_model(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"name":"Static Market","visual_notes":"- Hanging cable veils."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:location-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "",
+                    "description": "",
+                    "visual_notes": "",
+                    "continuity_notes": "",
+                    "image_data_url": "data:image/png;base64,locationimage",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"name": "Static Market", "visual_notes": "- Hanging cable veils."}},
+        )
+        self.assertEqual(mock_call.call_args.kwargs["image_data_url"], "data:image/png;base64,locationimage")
+        self.assertIn("Image provided: yes", mock_call.call_args.kwargs["prompt"])
 
     def test_location_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
         project = self._create_project()
@@ -974,6 +1068,7 @@ class ComicBookAppTests(TestCase):
             ComicIssueForm(),
             ComicPageForm(),
             ComicPanelForm(),
+            ComicCanvasNodeForm(),
         ]
 
         for form in forms_to_check:
@@ -1086,6 +1181,315 @@ class ComicBookAppTests(TestCase):
             ),
             fetch_redirect_response=False,
         )
+
+    def test_page_update_normalizes_duplicate_canvas_keys_for_unique_child_briefs(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "canvas_layout": json.dumps(
+                    {
+                        "type": "split",
+                        "canvas_key": "root",
+                        "direction": "vertical",
+                        "ratio": 0.5,
+                        "children": [
+                            {"type": "panel", "canvas_key": "canvas-2"},
+                            {"type": "panel", "canvas_key": "canvas-2"},
+                        ],
+                    }
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page.refresh_from_db()
+        children = page.canvas_layout["children"]
+        self.assertEqual(children[0]["canvas_key"], "canvas-2")
+        self.assertNotEqual(children[0]["canvas_key"], children[1]["canvas_key"])
+        self.assertTrue(children[1]["canvas_key"].startswith("canvas-"))
+
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_page_edit_canvas_menu_renders_generate_control(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        ComicCanvasNode.objects.create(page=page, canvas_key="root", image_data_url="data:image/png;base64,saved")
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-canvas-generate-url-template=', html=False)
+        self.assertContains(response, 'data-canvas-action="generate"', html=False)
+        self.assertContains(response, ">Generate<", html=False)
+        self.assertContains(response, "comic-canvas-image-data")
+        self.assertContains(response, "data:image/png;base64,saved")
+
+    def test_canvas_node_edit_renders_brainstorm_and_add_detail_controls(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse(
+                "comic_book:canvas-node-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-canvas-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-canvas-add-details-btn"', html=False)
+        self.assertContains(response, 'data-canvas-character-menu', html=False)
+        self.assertContains(response, 'name="characters"', html=False)
+        self.assertContains(response, f'value="{character.id}"', html=False)
+        self.assertContains(response, 'data-character-name="Nika Vale"', html=False)
+        self.assertContains(
+            response,
+            reverse(
+                "comic_book:canvas-node-brainstorm",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "comic_book:canvas-node-add-details",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+            ),
+        )
+
+    def test_canvas_node_save_redirects_back_to_same_canvas_edit_page(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        self.client.force_login(self.user)
+
+        edit_url = reverse(
+            "comic_book:canvas-node-edit",
+            kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+        )
+        response = self.client.post(
+            edit_url,
+            data={
+                "focus": "Nika at the threshold",
+                "shot_type": ComicCanvasNode.ShotType.WIDE,
+                "camera_angle": "Low angle",
+                "location": "",
+                "characters": [str(character.pk)],
+                "action": "Nika pauses under a flickering warning strip.",
+                "mood": "Uneasy",
+                "lighting_notes": "Cold warning light.",
+                "dialogue_space": "Top-left clear",
+                "must_include": "Relay lock",
+                "must_avoid": "Crowded background",
+                "style_override": "",
+                "notes": "Keep silhouette readable.",
+            },
+        )
+
+        self.assertRedirects(response, edit_url, fetch_redirect_response=False)
+        node.refresh_from_db()
+        self.assertEqual(node.focus, "Nika at the threshold")
+        self.assertEqual(list(node.characters.values_list("name", flat=True)), ["Nika Vale"])
+
+    def test_canvas_node_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", summary="The courier enters the relay.", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Nika crosses the abandoned dock.")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Nika at the threshold")
+        ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"focus":"Do not replace","characters":["Nika Vale","Unknown Extra"],"camera_angle":"Low angle from behind the broken hatch.","action":"Nika pauses under a flickering warning strip.","mood":"Uneasy","notes":"Keep the relay door readable in silhouette."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse(
+                    "comic_book:canvas-node-brainstorm",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                ),
+                data={
+                    "focus": "Nika at the threshold",
+                    "shot_type": ComicCanvasNode.ShotType.WIDE,
+                    "camera_angle": "",
+                    "action": "",
+                    "mood": "",
+                    "lighting_notes": "",
+                    "dialogue_space": "",
+                    "must_include": "",
+                    "must_avoid": "",
+                    "style_override": "",
+                    "notes": "",
+                    "location_label": "Relay Port",
+                    "characters_label": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "characters": ["Nika Vale"],
+                    "camera_angle": "Low angle from behind the broken hatch.",
+                    "action": "Nika pauses under a flickering warning strip.",
+                    "mood": "Uneasy",
+                    "notes": "Keep the relay door readable in silhouette.",
+                },
+            },
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Project title: Star Signal", prompt)
+        self.assertIn("Page summary: Nika crosses the abandoned dock.", prompt)
+        self.assertIn("Selected location: Relay Port", prompt)
+        self.assertIn("Selected characters: ", prompt)
+        self.assertIn("Available characters: Nika Vale", prompt)
+
+    def test_canvas_node_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"characters":["Nika Vale","Sera Flint","Unknown Extra"],"action":"Nika pauses under a flickering warning strip. Her hand hovers over the sealed relay lock.","mood":"Do not replace"}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse(
+                    "comic_book:canvas-node-add-details",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                ),
+                data={
+                    "focus": "Nika at the threshold",
+                    "shot_type": ComicCanvasNode.ShotType.WIDE,
+                    "camera_angle": "",
+                    "action": "Nika pauses under a flickering warning strip.",
+                    "mood": "Uneasy",
+                    "lighting_notes": "",
+                    "dialogue_space": "",
+                    "must_include": "",
+                    "must_avoid": "",
+                    "style_override": "",
+                    "notes": "",
+                    "characters_label": "Nika Vale",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"characters": ["Sera Flint"], "action": "Her hand hovers over the sealed relay lock."}},
+        )
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    def test_generate_canvas_node_image_uses_canvas_brief_links_and_bible(self):
+        project = self._create_project()
+        project.art_style_notes = "Clean European sci-fi line art."
+        project.save(update_fields=["art_style_notes", "updated_at"])
+        ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", summary="The courier enters the relay.", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Nika crosses the abandoned dock.")
+        location = ComicLocation.objects.create(
+            project=project,
+            name="Relay Port",
+            description="A decaying orbital dock.",
+            visual_notes="- Hanging cable veils.",
+        )
+        character = ComicCharacter.objects.create(
+            project=project,
+            name="Nika Vale",
+            role="Courier",
+            description="Guarded courier with a rigid code.",
+            costume_notes="Signal-thread jacket.",
+            visual_notes="Sharp undercut silhouette.",
+        )
+        node = ComicCanvasNode.objects.create(
+            page=page,
+            canvas_key="canvas-2",
+            focus="Nika at the threshold",
+            shot_type=ComicCanvasNode.ShotType.WIDE,
+            camera_angle="Low angle",
+            location=location,
+            action="Nika pauses under a flickering warning strip.",
+            mood="Uneasy",
+            lighting_notes="Cold warning light.",
+            must_include="Relay lock",
+            must_avoid="Crowded background",
+        )
+        node.characters.add(character)
+        self.client.force_login(self.user)
+
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return "data:image/png;base64,canvasimage"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse(
+                    "comic_book:canvas-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                ),
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "image_url": "data:image/png;base64,canvasimage"})
+        node.refresh_from_db()
+        self.assertEqual(node.image_data_url, "data:image/png;base64,canvasimage")
+        self.assertEqual(node.image_status, ComicCanvasNode.ImageStatus.READY)
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompts[0])
+        self.assertIn("Location name: Relay Port", prompts[0])
+        self.assertIn("Location visual notes: - Hanging cable veils.", prompts[0])
+        self.assertIn("- Character: Nika Vale", prompts[0])
+        self.assertIn("Costume notes: Signal-thread jacket.", prompts[0])
+        self.assertIn("Focus: Nika at the threshold", prompts[0])
+        self.assertIn("Must include: Relay lock", prompts[0])
 
     def test_issue_export_renders_panel_content(self):
         project = self._create_project()

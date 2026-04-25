@@ -34,6 +34,21 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/accounts/login/", response["Location"])
 
+    def test_comic_page_edit_requires_authentication_before_project_lookup(self):
+        project = self._create_project(slug="shahed")
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening")
+
+        response = self.client.get(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            )
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response["Location"])
+
     def test_authenticated_user_can_open_project_list(self):
         project = self._create_project()
         self.client.force_login(self.user)
@@ -956,6 +971,38 @@ class ComicBookAppTests(TestCase):
             ),
         )
         self.assertNotContains(response, f'?page={page_two.pk}')
+
+    def test_page_update_save_redirects_back_to_page_edit(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            fetch_redirect_response=False,
+        )
 
     def test_issue_export_renders_panel_content(self):
         project = self._create_project()

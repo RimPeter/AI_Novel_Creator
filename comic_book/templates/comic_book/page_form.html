@@ -13,6 +13,16 @@
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}{% if object %}?page={{ object.pk }}{% endif %}">Back to issue</a>
+          <details class="comic-canvas-reset-menu" data-canvas-reset-menu>
+            <summary class="btn btn-secondary comic-canvas-reset-toggle">Reset Canvas</summary>
+            <div class="comic-canvas-reset-panel">
+              <p class="comic-canvas-reset-copy">Reset to one blank canvas?</p>
+              <div class="comic-canvas-reset-actions">
+                <button class="comic-canvas-reset-btn is-cancel" type="button" data-canvas-reset-cancel>Cancel</button>
+                <button class="comic-canvas-reset-btn is-confirm" type="button" data-canvas-reset-confirm>Reset</button>
+              </div>
+            </div>
+          </details>
           <button class="btn btn-secondary" type="button" data-canvas-menu-visibility-toggle aria-pressed="false">Hide Canvass Menu</button>
         </div>
       </div>

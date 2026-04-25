@@ -1127,6 +1127,87 @@ ul {
   cursor: move;
 }
 
+.comic-canvas-reset-menu {
+  position: relative;
+}
+
+.comic-canvas-reset-menu summary {
+  list-style: none;
+}
+
+.comic-canvas-reset-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.comic-canvas-reset-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  gap: 10px;
+  width: 220px;
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(176, 58, 58, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 244, 244, 0.98), rgba(255, 232, 232, 0.98));
+  box-shadow: 0 18px 36px rgba(3, 8, 18, 0.28);
+}
+
+.comic-canvas-reset-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: rgba(120, 28, 28, 0.94);
+}
+
+.comic-canvas-reset-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.comic-canvas-reset-btn {
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(35, 44, 63, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(35, 44, 63, 0.84);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.comic-canvas-reset-btn:hover,
+.comic-canvas-reset-btn:focus-visible {
+  transform: translateY(-1px);
+}
+
+.comic-canvas-reset-btn.is-cancel:hover,
+.comic-canvas-reset-btn.is-cancel:focus-visible {
+  border-color: rgba(35, 44, 63, 0.22);
+  background: rgba(247, 244, 237, 0.98);
+}
+
+.comic-canvas-reset-btn.is-confirm {
+  border-color: rgba(176, 58, 58, 0.28);
+  background: rgba(192, 52, 52, 0.92);
+  color: rgba(255, 248, 248, 0.98);
+}
+
+.comic-canvas-reset-btn.is-confirm:hover,
+.comic-canvas-reset-btn.is-confirm:focus-visible {
+  border-color: rgba(176, 58, 58, 0.48);
+  background: rgba(171, 40, 40, 0.96);
+}
+
 .comic-canvas-menu {
   position: absolute;
   top: 14px;

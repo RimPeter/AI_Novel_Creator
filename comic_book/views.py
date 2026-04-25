@@ -75,11 +75,19 @@ LOCATION_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
 def _project_queryset_for_user(user):
     if getattr(user, "is_superuser", False):
         return ComicProject.objects.all()
+    if not getattr(user, "is_authenticated", False):
+        return ComicProject.objects.none()
     return ComicProject.objects.filter(owner=user)
 
 
 def _get_project_for_user(request, slug: str) -> ComicProject:
     return get_object_or_404(_project_queryset_for_user(request.user), slug=slug)
+
+
+def _anonymous_login_response(view, request):
+    if not getattr(request.user, "is_authenticated", False):
+        return view.handle_no_permission()
+    return None
 
 
 def _get_issue_for_project(project: ComicProject, issue_id) -> ComicIssue:
@@ -1308,6 +1316,8 @@ class ComicBibleUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/bible_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1370,6 +1380,8 @@ class ComicCharacterListView(LoginRequiredMixin, ListView):
     context_object_name = "characters"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1393,6 +1405,8 @@ class ComicCharacterCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/character_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1422,6 +1436,8 @@ class ComicCharacterUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/character_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1685,6 +1701,8 @@ class ComicCharacterDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1712,8 +1730,8 @@ class ComicLocationListView(LoginRequiredMixin, ListView):
     context_object_name = "locations"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1737,8 +1755,8 @@ class ComicLocationCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1763,8 +1781,8 @@ class ComicLocationUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/location_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1792,8 +1810,8 @@ class ComicLocationDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1821,6 +1839,8 @@ class ComicIssueCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/issue_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1857,6 +1877,8 @@ class ComicIssueUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/issue_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1881,6 +1903,8 @@ class ComicIssueDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1908,6 +1932,8 @@ class ComicIssueWorkspaceView(LoginRequiredMixin, DetailView):
     context_object_name = "issue"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1955,6 +1981,8 @@ class ComicIssueExportView(LoginRequiredMixin, DetailView):
     context_object_name = "issue"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1983,6 +2011,8 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/page_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -2007,7 +2037,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
     def get_success_url(self):
-        return _issue_workspace_url(self.issue, page=self.object)
+        return reverse("comic_book:page-edit", kwargs={"slug": self.project.slug, "issue_pk": self.issue.pk, "pk": self.object.pk})
 
 
 class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
@@ -2015,6 +2045,8 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/page_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -2036,13 +2068,15 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         return ctx
 
     def get_success_url(self):
-        return _issue_workspace_url(self.issue, page=self.object)
+        return reverse("comic_book:page-edit", kwargs={"slug": self.project.slug, "issue_pk": self.issue.pk, "pk": self.object.pk})
 
 
 class ComicPageDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -2074,6 +2108,8 @@ class ComicPanelCreateView(LoginRequiredMixin, CreateView):
     template_name = "comic_book/panel_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])
@@ -2112,6 +2148,8 @@ class ComicPanelUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/panel_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])
@@ -2146,6 +2184,8 @@ class ComicPanelDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])
@@ -2178,6 +2218,8 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "comic_book/canvas_node_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])

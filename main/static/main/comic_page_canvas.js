@@ -2,7 +2,11 @@
   const rootPanel = document.querySelector("[data-canvas-panel]");
   const layoutInput = document.querySelector("[data-canvas-layout-input]");
   const pageEditor = document.querySelector(".comic-page-editor");
+  const pageForm = document.querySelector(".comic-page-form");
   const menuVisibilityToggle = document.querySelector("[data-canvas-menu-visibility-toggle]");
+  const canvasResetMenu = document.querySelector("[data-canvas-reset-menu]");
+  const canvasResetCancelButton = document.querySelector("[data-canvas-reset-cancel]");
+  const canvasResetConfirmButton = document.querySelector("[data-canvas-reset-confirm]");
   const canvasNodeUrlTemplate = pageEditor?.dataset.canvasNodeUrlTemplate || "";
   if (!rootPanel || !(layoutInput instanceof HTMLInputElement) || !(pageEditor instanceof HTMLElement)) return;
 
@@ -324,6 +328,17 @@
     renderJunctionHandles();
   };
 
+  const resetCanvas = () => {
+    rootPanel.replaceChildren(createMenu(rootPanel), createSurface());
+    rootPanel.style.flexBasis = "";
+    rootPanel.style.flexGrow = "";
+    rootPanel.style.flexShrink = "";
+    rootPanel.dataset.canvasKey = "root";
+    syncLayoutInput();
+    renderJunctionHandles();
+    syncCanvasMenuLayering();
+  };
+
   const getAxisMetrics = (split) => {
     const direction = split.dataset.splitDirection || "";
     if (direction === "horizontal") {
@@ -519,6 +534,29 @@
     menuVisibilityToggle.addEventListener("click", () => {
       pageEditor.classList.toggle("is-canvas-menu-hidden");
       updateMenuVisibilityButton();
+    });
+  }
+
+  if (canvasResetCancelButton instanceof HTMLButtonElement && canvasResetMenu instanceof HTMLDetailsElement) {
+    canvasResetCancelButton.addEventListener("click", () => {
+      canvasResetMenu.open = false;
+    });
+  }
+
+  if (canvasResetConfirmButton instanceof HTMLButtonElement) {
+    canvasResetConfirmButton.addEventListener("click", () => {
+      resetCanvas();
+      if (canvasResetMenu instanceof HTMLDetailsElement) {
+        canvasResetMenu.open = false;
+      }
+      if (pageForm instanceof HTMLFormElement) {
+        const stayInput = document.createElement("input");
+        stayInput.type = "hidden";
+        stayInput.name = "stay_on_page";
+        stayInput.value = "1";
+        pageForm.appendChild(stayInput);
+        pageForm.requestSubmit();
+      }
     });
   }
 

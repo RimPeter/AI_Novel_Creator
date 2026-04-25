@@ -79,6 +79,10 @@ def normalize_image_model_name(model_name: str) -> str:
     return IMAGE_MODEL_ALIASES.get(normalized.lower(), normalized)
 
 
+def _is_gpt_image_model(model_name: str) -> bool:
+    return (model_name or "").strip().lower().startswith("gpt-image-")
+
+
 def _iter_nested_text_fragments(value, *, depth: int = 0):
     if depth > 6 or value is None:
         return
@@ -216,11 +220,16 @@ def call_llm(*, prompt: str, model_name: str, params: dict) -> LLMResult:
 
 def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1024") -> str:
     resolved_model_name = normalize_image_model_name(model_name)
-    response = client.images.generate(
-        model=resolved_model_name,
-        prompt=prompt,
-        size=size,
-        response_format="b64_json",
-    )
+    image_params = {
+        "model": resolved_model_name,
+        "prompt": prompt,
+        "size": size,
+    }
+    if _is_gpt_image_model(resolved_model_name):
+        image_params["output_format"] = "png"
+    else:
+        image_params["response_format"] = "b64_json"
+
+    response = client.images.generate(**image_params)
     data = response.data[0].b64_json
     return f"data:image/png;base64,{data}"

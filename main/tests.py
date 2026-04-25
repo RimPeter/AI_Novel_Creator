@@ -518,7 +518,22 @@ class LLMTests(TestCase):
             data_url = generate_image_data_url(prompt="Test prompt", model_name="gpt-image-2", size="1024x1024")
 
         self.assertEqual(data_url, "data:image/png;base64,abc123")
-        self.assertEqual(mocked.call_args.kwargs["model"], "gpt-image-1")
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["model"], "gpt-image-1")
+        self.assertEqual(kwargs["output_format"], "png")
+        self.assertNotIn("response_format", kwargs)
+
+    def test_generate_image_data_url_uses_response_format_for_dall_e_models(self):
+        fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
+
+        with patch("main.llm.client.images.generate", return_value=fake_response) as mocked:
+            data_url = generate_image_data_url(prompt="Test prompt", model_name="dall-e-3", size="1024x1024")
+
+        self.assertEqual(data_url, "data:image/png;base64,abc123")
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["model"], "dall-e-3")
+        self.assertEqual(kwargs["response_format"], "b64_json")
+        self.assertNotIn("output_format", kwargs)
 
     def test_call_llm_replaces_em_dash_and_uses_global_instruction(self):
         fake_response = SimpleNamespace(

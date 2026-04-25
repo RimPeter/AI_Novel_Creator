@@ -3002,10 +3002,22 @@ textarea.auto-grow {
   overflow: hidden;
 }
 
+.portrait-frame-face {
+  height: 180px;
+}
+
+.portrait-frame-full-body {
+  height: 270px;
+}
+
 .portrait-frame img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.portrait-frame-full-body img {
+  object-fit: contain;
 }
 
 .portrait-placeholder {

@@ -23,6 +23,7 @@
       data-comic-character-add-details-url="{% url 'comic_book:character-add-details' slug=project.slug %}"
       data-comic-character-faces-url="{% if object %}{% url 'comic_book:character-faces' slug=project.slug pk=object.pk %}{% else %}{% url 'comic_book:character-faces-preview' slug=project.slug %}{% endif %}"
       data-comic-character-full-body-url="{% if object %}{% url 'comic_book:character-full-body' slug=project.slug pk=object.pk %}{% else %}{% url 'comic_book:character-full-body-preview' slug=project.slug %}{% endif %}"
+      data-comic-character-is-saved="{% if object %}true{% else %}false{% endif %}"
       data-billing-enabled="{% if billing_enabled %}true{% else %}false{% endif %}"
       data-ai-billing-url="{{ ai_billing_url|default:'' }}"
       data-has-active-plan="{% if has_active_plan %}true{% else %}false{% endif %}"
@@ -42,7 +43,7 @@
         <div class="comic-face-grid">
           <div>
             <div class="muted">Frontal face</div>
-            <div class="portrait-frame">
+            <div class="portrait-frame portrait-frame-face">
               <img
                 id="comic-character-face-frontal-img"
                 class="{% if not object or not object.frontal_face_image_data_url %}is-hidden{% endif %}"
@@ -58,12 +59,18 @@
             </div>
             <div class="actions">
               <label class="btn btn-secondary btn-sm" for="comic-character-face-frontal-upload">Upload image</label>
+              <a
+                id="comic-character-face-frontal-download"
+                class="btn btn-secondary btn-sm {% if not object or not object.frontal_face_image_data_url %}is-hidden{% endif %}"
+                href="{% if object %}{{ object.frontal_face_image_data_url }}{% endif %}"
+                download="frontal-face-reference.png"
+              >Download</a>
               <input id="comic-character-face-frontal-upload" type="file" accept="image/*" class="is-hidden" />
             </div>
           </div>
           <div>
             <div class="muted">Sideways face</div>
-            <div class="portrait-frame">
+            <div class="portrait-frame portrait-frame-face">
               <img
                 id="comic-character-face-sideways-img"
                 class="{% if not object or not object.sideways_face_image_data_url %}is-hidden{% endif %}"
@@ -79,12 +86,18 @@
             </div>
             <div class="actions">
               <label class="btn btn-secondary btn-sm" for="comic-character-face-sideways-upload">Upload image</label>
+              <a
+                id="comic-character-face-sideways-download"
+                class="btn btn-secondary btn-sm {% if not object or not object.sideways_face_image_data_url %}is-hidden{% endif %}"
+                href="{% if object %}{{ object.sideways_face_image_data_url }}{% endif %}"
+                download="sideways-face-reference.png"
+              >Download</a>
               <input id="comic-character-face-sideways-upload" type="file" accept="image/*" class="is-hidden" />
             </div>
           </div>
           <div>
             <div class="muted">Full body</div>
-            <div class="portrait-frame">
+            <div class="portrait-frame portrait-frame-full-body">
               <img
                 id="comic-character-full-body-img"
                 class="{% if not object or not object.full_body_image_data_url %}is-hidden{% endif %}"
@@ -100,6 +113,12 @@
             </div>
             <div class="actions">
               <label class="btn btn-secondary btn-sm" for="comic-character-full-body-upload">Upload image</label>
+              <a
+                id="comic-character-full-body-download"
+                class="btn btn-secondary btn-sm {% if not object or not object.full_body_image_data_url %}is-hidden{% endif %}"
+                href="{% if object %}{{ object.full_body_image_data_url }}{% endif %}"
+                download="full-body-reference.png"
+              >Download</a>
               <input id="comic-character-full-body-upload" type="file" accept="image/*" class="is-hidden" />
             </div>
           </div>
@@ -107,9 +126,9 @@
       </div>
       <form method="post" class="form">
         {% csrf_token %}
-        <input type="hidden" name="frontal_face_image_data_url" id="comic-character-face-frontal-input" value="{% if object %}{{ object.frontal_face_image_data_url }}{% endif %}" />
-        <input type="hidden" name="sideways_face_image_data_url" id="comic-character-face-sideways-input" value="{% if object %}{{ object.sideways_face_image_data_url }}{% endif %}" />
-        <input type="hidden" name="full_body_image_data_url" id="comic-character-full-body-input" value="{% if object %}{{ object.full_body_image_data_url }}{% endif %}" />
+        <input type="hidden" name="frontal_face_image_data_url" id="comic-character-face-frontal-input" value="" />
+        <input type="hidden" name="sideways_face_image_data_url" id="comic-character-face-sideways-input" value="" />
+        <input type="hidden" name="full_body_image_data_url" id="comic-character-full-body-input" value="" />
         {% if form.non_field_errors %}
           <div class="form-errors">{{ form.non_field_errors }}</div>
         {% endif %}
@@ -148,6 +167,7 @@
       const addDetailsUrl = section.getAttribute("data-comic-character-add-details-url");
       const facesUrl = section.getAttribute("data-comic-character-faces-url");
       const fullBodyUrl = section.getAttribute("data-comic-character-full-body-url");
+      const hasSavedCharacter = section.getAttribute("data-comic-character-is-saved") === "true";
       const form = section.querySelector("form");
       if (!brainstormUrl || !addDetailsUrl || !form) return;
 
@@ -172,6 +192,9 @@
       const frontalUploadInput = document.getElementById("comic-character-face-frontal-upload");
       const sidewaysUploadInput = document.getElementById("comic-character-face-sideways-upload");
       const fullBodyUploadInput = document.getElementById("comic-character-full-body-upload");
+      const frontalDownload = document.getElementById("comic-character-face-frontal-download");
+      const sidewaysDownload = document.getElementById("comic-character-face-sideways-download");
+      const fullBodyDownload = document.getElementById("comic-character-full-body-download");
 
       const getFieldEl = (name) => form.querySelector(`[name="${name}"]`);
       const getCurrentValues = (names) => {
@@ -246,9 +269,10 @@
         return true;
       };
 
-      const applyFaceImage = (dataUrl, imgEl, placeholderEl, inputEl) => {
+      const applyFaceImage = (dataUrl, imgEl, placeholderEl, inputEl, downloadEl, options = {}) => {
         const next = String(dataUrl || "").trim();
         if (!next) return;
+        const shouldUpdateHiddenInput = options.updateHiddenInput !== false;
         if (imgEl) {
           imgEl.src = next;
           imgEl.classList.remove("is-hidden");
@@ -256,12 +280,16 @@
         if (placeholderEl) {
           placeholderEl.classList.add("is-hidden");
         }
-        if (inputEl) {
+        if (inputEl && shouldUpdateHiddenInput) {
           inputEl.value = next;
+        }
+        if (downloadEl) {
+          downloadEl.href = next;
+          downloadEl.classList.remove("is-hidden");
         }
       };
 
-      const bindFaceUpload = (fileInput, imgEl, placeholderEl, hiddenInput, label) => {
+      const bindFaceUpload = (fileInput, imgEl, placeholderEl, hiddenInput, downloadEl, label) => {
         if (!fileInput) return;
         fileInput.addEventListener("change", () => {
           const file = fileInput.files?.[0];
@@ -274,7 +302,7 @@
 
           const reader = new FileReader();
           reader.addEventListener("load", () => {
-            applyFaceImage(String(reader.result || ""), imgEl, placeholderEl, hiddenInput);
+            applyFaceImage(String(reader.result || ""), imgEl, placeholderEl, hiddenInput, downloadEl);
             if (facesStatus) facesStatus.textContent = `${label} uploaded and ready to save.`;
             ui.showMessage(`${label} uploaded.`, "success");
             fileInput.value = "";
@@ -409,8 +437,9 @@
 
             const frontalUrl = result.data?.frontal_face_image_url || "";
             const sidewaysUrl = result.data?.sideways_face_image_url || "";
-            applyFaceImage(frontalUrl, frontalImg, frontalPlaceholder, frontalInput);
-            applyFaceImage(sidewaysUrl, sidewaysImg, sidewaysPlaceholder, sidewaysInput);
+            const generatedImageOptions = { updateHiddenInput: !hasSavedCharacter };
+            applyFaceImage(frontalUrl, frontalImg, frontalPlaceholder, frontalInput, frontalDownload, generatedImageOptions);
+            applyFaceImage(sidewaysUrl, sidewaysImg, sidewaysPlaceholder, sidewaysInput, sidewaysDownload, generatedImageOptions);
             if (facesStatus) facesStatus.textContent = "Frontal and sideways face references generated.";
             ui.showMessage("Generated both character face images.", "success");
           } finally {
@@ -420,9 +449,9 @@
         });
       }
 
-      bindFaceUpload(frontalUploadInput, frontalImg, frontalPlaceholder, frontalInput, "Frontal face");
-      bindFaceUpload(sidewaysUploadInput, sidewaysImg, sidewaysPlaceholder, sidewaysInput, "Sideways face");
-      bindFaceUpload(fullBodyUploadInput, fullBodyImg, fullBodyPlaceholder, fullBodyInput, "Full body");
+      bindFaceUpload(frontalUploadInput, frontalImg, frontalPlaceholder, frontalInput, frontalDownload, "Frontal face");
+      bindFaceUpload(sidewaysUploadInput, sidewaysImg, sidewaysPlaceholder, sidewaysInput, sidewaysDownload, "Sideways face");
+      bindFaceUpload(fullBodyUploadInput, fullBodyImg, fullBodyPlaceholder, fullBodyInput, fullBodyDownload, "Full body");
 
       if (fullBodyBtn && fullBodyUrl) {
         fullBodyBtn.addEventListener("click", async () => {
@@ -460,7 +489,9 @@
             }
 
             const bodyUrl = result.data?.full_body_image_url || "";
-            applyFaceImage(bodyUrl, fullBodyImg, fullBodyPlaceholder, fullBodyInput);
+            applyFaceImage(bodyUrl, fullBodyImg, fullBodyPlaceholder, fullBodyInput, fullBodyDownload, {
+              updateHiddenInput: !hasSavedCharacter,
+            });
             if (facesStatus) facesStatus.textContent = "Full body reference generated.";
             ui.showMessage("Generated full body image.", "success");
           } finally {

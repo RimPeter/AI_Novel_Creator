@@ -332,18 +332,18 @@ def _comic_location_context_lines(project: ComicProject) -> list[str]:
 def _comic_character_image_prompt(*, project: ComicProject, character: ComicCharacter, current: dict[str, str], pose: str) -> str:
     if pose == "frontal":
         pose_label = "straight-on frontal face"
-        composition = "show only the head and upper shoulders, facing the viewer directly"
-        framing = "face must fill most of the frame with a clean neutral background and no props."
+        composition = "show a tight square head-and-shoulders reference: complete head, hairline, chin, neck, and upper shoulders, facing the viewer directly"
+        framing = "fill the square canvas with the head and shoulders while keeping the entire hair, scalp, forehead, ears, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
         output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
     elif pose == "sideways":
         pose_label = "sideways profile face"
-        composition = "show a clean side profile of the face and upper shoulders, looking to the side"
-        framing = "face must fill most of the frame with a clean neutral background and no props."
+        composition = "show a tight square side-profile head-and-shoulders reference: complete head, hairline, nose, chin, neck, and upper shoulders visible, looking to the side"
+        framing = "fill the square canvas with the profile head and shoulders while keeping the entire hair, scalp, forehead, nose, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
         output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
     else:
         pose_label = "full-body frontal view"
-        composition = "show the full body from head to boots, standing upright and facing forward"
-        framing = "the entire figure must be visible in frame with a clean neutral background and no props."
+        composition = "show a full-body character reference from the very top of the hair to the soles of the boots, standing upright and facing forward"
+        framing = "use a vertical portrait canvas. The entire figure must be visible from hair to feet, including the complete top of the head. Center the figure and scale it down if needed so nothing is cropped; leave only a narrow safety gap above the hair and below the feet, with no large blank padding. Use a clean neutral background and no props."
         output_goal = "high-clarity full-body character reference art with readable silhouette, costume, proportions, and consistent styling."
     prompt_lines = [
         "Create a polished comic-book character reference portrait.",
@@ -1428,7 +1428,7 @@ class ComicCharacterCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
     def get_success_url(self):
-        return reverse("comic_book:character-list", kwargs={"slug": self.project.slug})
+        return reverse("comic_book:character-edit", kwargs={"slug": self.project.slug, "pk": self.object.pk})
 
 
 class ComicCharacterUpdateView(LoginRequiredMixin, UpdateView):
@@ -1467,7 +1467,7 @@ class ComicCharacterUpdateView(LoginRequiredMixin, UpdateView):
         return ctx
 
     def get_success_url(self):
-        return reverse("comic_book:character-list", kwargs={"slug": self.project.slug})
+        return reverse("comic_book:character-edit", kwargs={"slug": self.project.slug, "pk": self.object.pk})
 
 
 @login_required
@@ -1552,10 +1552,10 @@ def preview_character_full_body(request, slug: str):
     prompt = _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="full_body")
     try:
         try:
-            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
         except Exception:
             if fallback_model and fallback_model != model_name:
-                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1792")
             else:
                 raise
     except Exception:
@@ -1649,10 +1649,10 @@ def generate_character_full_body(request, slug: str, pk):
     prompt = _comic_character_image_prompt(project=project, character=character, current=current, pose="full_body")
     try:
         try:
-            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
         except Exception:
             if fallback_model and fallback_model != model_name:
-                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1792")
             else:
                 raise
     except Exception:

@@ -364,6 +364,55 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, "Frontal face")
         self.assertContains(response, "Sideways face")
         self.assertContains(response, "Full body")
+        self.assertContains(response, "portrait-frame portrait-frame-face")
+        self.assertContains(response, "portrait-frame portrait-frame-full-body")
+        self.assertContains(response, 'id="comic-character-face-frontal-download"', html=False)
+        self.assertContains(response, 'id="comic-character-face-sideways-download"', html=False)
+        self.assertContains(response, 'id="comic-character-full-body-download"', html=False)
+
+    def test_character_edit_page_does_not_repost_saved_image_data(self):
+        project = self._create_project()
+        character = ComicCharacter.objects.create(
+            project=project,
+            name="Sera Flint",
+            role="Cipher thief",
+            frontal_face_image_data_url="data:image/png;base64,frontal-saved",
+            sideways_face_image_data_url="data:image/png;base64,sideways-saved",
+            full_body_image_data_url="data:image/png;base64,body-saved",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:character-edit", kwargs={"slug": project.slug, "pk": character.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="comic-character-face-frontal-img"', html=False)
+        self.assertContains(response, 'href="data:image/png;base64,frontal-saved"', html=False)
+        self.assertContains(response, 'name="frontal_face_image_data_url" id="comic-character-face-frontal-input" value=""', html=False)
+        self.assertContains(response, 'name="sideways_face_image_data_url" id="comic-character-face-sideways-input" value=""', html=False)
+        self.assertContains(response, 'name="full_body_image_data_url" id="comic-character-full-body-input" value=""', html=False)
+
+    def test_character_edit_save_stays_on_edit_page(self):
+        project = self._create_project()
+        character = ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
+        self.client.force_login(self.user)
+
+        edit_url = reverse("comic_book:character-edit", kwargs={"slug": project.slug, "pk": character.pk})
+        response = self.client.post(
+            edit_url,
+            data={
+                "name": "Sera Flint",
+                "role": "Cipher thief",
+                "age": "29",
+                "gender": "Woman",
+                "description": "Lean, guarded, and always reading exits before people.",
+                "costume_notes": "Dark utility jacket.",
+                "visual_notes": "Shaved sidecut.",
+                "voice_notes": "Dry sarcasm.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], edit_url)
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
     def test_preview_character_faces_returns_two_images_for_unsaved_character(self):
@@ -371,9 +420,11 @@ class ComicBookAppTests(TestCase):
         self.client.force_login(self.user)
 
         prompts = []
+        sizes = []
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
+            sizes.append(size)
             return f"data:image/png;base64,preview{len(prompts)}"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
@@ -401,8 +452,14 @@ class ComicBookAppTests(TestCase):
             },
         )
         self.assertEqual(len(prompts), 2)
+        self.assertEqual(sizes, ["1024x1024", "1024x1024"])
         self.assertIn("Pose target: straight-on frontal face.", prompts[0])
         self.assertIn("Pose target: sideways profile face.", prompts[1])
+        self.assertIn("complete head, hairline, chin, neck, and upper shoulders", prompts[0])
+        self.assertIn("small safety gap above the hair", prompts[0])
+        self.assertIn("no large blank padding, no cropped head", prompts[0])
+        self.assertIn("complete head, hairline, nose, chin, neck, and upper shoulders", prompts[1])
+        self.assertIn("small safety gap above the hair", prompts[1])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
     def test_preview_character_full_body_returns_image_for_unsaved_character(self):
@@ -410,9 +467,11 @@ class ComicBookAppTests(TestCase):
         self.client.force_login(self.user)
 
         prompts = []
+        sizes = []
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
+            sizes.append(size)
             return "data:image/png;base64,bodypreview"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
@@ -433,7 +492,10 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True, "full_body_image_url": "data:image/png;base64,bodypreview"})
         self.assertEqual(len(prompts), 1)
+        self.assertEqual(sizes, ["1024x1536"])
         self.assertIn("Pose target: full-body frontal view.", prompts[0])
+        self.assertIn("very top of the hair to the soles of the boots", prompts[0])
+        self.assertIn("complete top of the head", prompts[0])
 
     def test_character_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()
@@ -739,6 +801,10 @@ class ComicBookAppTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         character = ComicCharacter.objects.get(project=project, name="Sera Flint")
+        self.assertEqual(
+            response["Location"],
+            reverse("comic_book:character-edit", kwargs={"slug": project.slug, "pk": character.pk}),
+        )
         self.assertEqual(character.age, 29)
         self.assertEqual(character.gender, "Woman")
         self.assertEqual(character.frontal_face_image_data_url, "data:image/png;base64,front")
@@ -765,6 +831,10 @@ class ComicBookAppTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         character = ComicCharacter.objects.get(project=project, name="Sera Flint")
+        self.assertEqual(
+            response["Location"],
+            reverse("comic_book:character-edit", kwargs={"slug": project.slug, "pk": character.pk}),
+        )
         self.assertEqual(character.age, 29)
         self.assertEqual(character.gender, "Woman")
         self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,body")
@@ -788,9 +858,11 @@ class ComicBookAppTests(TestCase):
         self.client.force_login(self.user)
 
         prompts = []
+        sizes = []
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
+            sizes.append(size)
             return f"data:image/png;base64,{len(prompts)}"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
@@ -823,10 +895,16 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(character.frontal_face_image_data_url, "data:image/png;base64,1")
         self.assertEqual(character.sideways_face_image_data_url, "data:image/png;base64,2")
         self.assertEqual(len(prompts), 2)
+        self.assertEqual(sizes, ["1024x1024", "1024x1024"])
         self.assertIn("Project style context:", prompts[0])
         self.assertIn("Art style notes: Clean European sci-fi line art with restrained cel shading.", prompts[0])
         self.assertIn("Pose target: straight-on frontal face.", prompts[0])
         self.assertIn("Pose target: sideways profile face.", prompts[1])
+        self.assertIn("complete head, hairline, chin, neck, and upper shoulders", prompts[0])
+        self.assertIn("small safety gap above the hair", prompts[0])
+        self.assertIn("no large blank padding, no cropped head", prompts[0])
+        self.assertIn("complete head, hairline, nose, chin, neck, and upper shoulders", prompts[1])
+        self.assertIn("small safety gap above the hair", prompts[1])
         self.assertIn("Age: 29", prompts[0])
         self.assertIn("Gender: Woman", prompts[0])
         self.assertIn("Visual notes: Shaved sidecut, narrow face, tired eyes.", prompts[0])
@@ -850,9 +928,11 @@ class ComicBookAppTests(TestCase):
         self.client.force_login(self.user)
 
         prompts = []
+        sizes = []
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
+            sizes.append(size)
             return "data:image/png;base64,fullbody"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
@@ -877,7 +957,10 @@ class ComicBookAppTests(TestCase):
         character.refresh_from_db()
         self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,fullbody")
         self.assertEqual(len(prompts), 1)
+        self.assertEqual(sizes, ["1024x1536"])
         self.assertIn("Pose target: full-body frontal view.", prompts[0])
+        self.assertIn("very top of the hair to the soles of the boots", prompts[0])
+        self.assertIn("complete top of the head", prompts[0])
         self.assertIn("Age: 29", prompts[0])
         self.assertIn("Gender: Woman", prompts[0])
         self.assertIn("Art style notes: Clean European sci-fi line art with restrained cel shading.", prompts[0])

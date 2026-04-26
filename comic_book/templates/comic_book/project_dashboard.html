@@ -1,4 +1,5 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}{{ project.title }} | Comic Project{% endblock %}
 
@@ -11,11 +12,11 @@
           <h1 class="page-title">{{ project.title }}</h1>
         </div>
         <div class="actions">
-          <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">New issue</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:bible-edit' slug=project.slug %}">Bible</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:character-list' slug=project.slug %}">Characters</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Locations</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:project-edit' slug=project.slug %}">Edit</a>
+          <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">Create issue</a>
         </div>
       </div>
       <p class="page-lead">
@@ -126,21 +127,23 @@
           <span class="page-panel-kicker">Issue board</span>
           <h2 class="page-panel-title">Sequence the run</h2>
         </div>
-        <div class="actions">
-          <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">Create issue</a>
-        </div>
       </div>
 
       {% if issues %}
-        <div class="comic-project-grid">
+        <div class="comic-project-grid" data-issue-swap-url="{% url 'comic_book:issue-swap' slug=project.slug %}">
           {% for issue in issues %}
-            <article class="comic-issue-card">
+            <article class="comic-issue-card" draggable="true" data-issue-id="{{ issue.pk }}">
               <div class="comic-project-card-head">
                 <div>
                   <div class="page-panel-kicker">Issue {{ issue.number }}</div>
                   <h3 class="comic-subtitle">{{ issue.title }}</h3>
                 </div>
                 <span class="comic-chip">{{ issue.get_status_display }}</span>
+              </div>
+              <div class="actions">
+                <a class="btn btn-primary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}">Open issue</a>
+                <a class="btn btn-secondary" href="{% url 'comic_book:issue-edit' slug=project.slug pk=issue.pk %}">Edit</a>
+                <a class="btn btn-secondary" href="{% url 'comic_book:issue-export' slug=project.slug pk=issue.pk %}">Export</a>
               </div>
 
               <p class="comic-project-copy">
@@ -168,11 +171,6 @@
                 </div>
               {% endif %}
 
-              <div class="actions">
-                <a class="btn btn-primary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}">Open issue</a>
-                <a class="btn btn-secondary" href="{% url 'comic_book:issue-edit' slug=project.slug pk=issue.pk %}">Edit</a>
-                <a class="btn btn-secondary" href="{% url 'comic_book:issue-export' slug=project.slug pk=issue.pk %}">Export</a>
-              </div>
             </article>
           {% endfor %}
         </div>
@@ -181,4 +179,5 @@
       {% endif %}
     </section>
   </div>
+  <script src="{% static 'main/comic_issue_dragdrop.js' %}" defer></script>
 {% endblock %}

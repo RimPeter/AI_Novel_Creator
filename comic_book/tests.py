@@ -1131,6 +1131,25 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(page_two.page_number, 1)
         self.assertEqual(page_one.page_number, 2)
 
+    def test_swap_issues_swaps_issue_numbers(self):
+        project = self._create_project()
+        issue_one = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=2)
+        issue_two = ComicIssue.objects.create(project=project, number=2, title="Issue Two", planned_page_count=2)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:issue-swap", kwargs={"slug": project.slug}),
+            data={"issue_id": str(issue_one.pk), "target_issue_id": str(issue_two.pk)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        issue_one.refresh_from_db()
+        issue_two.refresh_from_db()
+        self.assertEqual(issue_one.number, 2)
+        self.assertEqual(issue_two.number, 1)
+
     def test_issue_workspace_page_tiles_link_to_page_edit(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=2)

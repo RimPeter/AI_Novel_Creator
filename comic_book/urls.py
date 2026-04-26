@@ -32,6 +32,7 @@ urlpatterns = [
     path("projects/<slug:slug>/locations/<uuid:pk>/delete/", views.ComicLocationDeleteView.as_view(), name="location-delete"),
     path("projects/<slug:slug>/issues/brainstorm/", views.brainstorm_issue, name="issue-brainstorm"),
     path("projects/<slug:slug>/issues/add-details/", views.add_issue_details, name="issue-add-details"),
+    path("projects/<slug:slug>/issues/swap/", views.swap_issues, name="issue-swap"),
     path("projects/<slug:slug>/issues/new/", views.ComicIssueCreateView.as_view(), name="issue-create"),
     path("projects/<slug:slug>/issues/<uuid:pk>/", views.ComicIssueWorkspaceView.as_view(), name="issue-workspace"),
     path("projects/<slug:slug>/issues/<uuid:pk>/edit/", views.ComicIssueUpdateView.as_view(), name="issue-edit"),

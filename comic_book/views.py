@@ -19,6 +19,8 @@ from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
@@ -1801,6 +1803,7 @@ class ComicProjectDeleteView(LoginRequiredMixin, DeleteView):
         return super().form_valid(form)
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class ComicProjectDashboardView(LoginRequiredMixin, DetailView):
     model = ComicProject
     template_name = "comic_book/project_dashboard.html"
@@ -1851,6 +1854,34 @@ class ComicProjectDashboardView(LoginRequiredMixin, DetailView):
         ctx["character_count"] = project.characters.count()
         ctx["location_count"] = project.locations.count()
         return ctx
+
+
+@login_required
+@require_POST
+def swap_issues(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    source_id = (request.POST.get("issue_id") or "").strip()
+    target_id = (request.POST.get("target_issue_id") or "").strip()
+    if not source_id or not target_id or source_id == target_id:
+        return JsonResponse({"ok": False, "error": "Choose two different issues to swap."}, status=400)
+
+    source = _get_issue_for_project(project, source_id)
+    target = _get_issue_for_project(project, target_id)
+    source_number = source.number
+    target_number = target.number
+    if source_number == target_number:
+        return JsonResponse({"ok": True})
+
+    with transaction.atomic():
+        temp_number = (project.issues.aggregate(max_number=Max("number"))["max_number"] or 0) + 1
+        source.number = temp_number
+        source.save(update_fields=["number", "updated_at"])
+        target.number = source_number
+        target.save(update_fields=["number", "updated_at"])
+        source.number = target_number
+        source.save(update_fields=["number", "updated_at"])
+
+    return JsonResponse({"ok": True})
 
 
 class ComicBibleUpdateView(LoginRequiredMixin, UpdateView):

@@ -12,8 +12,11 @@
   if (!rootPanel || !(layoutInput instanceof HTMLInputElement) || !(pageEditor instanceof HTMLElement)) return;
 
   const MIN_PANEL_SIZE = 80;
+  const MIN_BUBBLE_SIZE = 42;
   let splitIdSequence = 0;
   let canvasKeySequence = 0;
+  let speechBubbleSequence = 0;
+  let draggedCanvasPanel = null;
   const usedCanvasKeys = new Set();
 
   const updateMenuVisibilityButton = () => {
@@ -112,6 +115,13 @@
       panel.appendChild(generateButton);
     }
 
+    const speechBubbleButton = document.createElement("button");
+    speechBubbleButton.type = "button";
+    speechBubbleButton.className = "comic-canvas-menu-action";
+    speechBubbleButton.dataset.canvasAction = "add-speech-bubble";
+    speechBubbleButton.textContent = "Add speech bubble";
+    panel.appendChild(speechBubbleButton);
+
     for (const option of [
       { direction: "horizontal", label: "Split Horizontally" },
       { direction: "vertical", label: "Split Vertically" },
@@ -196,6 +206,203 @@
     return surface;
   };
 
+  const nextSpeechBubbleId = () => {
+    speechBubbleSequence += 1;
+    return `speech-${speechBubbleSequence}`;
+  };
+
+  const clampPercent = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
+
+  const getBubbleBorderRadius = (bubbleState = {}) => clampPercent(bubbleState.border_radius ?? 50, 0, 50);
+
+  const getBubbleFontSize = (bubbleState = {}) => clampPercent(bubbleState.font_size ?? 16, 8, 36);
+
+  const getDefaultBubblePointer = (bubbleState = {}) => ({
+    pointer_x: clampPercent(
+      bubbleState.pointer_x ?? (Number(bubbleState.x ?? 14) + Number(bubbleState.width ?? 34) * 0.68),
+      0,
+      100
+    ),
+    pointer_y: clampPercent(
+      bubbleState.pointer_y ?? (Number(bubbleState.y ?? 12) + Number(bubbleState.height ?? 18) + 8),
+      0,
+      100
+    ),
+  });
+
+  const updateSpeechBubblePointer = (bubble) => {
+    if (!(bubble instanceof HTMLElement)) return;
+    const panel = bubble.closest("[data-canvas-panel]");
+    const pointer = bubble.querySelector(".comic-speech-bubble-pointer");
+    if (!(panel instanceof HTMLElement) || !(pointer instanceof HTMLElement)) return;
+
+    const panelRect = panel.getBoundingClientRect();
+    if (!panelRect.width || !panelRect.height) return;
+
+    const left = (Number.parseFloat(bubble.style.left) || 0) / 100 * panelRect.width;
+    const top = (Number.parseFloat(bubble.style.top) || 0) / 100 * panelRect.height;
+    const width = (Number.parseFloat(bubble.style.width) || 34) / 100 * panelRect.width;
+    const height = (Number.parseFloat(bubble.style.height) || 18) / 100 * panelRect.height;
+    const targetX = (Number(bubble.dataset.pointerX) || 0) / 100 * panelRect.width;
+    const targetY = (Number(bubble.dataset.pointerY) || 0) / 100 * panelRect.height;
+    const anchorX = width / 2;
+    const anchorY = height / 2;
+    const dx = targetX - (left + anchorX);
+    const dy = targetY - (top + anchorY);
+    const length = Math.max(18, Math.hypot(dx, dy));
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    pointer.style.left = `${anchorX}px`;
+    pointer.style.top = `${anchorY}px`;
+    pointer.style.width = `${length}px`;
+    pointer.style.transform = `rotate(${angle}deg)`;
+  };
+
+  const updateAllSpeechBubblePointers = () => {
+    rootPanel.querySelectorAll(".comic-speech-bubble").forEach((bubble) => updateSpeechBubblePointer(bubble));
+  };
+
+  const createSpeechBubble = (bubbleState = {}) => {
+    const bubble = document.createElement("div");
+    bubble.className = "comic-speech-bubble";
+    bubble.dataset.speechBubble = "true";
+    bubble.dataset.bubbleId = String(bubbleState.id || nextSpeechBubbleId());
+    const idMatch = bubble.dataset.bubbleId.match(/^speech-(\d+)$/);
+    if (idMatch) {
+      speechBubbleSequence = Math.max(speechBubbleSequence, Number(idMatch[1]) || 0);
+    }
+    bubble.dataset.flipped = bubbleState.flipped ? "true" : "false";
+    bubble.style.left = `${clampPercent(bubbleState.x ?? 14, 0, 85)}%`;
+    bubble.style.top = `${clampPercent(bubbleState.y ?? 12, 0, 85)}%`;
+    bubble.style.width = `${clampPercent(bubbleState.width ?? 34, 12, 90)}%`;
+    bubble.style.height = `${clampPercent(bubbleState.height ?? 18, 10, 80)}%`;
+    bubble.style.borderRadius = `${getBubbleBorderRadius(bubbleState)}%`;
+    const pointerTarget = getDefaultBubblePointer(bubbleState);
+    bubble.dataset.pointerX = String(pointerTarget.pointer_x);
+    bubble.dataset.pointerY = String(pointerTarget.pointer_y);
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "comic-speech-bubble-toolbar";
+
+    const moveHandle = document.createElement("button");
+    moveHandle.type = "button";
+    moveHandle.className = "comic-speech-bubble-tool comic-speech-bubble-move";
+    moveHandle.dataset.bubbleAction = "move";
+    moveHandle.textContent = "Move";
+
+    const flipButton = document.createElement("button");
+    flipButton.type = "button";
+    flipButton.className = "comic-speech-bubble-tool";
+    flipButton.dataset.bubbleAction = "flip";
+    flipButton.textContent = "Flip";
+
+    const pointerButton = document.createElement("button");
+    pointerButton.type = "button";
+    pointerButton.className = "comic-speech-bubble-tool comic-speech-bubble-pointer-tool";
+    pointerButton.dataset.bubbleAction = "pointer";
+    pointerButton.textContent = "Pointer";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "comic-speech-bubble-tool is-delete";
+    deleteButton.dataset.bubbleAction = "delete";
+    deleteButton.textContent = "Delete";
+
+    const radiusLabel = document.createElement("label");
+    radiusLabel.className = "comic-speech-bubble-slider";
+
+    const radiusText = document.createElement("span");
+    radiusText.textContent = "Radius";
+
+    const radiusInput = document.createElement("input");
+    radiusInput.type = "range";
+    radiusInput.min = "0";
+    radiusInput.max = "50";
+    radiusInput.step = "1";
+    radiusInput.value = String(getBubbleBorderRadius(bubbleState));
+    radiusInput.dataset.bubbleRadius = "true";
+    radiusInput.addEventListener("input", () => {
+      bubble.style.borderRadius = `${getBubbleBorderRadius({ border_radius: radiusInput.value })}%`;
+      syncLayoutInput();
+    });
+
+    radiusLabel.append(radiusText, radiusInput);
+
+    const fontSizeLabel = document.createElement("label");
+    fontSizeLabel.className = "comic-speech-bubble-slider";
+
+    const fontSizeText = document.createElement("span");
+    fontSizeText.textContent = "Text";
+
+    const fontSizeInput = document.createElement("input");
+    fontSizeInput.type = "range";
+    fontSizeInput.min = "8";
+    fontSizeInput.max = "36";
+    fontSizeInput.step = "1";
+    fontSizeInput.value = String(getBubbleFontSize(bubbleState));
+    fontSizeInput.dataset.bubbleFontSize = "true";
+
+    fontSizeLabel.append(fontSizeText, fontSizeInput);
+    toolbar.append(moveHandle, flipButton, pointerButton, radiusLabel, fontSizeLabel, deleteButton);
+
+    const text = document.createElement("div");
+    text.className = "comic-speech-bubble-text";
+    text.contentEditable = "true";
+    text.dataset.bubbleText = "true";
+    text.setAttribute("role", "textbox");
+    text.setAttribute("aria-label", "Speech bubble text");
+    text.textContent = String(bubbleState.text || "Speech bubble");
+    text.style.fontSize = `${getBubbleFontSize(bubbleState)}px`;
+    text.addEventListener("input", syncLayoutInput);
+    fontSizeInput.addEventListener("input", () => {
+      text.style.fontSize = `${getBubbleFontSize({ font_size: fontSizeInput.value })}px`;
+      syncLayoutInput();
+    });
+
+    const resize = document.createElement("button");
+    resize.type = "button";
+    resize.className = "comic-speech-bubble-resize";
+    resize.dataset.bubbleAction = "resize";
+    resize.setAttribute("aria-label", "Resize speech bubble");
+
+    const pointer = document.createElement("div");
+    pointer.className = "comic-speech-bubble-pointer";
+
+    bubble.append(pointer, toolbar, text, resize);
+    requestAnimationFrame(() => updateSpeechBubblePointer(bubble));
+    return bubble;
+  };
+
+  const getPanelSpeechBubbles = (panel) =>
+    Array.from(panel.querySelectorAll(":scope > .comic-speech-bubble")).filter((bubble) => bubble instanceof HTMLElement);
+
+  const serializeSpeechBubbles = (panel) =>
+    getPanelSpeechBubbles(panel).map((bubble) => {
+      const text = bubble.querySelector("[data-bubble-text]");
+      return {
+        id: bubble.dataset.bubbleId || "",
+        text: text instanceof HTMLElement ? text.textContent.trim() : "",
+        x: Number.parseFloat(bubble.style.left) || 0,
+        y: Number.parseFloat(bubble.style.top) || 0,
+        width: Number.parseFloat(bubble.style.width) || 34,
+        height: Number.parseFloat(bubble.style.height) || 18,
+        border_radius: Number.parseFloat(bubble.style.borderRadius) || 0,
+        font_size: Number.parseFloat(text instanceof HTMLElement ? text.style.fontSize : "") || 16,
+        pointer_x: Number(bubble.dataset.pointerX) || 0,
+        pointer_y: Number(bubble.dataset.pointerY) || 0,
+        flipped: bubble.dataset.flipped === "true",
+      };
+    });
+
+  const addSpeechBubble = (panel, bubbleState = {}) => {
+    if (!(panel instanceof HTMLElement)) return null;
+    if (Array.from(panel.children).some((child) => child.classList.contains("comic-canvas-split"))) return null;
+    const bubble = createSpeechBubble(bubbleState);
+    panel.appendChild(bubble);
+    syncLayoutInput();
+    return bubble;
+  };
+
   const setCanvasImage = (panel, imageUrl) => {
     if (!(panel instanceof HTMLElement) || !imageUrl) return;
     const surface = panel.querySelector(":scope > .comic-canvas-surface");
@@ -223,6 +430,75 @@
       const imageUrl = imageMap[ensureCanvasKey(panel)];
       if (imageUrl) setCanvasImage(panel, imageUrl);
     });
+  };
+
+  const isChildCanvasPanel = (panel) =>
+    panel instanceof HTMLElement &&
+    panel !== rootPanel &&
+    panel.parentElement instanceof HTMLElement &&
+    panel.parentElement.classList.contains("comic-canvas-split");
+
+  const getEventCanvasPanel = (event) => {
+    const panel = event.target?.closest?.("[data-canvas-panel]");
+    return panel instanceof HTMLElement ? panel : null;
+  };
+
+  const isInteractiveCanvasControl = (target) =>
+    Boolean(
+      target?.closest?.(
+        ".comic-canvas-menu, .comic-canvas-divider, .comic-canvas-junction, .comic-speech-bubble, button, a, input, select, textarea"
+      )
+    );
+
+  const clearCanvasSwapState = () => {
+    rootPanel.querySelectorAll(".is-canvas-swap-target").forEach((node) => {
+      node.classList.remove("is-canvas-swap-target");
+    });
+  };
+
+  const isValidCanvasSwapTarget = (targetPanel) =>
+    isChildCanvasPanel(draggedCanvasPanel) &&
+    isChildCanvasPanel(targetPanel) &&
+    targetPanel !== draggedCanvasPanel &&
+    !targetPanel.contains(draggedCanvasPanel) &&
+    !draggedCanvasPanel.contains(targetPanel);
+
+  const syncCanvasPanelDraggability = () => {
+    rootPanel.querySelectorAll("[data-canvas-panel]").forEach((panel) => {
+      if (!(panel instanceof HTMLElement)) return;
+      const canDrag = isChildCanvasPanel(panel);
+      panel.draggable = canDrag;
+      if (canDrag) {
+        panel.dataset.canvasSwapPanel = "true";
+        panel.title = "Drag to swap canvas";
+      } else {
+        panel.removeAttribute("draggable");
+        panel.removeAttribute("data-canvas-swap-panel");
+        panel.removeAttribute("title");
+      }
+    });
+  };
+
+  const swapCanvasPanels = (firstPanel, secondPanel) => {
+    if (!isValidCanvasSwapTarget(secondPanel)) return false;
+
+    const firstKey = ensureCanvasKey(firstPanel);
+    const secondKey = ensureCanvasKey(secondPanel);
+    const firstNodes = Array.from(firstPanel.childNodes);
+    const secondNodes = Array.from(secondPanel.childNodes);
+
+    firstPanel.replaceChildren(...secondNodes);
+    secondPanel.replaceChildren(...firstNodes);
+    firstPanel.dataset.canvasKey = secondKey;
+    secondPanel.dataset.canvasKey = firstKey;
+    firstPanel.dataset.canvasKeyRegistered = "true";
+    secondPanel.dataset.canvasKeyRegistered = "true";
+
+    syncLayoutInput();
+    renderJunctionHandles();
+    syncCanvasMenuLayering();
+    syncCanvasPanelDraggability();
+    return true;
   };
 
   const generateCanvasImage = async (panel, action, menu) => {
@@ -393,17 +669,27 @@
     const serializePanel = (panel) => {
       const split = Array.from(panel.children).find((child) => child.classList.contains("comic-canvas-split"));
       if (!(split instanceof HTMLElement)) {
-        return { type: "panel", canvas_key: ensureCanvasKey(panel) };
+        const serializedPanel = { type: "panel", canvas_key: ensureCanvasKey(panel) };
+        const bubbles = serializeSpeechBubbles(panel);
+        if (bubbles.length) {
+          serializedPanel.speech_bubbles = bubbles;
+        }
+        return serializedPanel;
       }
 
       const childPanels = getChildPanels(split);
-      return {
+      const serializedSplit = {
         type: "split",
         canvas_key: ensureCanvasKey(panel),
         direction: split.dataset.splitDirection || "vertical",
         ratio: parseRatio(childPanels[0] || panel),
         children: childPanels.map((childPanel) => serializePanel(childPanel)),
       };
+      const bubbles = serializeSpeechBubbles(panel);
+      if (bubbles.length) {
+        serializedSplit.speech_bubbles = bubbles;
+      }
+      return serializedSplit;
     };
 
     layoutInput.value = JSON.stringify(serializePanel(rootPanel));
@@ -426,6 +712,7 @@
     panel.replaceChildren(split);
     syncLayoutInput();
     renderJunctionHandles();
+    syncCanvasPanelDraggability();
   };
 
   const deletePanel = (panel) => {
@@ -443,6 +730,7 @@
     parentPanel.replaceChildren(...Array.from(siblingPanel.childNodes));
     syncLayoutInput();
     renderJunctionHandles();
+    syncCanvasPanelDraggability();
   };
 
   const resetCanvas = () => {
@@ -454,6 +742,7 @@
     syncLayoutInput();
     renderJunctionHandles();
     syncCanvasMenuLayering();
+    syncCanvasPanelDraggability();
   };
 
   const getAxisMetrics = (split) => {
@@ -496,6 +785,7 @@
       setPanelRatio(secondPanel, 1 - firstRatio);
       syncLayoutInput();
       renderJunctionHandles();
+      updateAllSpeechBubblePointers();
     };
 
     updateFromPointer(pointerEvent.clientX, pointerEvent.clientY);
@@ -524,6 +814,8 @@
     ensureCanvasKey(panel, normalizedState.canvas_key || "");
     if (normalizedState.type !== "split") {
       panel.replaceChildren(createMenu(panel), createSurface());
+      const bubbles = Array.isArray(normalizedState.speech_bubbles) ? normalizedState.speech_bubbles : [];
+      bubbles.forEach((bubbleState) => addSpeechBubble(panel, bubbleState));
       return;
     }
 
@@ -559,6 +851,7 @@
 
     syncLayoutInput();
     renderJunctionHandles();
+    syncCanvasPanelDraggability();
   };
 
   const startJunctionResize = (junction, pointerEvent) => {
@@ -575,6 +868,7 @@
       if (parentChanged || childChanged) {
         syncLayoutInput();
         renderJunctionHandles();
+        updateAllSpeechBubblePointers();
       }
     };
 
@@ -596,6 +890,85 @@
     window.addEventListener("pointerup", stopResize);
     window.addEventListener("pointercancel", stopResize);
   };
+
+  const startBubblePointerEdit = (bubble, pointerEvent, mode) => {
+    const panel = bubble.closest("[data-canvas-panel]");
+    if (!(panel instanceof HTMLElement)) return;
+    const panelRect = panel.getBoundingClientRect();
+    if (!panelRect.width || !panelRect.height) return;
+
+    const startX = pointerEvent.clientX;
+    const startY = pointerEvent.clientY;
+    const startLeft = (Number.parseFloat(bubble.style.left) || 0) / 100 * panelRect.width;
+    const startTop = (Number.parseFloat(bubble.style.top) || 0) / 100 * panelRect.height;
+    const startWidth = (Number.parseFloat(bubble.style.width) || 34) / 100 * panelRect.width;
+    const startHeight = (Number.parseFloat(bubble.style.height) || 18) / 100 * panelRect.height;
+
+    bubble.classList.add(
+      mode === "resize" ? "is-resizing" : mode === "pointer" || mode === "pointer-anchor" ? "is-pointing" : "is-moving"
+    );
+    document.body.style.userSelect = "none";
+
+    const updateFromPointer = (clientX, clientY) => {
+      if (mode === "pointer") {
+        bubble.dataset.pointerX = String(clampPercent(((clientX - panelRect.left) / panelRect.width) * 100, 0, 100));
+        bubble.dataset.pointerY = String(clampPercent(((clientY - panelRect.top) / panelRect.height) * 100, 0, 100));
+        updateSpeechBubblePointer(bubble);
+        syncLayoutInput();
+        return;
+      }
+
+      const dx = clientX - startX;
+      const dy = clientY - startY;
+      if (mode === "resize") {
+        const nextWidth = Math.max(MIN_BUBBLE_SIZE, Math.min(panelRect.width - startLeft, startWidth + dx));
+        const nextHeight = Math.max(MIN_BUBBLE_SIZE, Math.min(panelRect.height - startTop, startHeight + dy));
+        bubble.style.width = `${(nextWidth / panelRect.width) * 100}%`;
+        bubble.style.height = `${(nextHeight / panelRect.height) * 100}%`;
+      } else {
+        const nextLeft = Math.max(0, Math.min(panelRect.width - startWidth, startLeft + dx));
+        const nextTop = Math.max(0, Math.min(panelRect.height - startHeight, startTop + dy));
+        bubble.style.left = `${(nextLeft / panelRect.width) * 100}%`;
+        bubble.style.top = `${(nextTop / panelRect.height) * 100}%`;
+      }
+      updateSpeechBubblePointer(bubble);
+      syncLayoutInput();
+    };
+
+    const handlePointerMove = (moveEvent) => {
+      updateFromPointer(moveEvent.clientX, moveEvent.clientY);
+    };
+
+    const stopPointerEdit = () => {
+      bubble.classList.remove("is-moving", "is-resizing", "is-pointing");
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopPointerEdit);
+      window.removeEventListener("pointercancel", stopPointerEdit);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopPointerEdit);
+    window.addEventListener("pointercancel", stopPointerEdit);
+  };
+
+  document.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-bubble-action]");
+    if (!(action instanceof HTMLElement) || !rootPanel.contains(action)) return;
+    const bubble = action.closest(".comic-speech-bubble");
+    if (!(bubble instanceof HTMLElement)) return;
+
+    const actionName = action.dataset.bubbleAction || "";
+    if (actionName === "flip") {
+      bubble.dataset.flipped = bubble.dataset.flipped === "true" ? "false" : "true";
+      syncLayoutInput();
+      return;
+    }
+    if (actionName === "delete") {
+      bubble.remove();
+      syncLayoutInput();
+    }
+  });
 
   document.addEventListener("click", (event) => {
     const action = event.target.closest(".comic-canvas-menu-action, .comic-canvas-delete-confirm-btn");
@@ -630,6 +1003,19 @@
       return;
     }
 
+    if ((action.dataset.canvasAction || "") === "add-speech-bubble") {
+      const bubble = addSpeechBubble(panel);
+      if (bubble) {
+        const text = bubble.querySelector("[data-bubble-text]");
+        if (text instanceof HTMLElement) text.focus();
+      }
+      if (menu instanceof HTMLDetailsElement) {
+        menu.open = false;
+      }
+      syncCanvasMenuLayering();
+      return;
+    }
+
     splitPanel(panel, action.dataset.splitDirection || "");
 
     if (menu instanceof HTMLDetailsElement) {
@@ -639,6 +1025,20 @@
   });
 
   document.addEventListener("pointerdown", (event) => {
+    const bubbleAction = event.target.closest("[data-bubble-action]");
+    if (bubbleAction instanceof HTMLElement && rootPanel.contains(bubbleAction)) {
+      const bubble = bubbleAction.closest(".comic-speech-bubble");
+      const actionName = bubbleAction.dataset.bubbleAction || "";
+      if (
+        bubble instanceof HTMLElement &&
+        (actionName === "move" || actionName === "resize" || actionName === "pointer")
+      ) {
+        event.preventDefault();
+        startBubblePointerEdit(bubble, event, actionName);
+        return;
+      }
+    }
+
     const junction = event.target.closest(".comic-canvas-junction");
     if (junction instanceof HTMLElement) {
       event.preventDefault();
@@ -650,6 +1050,58 @@
     if (!(divider instanceof HTMLElement)) return;
     event.preventDefault();
     startResize(divider, event);
+  });
+
+  document.addEventListener("dragstart", (event) => {
+    if (!rootPanel.contains(event.target)) return;
+
+    const panel = getEventCanvasPanel(event);
+    if (!isChildCanvasPanel(panel) || isInteractiveCanvasControl(event.target)) {
+      event.preventDefault();
+      return;
+    }
+
+    draggedCanvasPanel = panel;
+    panel.classList.add("is-canvas-swapping");
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", ensureCanvasKey(panel));
+    }
+  });
+
+  document.addEventListener("dragover", (event) => {
+    const targetPanel = getEventCanvasPanel(event);
+    if (!isValidCanvasSwapTarget(targetPanel)) return;
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+    clearCanvasSwapState();
+    targetPanel.classList.add("is-canvas-swap-target");
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    const panel = getEventCanvasPanel(event);
+    if (!(panel instanceof HTMLElement) || panel.contains(event.relatedTarget)) return;
+    panel.classList.remove("is-canvas-swap-target");
+  });
+
+  document.addEventListener("drop", (event) => {
+    const targetPanel = getEventCanvasPanel(event);
+    if (!isValidCanvasSwapTarget(targetPanel)) return;
+
+    event.preventDefault();
+    swapCanvasPanels(draggedCanvasPanel, targetPanel);
+    clearCanvasSwapState();
+  });
+
+  document.addEventListener("dragend", () => {
+    if (draggedCanvasPanel instanceof HTMLElement) {
+      draggedCanvasPanel.classList.remove("is-canvas-swapping");
+    }
+    draggedCanvasPanel = null;
+    clearCanvasSwapState();
   });
 
   if (menuVisibilityToggle instanceof HTMLButtonElement) {
@@ -682,10 +1134,13 @@
     });
   }
 
+  window.addEventListener("resize", updateAllSpeechBubblePointers);
+
   ensureCanvasKey(rootPanel, "root");
   loadSavedLayout();
   loadCanvasImages();
   updateMenuVisibilityButton();
   rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => ensureMenuToggleListener(menu));
   syncCanvasMenuLayering();
+  syncCanvasPanelDraggability();
 })();

@@ -1060,6 +1060,188 @@ ul {
   overflow: hidden;
 }
 
+.comic-canvas-panel[data-canvas-swap-panel="true"] {
+  cursor: grab;
+}
+
+.comic-canvas-panel[data-canvas-swap-panel="true"]:active,
+.comic-canvas-panel.is-canvas-swapping {
+  cursor: grabbing;
+}
+
+.comic-canvas-panel.is-canvas-swapping {
+  opacity: 0.62;
+}
+
+.comic-canvas-panel.is-canvas-swap-target {
+  outline: 3px solid rgba(255, 174, 77, 0.82);
+  outline-offset: -6px;
+  box-shadow: inset 0 0 0 999px rgba(255, 174, 77, 0.12);
+}
+
+.comic-speech-bubble {
+  position: absolute;
+  z-index: 12;
+  display: block;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 14px 18px 16px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.96);
+  color: rgba(17, 24, 39, 0.96);
+  box-shadow: 0 10px 24px rgba(3, 8, 18, 0.18);
+}
+
+.comic-speech-bubble::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.96);
+  pointer-events: none;
+}
+
+.comic-speech-bubble-pointer {
+  position: absolute;
+  z-index: 0;
+  height: 22px;
+  transform-origin: 0 50%;
+  pointer-events: none;
+}
+
+.comic-speech-bubble-pointer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.96);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.comic-speech-bubble.is-moving,
+.comic-speech-bubble.is-resizing,
+.comic-speech-bubble.is-pointing {
+  outline: 2px solid rgba(255, 174, 77, 0.9);
+}
+
+.comic-speech-bubble-toolbar {
+  position: absolute;
+  left: 50%;
+  top: -34px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transform: translateX(-50%);
+}
+
+.comic-speech-bubble-tool {
+  min-height: 20px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(35, 44, 63, 0.16);
+  background: rgba(247, 244, 237, 0.96);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  color: rgba(35, 44, 63, 0.84);
+  cursor: pointer;
+}
+
+.comic-speech-bubble-tool:hover,
+.comic-speech-bubble-tool:focus-visible {
+  border-color: rgba(255, 174, 77, 0.55);
+  background: rgba(255, 240, 214, 0.98);
+}
+
+.comic-speech-bubble-tool.is-delete {
+  color: rgba(146, 32, 32, 0.92);
+}
+
+.comic-speech-bubble-pointer-tool {
+  cursor: crosshair;
+}
+
+.comic-speech-bubble-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(35, 44, 63, 0.16);
+  background: rgba(247, 244, 237, 0.96);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  color: rgba(35, 44, 63, 0.84);
+  white-space: nowrap;
+}
+
+.comic-speech-bubble-slider input {
+  width: 64px;
+  accent-color: rgba(255, 174, 77, 0.95);
+}
+
+.comic-speech-bubble-move {
+  cursor: move;
+}
+
+.comic-speech-bubble-text {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 8px;
+  overflow: auto;
+  outline: none;
+  line-height: 1.2;
+  font-family: "Comic Sans MS", "Comic Neue", "Trebuchet MS", Arial, sans-serif;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.comic-speech-bubble-text:focus {
+  background: rgba(255, 240, 214, 0.55);
+  border-radius: 18px;
+}
+
+.comic-speech-bubble-resize {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(35, 44, 63, 0.28);
+  background: rgba(255, 255, 255, 0.94);
+  cursor: nwse-resize;
+}
+
+.comic-speech-bubble-resize::before {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: 4px;
+  border-right: 2px solid rgba(35, 44, 63, 0.65);
+  border-bottom: 2px solid rgba(35, 44, 63, 0.65);
+}
+
 .comic-canvas-panel.is-canvas-menu-active {
   overflow: visible;
   z-index: 20;
@@ -1227,7 +1409,9 @@ ul {
 
 .comic-page-editor.is-canvas-menu-hidden .comic-canvas-menu,
 .comic-page-editor.is-canvas-menu-hidden .comic-canvas-divider,
-.comic-page-editor.is-canvas-menu-hidden .comic-canvas-junction {
+.comic-page-editor.is-canvas-menu-hidden .comic-canvas-junction,
+.comic-page-editor.is-canvas-menu-hidden .comic-speech-bubble-toolbar,
+.comic-page-editor.is-canvas-menu-hidden .comic-speech-bubble-resize {
   display: none;
 }
 

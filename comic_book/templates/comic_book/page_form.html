@@ -57,6 +57,7 @@
                       <a class="comic-canvas-menu-action comic-canvas-menu-link" href="{% url 'comic_book:canvas-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='root' %}">Edit canvas brief</a>
                       <button class="comic-canvas-menu-action" type="button" data-canvas-action="generate">Generate</button>
                     {% endif %}
+                    <button class="comic-canvas-menu-action" type="button" data-canvas-action="add-speech-bubble">Add speech bubble</button>
                     <button class="comic-canvas-menu-action" type="button" data-split-direction="horizontal">Split Horizontally</button>
                     <button class="comic-canvas-menu-action" type="button" data-split-direction="vertical">Split Vertically</button>
                     <button class="comic-canvas-menu-action comic-canvas-menu-action-delete" type="button" data-canvas-action="delete">Delete</button>

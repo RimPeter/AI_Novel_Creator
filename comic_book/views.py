@@ -180,6 +180,37 @@ def _json_internal_error() -> JsonResponse:
     return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
 
 
+def _is_image_moderation_block(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+    if "moderation_blocked" in error_text or "safety system" in error_text:
+        return True
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                code = str(error.get("code") or "").lower()
+                message = str(error.get("message") or "").lower()
+                return code == "moderation_blocked" or "safety system" in message
+
+    return False
+
+
+def _json_image_moderation_error() -> JsonResponse:
+    return JsonResponse(
+        {
+            "ok": False,
+            "error": "Image generation was blocked by the safety system. Revise the canvas brief to avoid graphic violence, explicit sexual content, real-person likenesses, or other sensitive details, then try again.",
+        },
+        status=400,
+    )
+
+
 def _extract_json_object(raw: str) -> str:
     text = (raw or "").strip()
     if not text:
@@ -2953,13 +2984,17 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
     try:
         try:
             image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
-        except Exception:
+        except Exception as primary_error:
+            if _is_image_moderation_block(primary_error):
+                raise
             if not fallback_model or fallback_model == model_name:
                 raise
             image_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
-    except Exception:
+    except Exception as error:
         node.image_status = ComicCanvasNode.ImageStatus.FAILED
         node.save(update_fields=["image_status", "updated_at"])
+        if _is_image_moderation_block(error):
+            return _json_image_moderation_error()
         return _json_internal_error()
 
     node.image_prompt = prompt

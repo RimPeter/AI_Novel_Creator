@@ -1223,6 +1223,60 @@ class ComicBookAppTests(TestCase):
         self.assertNotEqual(children[0]["canvas_key"], children[1]["canvas_key"])
         self.assertTrue(children[1]["canvas_key"].startswith("canvas-"))
 
+    def test_page_update_preserves_canvas_speech_bubbles(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "canvas_layout": json.dumps(
+                    {
+                        "type": "panel",
+                        "canvas_key": "root",
+                        "speech_bubbles": [
+                            {
+                                "id": "speech-1",
+                                "text": "We go now.",
+                                "x": 12,
+                                "y": 18,
+                                "width": 32,
+                                "height": 16,
+                                "border_radius": 24,
+                                "font_size": 22,
+                                "pointer_x": 58,
+                                "pointer_y": 72,
+                                "flipped": True,
+                            }
+                        ],
+                    }
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page.refresh_from_db()
+        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["text"], "We go now.")
+        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["border_radius"], 24)
+        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["font_size"], 22)
+        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["pointer_x"], 58)
+        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["pointer_y"], 72)
+        self.assertNotIn("pointer_anchor_x", page.canvas_layout["speech_bubbles"][0])
+        self.assertNotIn("pointer_anchor_y", page.canvas_layout["speech_bubbles"][0])
+        self.assertTrue(page.canvas_layout["speech_bubbles"][0]["flipped"])
+
     @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
     def test_page_edit_canvas_menu_renders_generate_control(self):
         project = self._create_project()
@@ -1241,6 +1295,7 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-canvas-generate-url-template=', html=False)
         self.assertContains(response, 'data-canvas-action="generate"', html=False)
+        self.assertContains(response, 'data-canvas-action="add-speech-bubble"', html=False)
         self.assertContains(response, ">Generate<", html=False)
         self.assertContains(response, "comic-canvas-image-data")
         self.assertContains(response, "data:image/png;base64,saved")
@@ -1490,6 +1545,40 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Costume notes: Signal-thread jacket.", prompts[0])
         self.assertIn("Focus: Nika at the threshold", prompts[0])
         self.assertIn("Must include: Relay lock", prompts[0])
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1", OPENAI_IMAGE_FALLBACK_MODEL="dall-e-3")
+    def test_generate_canvas_node_image_returns_moderation_message_without_fallback(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Blocked prompt")
+        self.client.force_login(self.user)
+
+        calls = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            calls.append(model_name)
+            raise Exception(
+                "Error code: 400 - {'error': {'message': 'Your request was rejected by the safety system.', "
+                "'type': 'image_generation_user_error', 'code': 'moderation_blocked'}}"
+            )
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse(
+                    "comic_book:canvas-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                ),
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["ok"])
+        self.assertIn("blocked by the safety system", response.json()["error"])
+        self.assertEqual(calls, ["gpt-image-1"])
+        node.refresh_from_db()
+        self.assertEqual(node.image_status, ComicCanvasNode.ImageStatus.FAILED)
 
     def test_issue_export_renders_panel_content(self):
         project = self._create_project()

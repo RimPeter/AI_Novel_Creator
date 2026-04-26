@@ -389,12 +389,6 @@
     moveHandle.dataset.bubbleAction = "move";
     moveHandle.textContent = "Move";
 
-    const flipButton = document.createElement("button");
-    flipButton.type = "button";
-    flipButton.className = "comic-speech-bubble-tool";
-    flipButton.dataset.bubbleAction = "flip";
-    flipButton.textContent = "Flip";
-
     const pointerButton = document.createElement("button");
     pointerButton.type = "button";
     pointerButton.className = "comic-speech-bubble-tool comic-speech-bubble-pointer-tool";
@@ -442,7 +436,7 @@
     fontSizeInput.dataset.bubbleFontSize = "true";
 
     fontSizeLabel.append(fontSizeText, fontSizeInput);
-    toolbar.append(moveHandle, flipButton, pointerButton, radiusLabel, fontSizeLabel, deleteButton);
+    toolbar.append(moveHandle, pointerButton, radiusLabel, fontSizeLabel, deleteButton);
 
     const text = document.createElement("div");
     text.className = "comic-speech-bubble-text";

@@ -1,7 +1,10 @@
+import base64
 from dataclasses import dataclass
+from io import BytesIO
 
 from django.conf import settings
 from openai import OpenAI
+from PIL import Image, ImageFilter, ImageStat
 
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -257,3 +260,72 @@ def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1
     response = client.images.generate(**image_params)
     data = response.data[0].b64_json
     return f"data:image/png;base64,{data}"
+
+
+def _data_url_to_image(data_url: str) -> Image.Image:
+    encoded = data_url.split(",", 1)[1] if "," in data_url else data_url
+    return Image.open(BytesIO(base64.b64decode(encoded))).convert("RGBA")
+
+
+def _image_to_data_url(image: Image.Image) -> str:
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(output.getvalue()).decode('ascii')}"
+
+
+def _match_image_tone_to_reference(*, edited_data_url: str, reference_data_url: str) -> str:
+    reference = _data_url_to_image(reference_data_url)
+    edited = _data_url_to_image(edited_data_url)
+    if reference.size != edited.size:
+        reference = reference.resize(edited.size, Image.Resampling.LANCZOS)
+
+    reference_rgb = reference.convert("RGB")
+    edited_rgb = edited.convert("RGB")
+    reference_stat = ImageStat.Stat(reference_rgb)
+    edited_stat = ImageStat.Stat(edited_rgb)
+
+    lut = []
+    for channel in range(3):
+        reference_mean = reference_stat.mean[channel]
+        edited_mean = edited_stat.mean[channel]
+        reference_std = max(reference_stat.stddev[channel], 1.0)
+        edited_std = max(edited_stat.stddev[channel], 1.0)
+        scale = max(0.75, min(1.35, reference_std / edited_std))
+        lut.extend(
+            max(0, min(255, int(round((value - edited_mean) * scale + reference_mean))))
+            for value in range(256)
+        )
+
+    matched = edited_rgb.point(lut)
+    # A tiny median blend suppresses global speckle/static without visibly blurring linework.
+    denoised = matched.filter(ImageFilter.MedianFilter(size=3))
+    matched = Image.blend(matched, denoised, 0.10)
+    matched.putalpha(edited.getchannel("A"))
+    return _image_to_data_url(matched)
+
+
+def edit_image_data_url(*, prompt: str, image_data_url: str, model_name: str, size: str = "1024x1024") -> str:
+    resolved_model_name = normalize_image_model_name(model_name)
+    if "," in image_data_url:
+        _header, encoded = image_data_url.split(",", 1)
+    else:
+        encoded = image_data_url
+    image_file = BytesIO(base64.b64decode(encoded))
+    image_file.name = "reference.png"
+    image_params = {
+        "model": resolved_model_name,
+        "image": image_file,
+        "prompt": prompt,
+        "size": size,
+    }
+    if _is_gpt_image_model(resolved_model_name):
+        image_params["output_format"] = "png"
+        image_params["input_fidelity"] = "high"
+        image_params["quality"] = "high"
+    else:
+        image_params["response_format"] = "b64_json"
+
+    response = client.images.edit(**image_params)
+    data = response.data[0].b64_json
+    edited_data_url = f"data:image/png;base64,{data}"
+    return _match_image_tone_to_reference(edited_data_url=edited_data_url, reference_data_url=image_data_url)

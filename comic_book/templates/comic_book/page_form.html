@@ -44,6 +44,9 @@
         {% if object %}
           data-canvas-node-url-template="{% url 'comic_book:canvas-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
           data-canvas-generate-url-template="{% url 'comic_book:canvas-node-generate' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
+          data-canvas-quick-prompt-url-template="{% url 'comic_book:canvas-node-quick-prompt' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
+          data-canvas-quick-prompt-accept-url-template="{% url 'comic_book:canvas-node-quick-prompt-accept' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
+          data-canvas-quick-prompt-reject-url-template="{% url 'comic_book:canvas-node-quick-prompt-reject' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
         {% endif %}
       >
         <div class="comic-paper-stage">
@@ -56,11 +59,26 @@
                     {% if object %}
                       <a class="comic-canvas-menu-action comic-canvas-menu-link" href="{% url 'comic_book:canvas-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='root' %}">Edit canvas brief</a>
                       <button class="comic-canvas-menu-action" type="button" data-canvas-action="generate">Generate</button>
+                      <button class="comic-canvas-menu-action" type="button" data-canvas-action="show-quick-prompt">Quick Prompt</button>
                     {% endif %}
                     <button class="comic-canvas-menu-action" type="button" data-canvas-action="add-speech-bubble">Add speech bubble</button>
                     <button class="comic-canvas-menu-action" type="button" data-split-direction="horizontal">Split Horizontally</button>
                     <button class="comic-canvas-menu-action" type="button" data-split-direction="vertical">Split Vertically</button>
                     <button class="comic-canvas-menu-action comic-canvas-menu-action-delete" type="button" data-canvas-action="delete">Delete</button>
+                    <div class="comic-canvas-quick-prompt" hidden>
+                      <textarea class="comic-canvas-quick-prompt-input" data-canvas-quick-prompt-input rows="4" placeholder="Describe only what to change in this picture."></textarea>
+                      <div class="comic-canvas-quick-prompt-actions">
+                        <button class="comic-canvas-delete-confirm-btn is-cancel" type="button" data-canvas-action="cancel-quick-prompt">Cancel</button>
+                        <button class="comic-canvas-delete-confirm-btn is-confirm" type="button" data-canvas-action="apply-quick-prompt">Apply</button>
+                      </div>
+                    </div>
+                    <div class="comic-canvas-quick-prompt-review" hidden>
+                      <p class="comic-canvas-quick-prompt-review-copy">Use this Quick Prompt result?</p>
+                      <div class="comic-canvas-quick-prompt-actions">
+                        <button class="comic-canvas-delete-confirm-btn is-cancel" type="button" data-canvas-action="reject-quick-prompt">Reject</button>
+                        <button class="comic-canvas-delete-confirm-btn is-confirm" type="button" data-canvas-action="accept-quick-prompt">Accept</button>
+                      </div>
+                    </div>
                   </div>
                 </details>
                 <div class="comic-canvas-surface"></div>

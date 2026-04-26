@@ -9,6 +9,9 @@
   const canvasResetConfirmButton = document.querySelector("[data-canvas-reset-confirm]");
   const canvasNodeUrlTemplate = pageEditor?.dataset.canvasNodeUrlTemplate || "";
   const canvasGenerateUrlTemplate = pageEditor?.dataset.canvasGenerateUrlTemplate || "";
+  const canvasQuickPromptUrlTemplate = pageEditor?.dataset.canvasQuickPromptUrlTemplate || "";
+  const canvasQuickPromptAcceptUrlTemplate = pageEditor?.dataset.canvasQuickPromptAcceptUrlTemplate || "";
+  const canvasQuickPromptRejectUrlTemplate = pageEditor?.dataset.canvasQuickPromptRejectUrlTemplate || "";
   if (!rootPanel || !(layoutInput instanceof HTMLInputElement) || !(pageEditor instanceof HTMLElement)) return;
 
   const MIN_PANEL_SIZE = 80;
@@ -18,6 +21,7 @@
   let speechBubbleSequence = 0;
   let draggedCanvasPanel = null;
   const usedCanvasKeys = new Set();
+  const pendingQuickPrompts = new Map();
 
   const updateMenuVisibilityButton = () => {
     if (!(menuVisibilityToggle instanceof HTMLButtonElement)) return;
@@ -30,6 +34,16 @@
     canvasNodeUrlTemplate && canvasKey ? canvasNodeUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey)) : "";
   const buildCanvasGenerateUrl = (canvasKey) =>
     canvasGenerateUrlTemplate && canvasKey ? canvasGenerateUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey)) : "";
+  const buildCanvasQuickPromptUrl = (canvasKey) =>
+    canvasQuickPromptUrlTemplate && canvasKey ? canvasQuickPromptUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey)) : "";
+  const buildCanvasQuickPromptAcceptUrl = (canvasKey) =>
+    canvasQuickPromptAcceptUrlTemplate && canvasKey
+      ? canvasQuickPromptAcceptUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey))
+      : "";
+  const buildCanvasQuickPromptRejectUrl = (canvasKey) =>
+    canvasQuickPromptRejectUrlTemplate && canvasKey
+      ? canvasQuickPromptRejectUrlTemplate.replace("__canvas_key__", encodeURIComponent(canvasKey))
+      : "";
 
   const registerCanvasKey = (key) => {
     const normalized = String(key || "").trim();
@@ -99,6 +113,7 @@
 
     const canvasEditUrl = buildCanvasNodeUrl(ensureCanvasKey(ownerPanel));
     const canvasGenerateUrl = buildCanvasGenerateUrl(ensureCanvasKey(ownerPanel));
+    const canvasQuickPromptUrl = buildCanvasQuickPromptUrl(ensureCanvasKey(ownerPanel));
     if (canvasEditUrl) {
       const link = document.createElement("a");
       link.className = "comic-canvas-menu-action comic-canvas-menu-link";
@@ -113,6 +128,14 @@
       generateButton.dataset.canvasAction = "generate";
       generateButton.textContent = "Generate";
       panel.appendChild(generateButton);
+    }
+    if (canvasQuickPromptUrl) {
+      const quickPromptButton = document.createElement("button");
+      quickPromptButton.type = "button";
+      quickPromptButton.className = "comic-canvas-menu-action";
+      quickPromptButton.dataset.canvasAction = "show-quick-prompt";
+      quickPromptButton.textContent = "Quick Prompt";
+      panel.appendChild(quickPromptButton);
     }
 
     const speechBubbleButton = document.createElement("button");
@@ -168,6 +191,62 @@
     confirmPanel.append(confirmText, confirmActions);
     panel.appendChild(confirmPanel);
 
+    const quickPromptPanel = document.createElement("div");
+    quickPromptPanel.className = "comic-canvas-quick-prompt";
+    quickPromptPanel.hidden = true;
+
+    const quickPromptText = document.createElement("textarea");
+    quickPromptText.className = "comic-canvas-quick-prompt-input";
+    quickPromptText.dataset.canvasQuickPromptInput = "true";
+    quickPromptText.rows = 4;
+    quickPromptText.placeholder = "Describe only what to change in this picture.";
+
+    const quickPromptActions = document.createElement("div");
+    quickPromptActions.className = "comic-canvas-quick-prompt-actions";
+
+    const quickPromptCancel = document.createElement("button");
+    quickPromptCancel.type = "button";
+    quickPromptCancel.className = "comic-canvas-delete-confirm-btn is-cancel";
+    quickPromptCancel.dataset.canvasAction = "cancel-quick-prompt";
+    quickPromptCancel.textContent = "Cancel";
+
+    const quickPromptApply = document.createElement("button");
+    quickPromptApply.type = "button";
+    quickPromptApply.className = "comic-canvas-delete-confirm-btn is-confirm";
+    quickPromptApply.dataset.canvasAction = "apply-quick-prompt";
+    quickPromptApply.textContent = "Apply";
+
+    quickPromptActions.append(quickPromptCancel, quickPromptApply);
+    quickPromptPanel.append(quickPromptText, quickPromptActions);
+    panel.appendChild(quickPromptPanel);
+
+    const quickPromptReviewPanel = document.createElement("div");
+    quickPromptReviewPanel.className = "comic-canvas-quick-prompt-review";
+    quickPromptReviewPanel.hidden = true;
+
+    const quickPromptReviewCopy = document.createElement("p");
+    quickPromptReviewCopy.className = "comic-canvas-quick-prompt-review-copy";
+    quickPromptReviewCopy.textContent = "Use this Quick Prompt result?";
+
+    const quickPromptReviewActions = document.createElement("div");
+    quickPromptReviewActions.className = "comic-canvas-quick-prompt-actions";
+
+    const quickPromptReject = document.createElement("button");
+    quickPromptReject.type = "button";
+    quickPromptReject.className = "comic-canvas-delete-confirm-btn is-cancel";
+    quickPromptReject.dataset.canvasAction = "reject-quick-prompt";
+    quickPromptReject.textContent = "Reject";
+
+    const quickPromptAccept = document.createElement("button");
+    quickPromptAccept.type = "button";
+    quickPromptAccept.className = "comic-canvas-delete-confirm-btn is-confirm";
+    quickPromptAccept.dataset.canvasAction = "accept-quick-prompt";
+    quickPromptAccept.textContent = "Accept";
+
+    quickPromptReviewActions.append(quickPromptReject, quickPromptAccept);
+    quickPromptReviewPanel.append(quickPromptReviewCopy, quickPromptReviewActions);
+    panel.appendChild(quickPromptReviewPanel);
+
     details.append(summary, panel);
     return details;
   };
@@ -181,6 +260,24 @@
     deleteButton.hidden = isVisible;
   };
 
+  const setQuickPromptVisibility = (menu, isVisible) => {
+    if (!(menu instanceof HTMLElement)) return;
+    const panel = menu.querySelector(".comic-canvas-quick-prompt");
+    const input = menu.querySelector("[data-canvas-quick-prompt-input]");
+    if (!(panel instanceof HTMLElement)) return;
+    panel.hidden = !isVisible;
+    if (isVisible && input instanceof HTMLTextAreaElement) {
+      input.focus();
+    }
+  };
+
+  const setQuickPromptReviewVisibility = (menu, isVisible) => {
+    if (!(menu instanceof HTMLElement)) return;
+    const panel = menu.querySelector(".comic-canvas-quick-prompt-review");
+    if (!(panel instanceof HTMLElement)) return;
+    panel.hidden = !isVisible;
+  };
+
   const syncCanvasMenuLayering = () => {
     rootPanel.querySelectorAll(".is-canvas-menu-active").forEach((node) => {
       node.classList.remove("is-canvas-menu-active");
@@ -189,6 +286,8 @@
     rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => {
       if (!(menu instanceof HTMLDetailsElement) || !menu.open) {
         setDeleteConfirmVisibility(menu, false);
+        setQuickPromptVisibility(menu, false);
+        setQuickPromptReviewVisibility(menu, false);
         return;
       }
 
@@ -535,6 +634,194 @@
     } finally {
       action.textContent = originalText;
       action.removeAttribute("aria-busy");
+      action.disabled = false;
+    }
+  };
+
+  const loadImageForCanvas = (src) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = src;
+    });
+
+  const wrapCanvasText = (context, text, maxWidth) => {
+    const words = String(text || "").toUpperCase().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = "";
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word;
+      if (context.measureText(next).width <= maxWidth || !current) {
+        current = next;
+      } else {
+        lines.push(current);
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  };
+
+  const drawSpeechBubbleOnCanvas = (context, bubble, canvasSize) => {
+    const x = (Number.parseFloat(bubble.style.left) || 0) / 100 * canvasSize;
+    const y = (Number.parseFloat(bubble.style.top) || 0) / 100 * canvasSize;
+    const width = (Number.parseFloat(bubble.style.width) || 34) / 100 * canvasSize;
+    const height = (Number.parseFloat(bubble.style.height) || 18) / 100 * canvasSize;
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const pointerX = (Number(bubble.dataset.pointerX) || 0) / 100 * canvasSize;
+    const pointerY = (Number(bubble.dataset.pointerY) || 0) / 100 * canvasSize;
+    const radiusPercent = Number.parseFloat(bubble.style.borderRadius) || 50;
+    const radius = Math.min(width, height) * (radiusPercent / 100);
+
+    context.save();
+    context.fillStyle = "rgba(255, 255, 255, 0.96)";
+    context.beginPath();
+    context.moveTo(centerX, centerY);
+    context.lineTo(pointerX, pointerY);
+    context.lineTo(centerX + Math.max(12, width * 0.08), centerY + Math.max(8, height * 0.08));
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.roundRect(x, y, width, height, radius);
+    context.fill();
+
+    const text = bubble.querySelector("[data-bubble-text]");
+    const textValue = text instanceof HTMLElement ? text.textContent || "" : "";
+    const fontSize = Number.parseFloat(text instanceof HTMLElement ? text.style.fontSize : "") || 16;
+    context.fillStyle = "rgba(17, 24, 39, 0.96)";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `900 ${fontSize * (canvasSize / 720)}px "Comic Sans MS", "Comic Neue", "Trebuchet MS", Arial, sans-serif`;
+    const lines = wrapCanvasText(context, textValue, width * 0.78).slice(0, 5);
+    const lineHeight = fontSize * (canvasSize / 720) * 1.18;
+    const startY = centerY - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((line, index) => context.fillText(line, centerX, startY + index * lineHeight));
+    context.restore();
+  };
+
+  const createCanvasReferenceImage = async (panel) => {
+    if (!(panel instanceof HTMLElement)) return "";
+    const image = panel.querySelector(":scope > .comic-canvas-surface .comic-canvas-image");
+    if (!(image instanceof HTMLImageElement) || !image.src) return "";
+    const loadedImage = await loadImageForCanvas(image.src);
+    const canvasSize = 1024;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+    context.drawImage(loadedImage, 0, 0, canvasSize, canvasSize);
+    return canvas.toDataURL("image/png");
+  };
+
+  const quickPromptCanvasImage = async (panel, action, menu) => {
+    const ui = window.AppUI;
+    if (!ui || !(panel instanceof HTMLElement)) return;
+    const input = menu?.querySelector?.("[data-canvas-quick-prompt-input]");
+    const prompt = input instanceof HTMLTextAreaElement ? input.value.trim() : "";
+    if (!prompt) {
+      ui.showMessage("Write what to change first.", "warning");
+      return;
+    }
+    const canvasKey = ensureCanvasKey(panel);
+    const url = buildCanvasQuickPromptUrl(canvasKey);
+    if (!url) return;
+
+    const originalText = action.textContent;
+    action.textContent = "Applying...";
+    action.setAttribute("aria-busy", "true");
+    action.disabled = true;
+    try {
+      const image = panel.querySelector(":scope > .comic-canvas-surface .comic-canvas-image");
+      if (!(image instanceof HTMLImageElement) || !image.src) {
+        ui.showMessage("Generate this canvas image before using Quick Prompt.", "warning");
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set("prompt", prompt);
+      const result = await ui.postFormUrlEncoded({
+        url,
+        params,
+        csrfToken: ui.getCsrfToken(),
+        failureLabel: "Quick Prompt failed",
+      });
+      if (window.AIBillingGuard?.handleBillingResponse({ status: result.status }, result.data)) return;
+      if (!result.ok) {
+        ui.showMessage(result.error, "error");
+        return;
+      }
+      const imageUrl = result.data?.image_url || "";
+      const pendingToken = result.data?.pending_token || "";
+      if (!imageUrl) {
+        ui.showMessage("No image returned.", "warning");
+        return;
+      }
+      if (!pendingToken) {
+        ui.showMessage("No Quick Prompt preview token returned.", "warning");
+        return;
+      }
+      const previousImage = image instanceof HTMLImageElement ? image.src : "";
+      setCanvasImage(panel, imageUrl);
+      pendingQuickPrompts.set(canvasKey, { previousImage, previewImage: imageUrl, pendingToken });
+      if (input instanceof HTMLTextAreaElement) input.value = "";
+      setQuickPromptVisibility(menu, false);
+      setQuickPromptReviewVisibility(menu, true);
+      if (menu instanceof HTMLDetailsElement) menu.open = true;
+      ui.showMessage("Quick Prompt preview ready.", "success");
+    } finally {
+      action.textContent = originalText;
+      action.removeAttribute("aria-busy");
+      action.disabled = false;
+    }
+  };
+
+  const resolveQuickPromptPreview = async (panel, action, menu, shouldAccept) => {
+    const ui = window.AppUI;
+    if (!ui || !(panel instanceof HTMLElement)) return;
+    const canvasKey = ensureCanvasKey(panel);
+    const pending = pendingQuickPrompts.get(canvasKey);
+    if (!pending?.pendingToken) {
+      ui.showMessage("No Quick Prompt preview is waiting.", "warning");
+      setQuickPromptReviewVisibility(menu, false);
+      return;
+    }
+
+    const url = shouldAccept ? buildCanvasQuickPromptAcceptUrl(canvasKey) : buildCanvasQuickPromptRejectUrl(canvasKey);
+    if (!url) return;
+
+    const originalText = action.textContent;
+    action.textContent = shouldAccept ? "Accepting..." : "Rejecting...";
+    action.disabled = true;
+    try {
+      const params = new URLSearchParams();
+      params.set("pending_token", pending.pendingToken);
+      const result = await ui.postFormUrlEncoded({
+        url,
+        params,
+        csrfToken: ui.getCsrfToken(),
+        failureLabel: shouldAccept ? "Accept failed" : "Reject failed",
+      });
+      if (!result.ok) {
+        ui.showMessage(result.error, "error");
+        return;
+      }
+
+      if (shouldAccept) {
+        const imageUrl = result.data?.image_url || pending.previewImage;
+        setCanvasImage(panel, imageUrl);
+        ui.showMessage("Quick Prompt accepted.", "success");
+      } else {
+        setCanvasImage(panel, pending.previousImage || result.data?.image_url || "");
+        ui.showMessage("Quick Prompt rejected.", "info");
+      }
+      pendingQuickPrompts.delete(canvasKey);
+      setQuickPromptReviewVisibility(menu, false);
+      if (menu instanceof HTMLDetailsElement) menu.open = false;
+    } finally {
+      action.textContent = originalText;
       action.disabled = false;
     }
   };
@@ -981,6 +1268,31 @@
 
     if ((action.dataset.canvasAction || "") === "delete") {
       setDeleteConfirmVisibility(menu, true);
+      return;
+    }
+
+    if ((action.dataset.canvasAction || "") === "show-quick-prompt") {
+      setQuickPromptVisibility(menu, true);
+      return;
+    }
+
+    if ((action.dataset.canvasAction || "") === "cancel-quick-prompt") {
+      setQuickPromptVisibility(menu, false);
+      return;
+    }
+
+    if ((action.dataset.canvasAction || "") === "apply-quick-prompt") {
+      quickPromptCanvasImage(panel, action, menu);
+      return;
+    }
+
+    if ((action.dataset.canvasAction || "") === "accept-quick-prompt") {
+      resolveQuickPromptPreview(panel, action, menu, true);
+      return;
+    }
+
+    if ((action.dataset.canvasAction || "") === "reject-quick-prompt") {
+      resolveQuickPromptPreview(panel, action, menu, false);
       return;
     }
 

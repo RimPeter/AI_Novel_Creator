@@ -59,6 +59,21 @@ urlpatterns = [
         name="canvas-node-generate",
     ),
     path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/quick-prompt/",
+        views.quick_prompt_canvas_node_image,
+        name="canvas-node-quick-prompt",
+    ),
+    path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/quick-prompt/accept/",
+        views.accept_quick_prompt_canvas_node_image,
+        name="canvas-node-quick-prompt-accept",
+    ),
+    path(
+        "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/quick-prompt/reject/",
+        views.reject_quick_prompt_canvas_node_image,
+        name="canvas-node-quick-prompt-reject",
+    ),
+    path(
         "projects/<slug:slug>/issues/<uuid:issue_pk>/pages/<uuid:page_pk>/canvas/<str:canvas_key>/edit/",
         views.ComicCanvasNodeUpdateView.as_view(),
         name="canvas-node-edit",

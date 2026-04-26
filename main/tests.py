@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 from .billing import ensure_stripe_customer, process_webhook_event, sync_checkout_session, sync_subscription_record, user_has_active_plan
-from .llm import LLMResult, SYSTEM_PROMPT, call_llm, generate_image_data_url, normalize_image_model_name
+from .llm import LLMResult, SYSTEM_PROMPT, call_llm, edit_image_data_url, generate_image_data_url, normalize_image_model_name
 from .models import (
     BillingCompanyProfile,
     BillingInformationProfile,
@@ -534,6 +534,33 @@ class LLMTests(TestCase):
         self.assertEqual(kwargs["model"], "dall-e-3")
         self.assertEqual(kwargs["response_format"], "b64_json")
         self.assertNotIn("output_format", kwargs)
+
+    def test_edit_image_data_url_uses_reference_image_and_high_fidelity(self):
+        fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="edited123")])
+
+        with (
+            patch("main.llm.client.images.edit", return_value=fake_response) as mocked,
+            patch("main.llm._match_image_tone_to_reference", return_value="data:image/png;base64,matched123") as mocked_match,
+        ):
+            data_url = edit_image_data_url(
+                prompt="Change the sky only.",
+                image_data_url="data:image/png;base64,YWJjMTIz",
+                model_name="gpt-image-1",
+                size="1024x1024",
+            )
+
+        self.assertEqual(data_url, "data:image/png;base64,matched123")
+        mocked_match.assert_called_once_with(
+            edited_data_url="data:image/png;base64,edited123",
+            reference_data_url="data:image/png;base64,YWJjMTIz",
+        )
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["model"], "gpt-image-1")
+        self.assertEqual(kwargs["prompt"], "Change the sky only.")
+        self.assertEqual(kwargs["output_format"], "png")
+        self.assertEqual(kwargs["input_fidelity"], "high")
+        self.assertEqual(kwargs["quality"], "high")
+        self.assertEqual(kwargs["image"].name, "reference.png")
 
     def test_call_llm_replaces_em_dash_and_uses_global_instruction(self):
         fake_response = SimpleNamespace(

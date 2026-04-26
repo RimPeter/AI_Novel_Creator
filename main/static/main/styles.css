@@ -1529,6 +1529,61 @@ ul {
   display: none;
 }
 
+.comic-canvas-quick-prompt {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(35, 44, 63, 0.12);
+  background: rgba(247, 244, 237, 0.98);
+}
+
+.comic-canvas-quick-prompt-review {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 174, 77, 0.36);
+  background: rgba(255, 240, 214, 0.98);
+}
+
+.comic-canvas-quick-prompt[hidden] {
+  display: none;
+}
+
+.comic-canvas-quick-prompt-review[hidden] {
+  display: none;
+}
+
+.comic-canvas-quick-prompt-input {
+  width: 100%;
+  min-height: 84px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(35, 44, 63, 0.16);
+  background: rgba(255, 255, 255, 0.96);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(35, 44, 63, 0.9);
+}
+
+.comic-canvas-quick-prompt-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.comic-canvas-quick-prompt-review-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 800;
+  color: rgba(82, 51, 12, 0.92);
+}
+
 .comic-canvas-delete-confirm-copy {
   margin: 0;
   font-size: 12px;

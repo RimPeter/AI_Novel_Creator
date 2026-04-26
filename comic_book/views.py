@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import re
+import uuid
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Max, Prefetch
 from django.http import Http404, HttpResponseRedirect, JsonResponse
@@ -21,7 +23,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
 from main.billing import billing_enabled, user_has_active_plan
-from main.llm import call_llm, generate_image_data_url
+from main.llm import call_llm, edit_image_data_url, generate_image_data_url, normalize_image_model_name
 from main.text_models import get_user_text_model
 
 from .forms import ComicBibleForm, ComicCanvasNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
@@ -93,6 +95,40 @@ CANVAS_NODE_AI_APPEND_FIELDS = {
     "style_override",
     "notes",
 }
+CANVAS_QUICK_PROMPT_CACHE_SECONDS = 20 * 60
+IMAGE_PROMPT_MAX_CHARS = 3800
+
+
+def _canvas_quick_prompt_cache_key(user_id, node_id, token: str) -> str:
+    return f"comic-canvas-quick-prompt:{user_id}:{node_id}:{token}"
+
+
+def _truncate_text(value, limit: int) -> str:
+    text = str(value or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _compact_prompt_lines(lines: list[str], max_chars: int = IMAGE_PROMPT_MAX_CHARS) -> str:
+    prompt = "\n".join(lines).strip()
+    if len(prompt) <= max_chars:
+        return prompt
+
+    compacted = []
+    remaining = max_chars
+    for line in lines:
+        line_text = str(line or "")
+        if line_text == "":
+            candidate = ""
+        else:
+            candidate = _truncate_text(line_text, min(len(line_text), max(40, remaining - 1)))
+        extra = len(candidate) + (1 if compacted else 0)
+        if extra > remaining:
+            break
+        compacted.append(candidate)
+        remaining -= extra
+    return "\n".join(compacted).strip()
 
 
 def _project_queryset_for_user(user):
@@ -201,6 +237,32 @@ def _is_image_moderation_block(exc: Exception) -> bool:
     return False
 
 
+def _is_provider_billing_limit_error(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+    if "billing_hard_limit_reached" in error_text or "billing hard limit" in error_text:
+        return True
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                code = str(error.get("code") or "").lower()
+                message = str(error.get("message") or "").lower()
+                error_type = str(error.get("type") or "").lower()
+                return (
+                    code == "billing_hard_limit_reached"
+                    or "billing hard limit" in message
+                    or error_type == "billing_limit_user_error"
+                )
+
+    return False
+
+
 def _json_image_moderation_error() -> JsonResponse:
     return JsonResponse(
         {
@@ -209,6 +271,34 @@ def _json_image_moderation_error() -> JsonResponse:
         },
         status=400,
     )
+
+
+def _json_provider_billing_limit_error() -> JsonResponse:
+    return JsonResponse(
+        {
+            "ok": False,
+            "error": "OpenAI image generation billing hard limit has been reached. Increase the OpenAI project billing limit or switch OPENAI_API_KEY to a project with available image budget.",
+        },
+        status=400,
+    )
+
+
+def _default_image_fallback_model(model_name: str, fallback_model: str = "") -> str:
+    if fallback_model:
+        return fallback_model
+    return "dall-e-3" if normalize_image_model_name(model_name) == "gpt-image-1" else ""
+
+
+def _json_image_generation_error(error: Exception) -> JsonResponse:
+    message = str(error or "").strip()
+    if "Error code:" in message:
+        message = message.split("Error code:", 1)[-1].strip()
+    if len(message) > 260:
+        message = message[:257].rstrip() + "..."
+    if not message:
+        message = "The image provider rejected the request."
+    _log_exception("Comic book image generation failed.")
+    return JsonResponse({"ok": False, "error": f"Image generation failed: {message}"}, status=400)
 
 
 def _extract_json_object(raw: str) -> str:
@@ -504,26 +594,11 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
         "No text, captions, logos, speech bubbles, signage text, watermarks, panel borders, or UI.",
         "Respect the canvas brief exactly; do not add unrelated characters, props, or story events.",
         "",
-        "Project style context:",
+        "Canvas brief:",
+        f"Canvas key: {node.canvas_key}",
+        f"Canvas type: {node.get_node_type_display()}",
+        f"Shot type: {shot_type}",
     ]
-    prompt_lines.extend(_comic_project_context_lines(project))
-    bible_lines = _comic_bible_context_lines(project)
-    if bible_lines:
-        prompt_lines.append("")
-        prompt_lines.extend(bible_lines)
-    prompt_lines.append("")
-    prompt_lines.extend(_comic_issue_context_lines(issue))
-    prompt_lines.append("")
-    prompt_lines.extend(_comic_page_context_lines(page))
-    prompt_lines.extend(
-        [
-            "",
-            "Canvas brief:",
-            f"Canvas key: {node.canvas_key}",
-            f"Canvas type: {node.get_node_type_display()}",
-            f"Shot type: {shot_type}",
-        ]
-    )
     if node.split_direction:
         prompt_lines.append(f"Split direction: {node.get_split_direction_display()}")
     if node.split_ratio:
@@ -541,14 +616,14 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
         ("Style override", node.style_override),
         ("Canvas notes", node.notes),
     ]:
-        _append_detail_line(prompt_lines, label, value, limit=360)
+        _append_detail_line(prompt_lines, label, value, limit=240)
 
     if location:
         prompt_lines.extend(["", "Selected location details:"])
         _append_detail_line(prompt_lines, "Location name", location.name, limit=100)
-        _append_detail_line(prompt_lines, "Location description", location.description, limit=360)
-        _append_detail_line(prompt_lines, "Location visual notes", location.visual_notes, limit=360)
-        _append_detail_line(prompt_lines, "Location continuity notes", location.continuity_notes, limit=260)
+        _append_detail_line(prompt_lines, "Location description", location.description, limit=180)
+        _append_detail_line(prompt_lines, "Location visual notes", location.visual_notes, limit=180)
+        _append_detail_line(prompt_lines, "Location continuity notes", location.continuity_notes, limit=120)
 
     if characters:
         prompt_lines.extend(["", "Selected character details:"])
@@ -558,11 +633,33 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
             if character.age is not None:
                 prompt_lines.append(f"  Age: {character.age}")
             _append_detail_line(prompt_lines, "  Gender", character.gender, limit=80)
-            _append_detail_line(prompt_lines, "  Description", character.description, limit=300)
-            _append_detail_line(prompt_lines, "  Costume notes", character.costume_notes, limit=260)
-            _append_detail_line(prompt_lines, "  Visual notes", character.visual_notes, limit=260)
+            _append_detail_line(prompt_lines, "  Description", character.description, limit=160)
+            _append_detail_line(prompt_lines, "  Costume notes", character.costume_notes, limit=140)
+            _append_detail_line(prompt_lines, "  Visual notes", character.visual_notes, limit=140)
 
-    return "\n".join(prompt_lines).strip()
+    context_lines = []
+    project_lines = _comic_project_context_lines(project)
+    if project_lines:
+        context_lines.extend(["", "Project style context:"])
+        context_lines.extend(project_lines)
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        context_lines.append("")
+        context_lines.extend(bible_lines)
+    issue_lines = _comic_issue_context_lines(issue)
+    if issue_lines:
+        context_lines.append("")
+        context_lines.extend(issue_lines)
+    page_lines = _comic_page_context_lines(page)
+    if page_lines:
+        context_lines.append("")
+        context_lines.extend(page_lines)
+
+    for line in context_lines:
+        if len("\n".join(prompt_lines + [line]).strip()) <= IMAGE_PROMPT_MAX_CHARS:
+            prompt_lines.append(line)
+
+    return _compact_prompt_lines(prompt_lines)
 
 
 def _issue_ai_current(request) -> dict[str, str]:
@@ -1940,9 +2037,7 @@ def preview_character_faces(request, slug: str):
 
     temp_character = ComicCharacter(project=project, **current)
     model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
 
     def render_with_fallback(prompt: str) -> str:
         try:
@@ -1990,9 +2085,7 @@ def preview_character_full_body(request, slug: str):
 
     temp_character = ComicCharacter(project=project, **current)
     model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
 
     prompt = _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="full_body")
     try:
@@ -2977,9 +3070,7 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
 
     prompt = _comic_canvas_node_image_prompt(project=project, issue=issue, page=page, node=node)
     model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
 
     try:
         try:
@@ -2995,7 +3086,9 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
         node.save(update_fields=["image_status", "updated_at"])
         if _is_image_moderation_block(error):
             return _json_image_moderation_error()
-        return _json_internal_error()
+        if _is_provider_billing_limit_error(error):
+            return _json_provider_billing_limit_error()
+        return _json_image_generation_error(error)
 
     node.image_prompt = prompt
     node.image_data_url = image_url
@@ -3003,6 +3096,126 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
     node.last_generated_at = timezone.now()
     node.save(update_fields=["image_prompt", "image_data_url", "image_status", "last_generated_at", "updated_at"])
     return JsonResponse({"ok": True, "image_url": image_url})
+
+
+@login_required
+@require_POST
+def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
+        request.headers.get("accept") or ""
+    )
+    if not wants_json:
+        return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image editing is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    user_prompt = (request.POST.get("prompt") or "").strip()
+    if not user_prompt:
+        return JsonResponse({"ok": False, "error": "Write what to change first."}, status=400)
+
+    reference_image = (request.POST.get("reference_image_data_url") or "").strip() or node.image_data_url
+    if not reference_image:
+        return JsonResponse({"ok": False, "error": "Generate this canvas image before using Quick Prompt."}, status=400)
+
+    edit_prompt = "\n".join(
+        [
+            "Edit only the provided image.",
+            "Use the image itself as the only visual and story reference.",
+            "Make the smallest localized edit that satisfies the requested change.",
+            "Preserve the original composition, characters, style, color grading, exact palette, saturation, contrast, brightness, lighting, linework, texture, sharpness, framing, and speech bubbles unless the requested change explicitly names one of those properties.",
+            "Do not apply a global filter, haze, blur, fade, grain, static noise, texture overlay, desaturation, recoloring, or contrast shift.",
+            "Do not add context, story details, characters, logos, captions, or text that are not already visible unless the requested change explicitly requires it.",
+            "Requested change:",
+            user_prompt,
+        ]
+    )
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+
+    try:
+        image_url = edit_image_data_url(prompt=edit_prompt, image_data_url=reference_image, model_name=model_name, size="1024x1024")
+    except Exception as error:
+        node.image_status = ComicCanvasNode.ImageStatus.FAILED
+        node.save(update_fields=["image_status", "updated_at"])
+        if _is_image_moderation_block(error):
+            return _json_image_moderation_error()
+        if _is_provider_billing_limit_error(error):
+            return _json_provider_billing_limit_error()
+        return _json_internal_error()
+
+    token = uuid.uuid4().hex
+    cache.set(
+        _canvas_quick_prompt_cache_key(request.user.pk, node.pk, token),
+        {"image_url": image_url, "image_prompt": edit_prompt},
+        timeout=CANVAS_QUICK_PROMPT_CACHE_SECONDS,
+    )
+    return JsonResponse({"ok": True, "image_url": image_url, "pending_token": token})
+
+
+@login_required
+@require_POST
+def accept_quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    token = (request.POST.get("pending_token") or "").strip()
+    pending = cache.get(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token)) if token else None
+    if not isinstance(pending, dict) or not pending.get("image_url"):
+        return JsonResponse({"ok": False, "error": "Quick Prompt preview expired. Run Quick Prompt again."}, status=400)
+
+    node.image_prompt = str(pending.get("image_prompt") or "")
+    node.image_data_url = str(pending["image_url"])
+    node.image_status = ComicCanvasNode.ImageStatus.READY
+    node.last_generated_at = timezone.now()
+    node.save(update_fields=["image_prompt", "image_data_url", "image_status", "last_generated_at", "updated_at"])
+    cache.delete(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token))
+    return JsonResponse({"ok": True, "image_url": node.image_data_url})
+
+
+@login_required
+@require_POST
+def reject_quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+    project = _get_project_for_user(request, slug)
+    issue = _get_issue_for_project(project, issue_pk)
+    page = _get_page_for_issue(issue, page_pk)
+    node, _created = ComicCanvasNode.objects.get_or_create(
+        page=page,
+        canvas_key=(canvas_key or "").strip(),
+        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+    )
+    _sync_canvas_node_from_layout(node)
+
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    token = (request.POST.get("pending_token") or "").strip()
+    if token:
+        cache.delete(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token))
+    return JsonResponse({"ok": True, "image_url": node.image_data_url})
 
 
 @login_required

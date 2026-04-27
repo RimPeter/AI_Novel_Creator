@@ -88,7 +88,7 @@
           <p class="comic-paper-caption">Blank canvas sized to A4 proportions.</p>
         </div>
 
-        <form method="post" class="form comic-page-form" data-dirty-guard="true" data-dirty-guard-always="true">
+        <form method="post" class="form comic-page-form" data-dirty-guard="true" data-dirty-guard-autosave="true">
           {% csrf_token %}
           {{ form.canvas_layout }}
           {% if form.non_field_errors %}

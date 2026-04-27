@@ -1986,10 +1986,7 @@ def generate_character_portrait(request, slug, pk):
     _append_detail_line(prompt_lines, "Description", get_text("description", character.description))
     prompt_lines.extend(_get_portrait_visual_extra_lines(character.extra_fields or {}))
 
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
         data_url = generate_image_data_url(
@@ -1997,24 +1994,8 @@ def generate_character_portrait(request, slug, pk):
             model_name=model_name,
             size="1024x1024",
         )
-    except Exception as e:
-        if fallback_model and fallback_model != model_name:
-            try:
-                data_url = generate_image_data_url(
-                    prompt="\n".join(prompt_lines),
-                    model_name=fallback_model,
-                    size="1024x1024",
-                )
-            except Exception as fallback_error:
-                return JsonResponse(
-                    {
-                        "ok": False,
-                        "error": str(fallback_error),
-                    },
-                    status=400,
-                )
-        else:
-            return _json_internal_error()
+    except Exception:
+        return _json_internal_error()
 
     character.portrait_data_url = data_url
     character.save(update_fields=["portrait_data_url", "updated_at"])
@@ -3834,10 +3815,7 @@ def generate_location_image(request, slug, pk):
     except Exception:
         pass
 
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
         data_url = generate_image_data_url(
@@ -3845,18 +3823,8 @@ def generate_location_image(request, slug, pk):
             model_name=model_name,
             size="1024x1024",
         )
-    except Exception as e:
-        if fallback_model and fallback_model != model_name:
-            try:
-                data_url = generate_image_data_url(
-                    prompt="\n".join(prompt_lines),
-                    model_name=fallback_model,
-                    size="1024x1024",
-                )
-            except Exception as fallback_error:
-                return JsonResponse({"ok": False, "error": str(fallback_error)}, status=400)
-        else:
-            return _json_internal_error()
+    except Exception:
+        return _json_internal_error()
 
     location.image_data_url = data_url
     location.save(update_fields=["image_data_url", "updated_at"])

@@ -507,9 +507,10 @@ class ContactViewTests(TestCase):
 
 
 class LLMTests(TestCase):
-    def test_normalize_image_model_name_maps_gpt_image_2_to_supported_model(self):
-        self.assertEqual(normalize_image_model_name("gpt-image-2"), "gpt-image-1")
-        self.assertEqual(normalize_image_model_name("gpt-image-1"), "gpt-image-1")
+    def test_normalize_image_model_name_always_uses_gpt_image_2(self):
+        self.assertEqual(normalize_image_model_name("gpt-image-2"), "gpt-image-2")
+        self.assertEqual(normalize_image_model_name("dall-e-3"), "gpt-image-2")
+        self.assertEqual(normalize_image_model_name(""), "gpt-image-2")
 
     def test_generate_image_data_url_normalizes_image_model_before_api_call(self):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
@@ -519,11 +520,11 @@ class LLMTests(TestCase):
 
         self.assertEqual(data_url, "data:image/png;base64,abc123")
         kwargs = mocked.call_args.kwargs
-        self.assertEqual(kwargs["model"], "gpt-image-1")
+        self.assertEqual(kwargs["model"], "gpt-image-2")
         self.assertEqual(kwargs["output_format"], "png")
         self.assertNotIn("response_format", kwargs)
 
-    def test_generate_image_data_url_uses_response_format_for_dall_e_models(self):
+    def test_generate_image_data_url_forces_gpt_image_2_for_other_models(self):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
 
         with patch("main.llm.client.images.generate", return_value=fake_response) as mocked:
@@ -531,11 +532,11 @@ class LLMTests(TestCase):
 
         self.assertEqual(data_url, "data:image/png;base64,abc123")
         kwargs = mocked.call_args.kwargs
-        self.assertEqual(kwargs["model"], "dall-e-3")
-        self.assertEqual(kwargs["response_format"], "b64_json")
-        self.assertNotIn("output_format", kwargs)
+        self.assertEqual(kwargs["model"], "gpt-image-2")
+        self.assertEqual(kwargs["output_format"], "png")
+        self.assertNotIn("response_format", kwargs)
 
-    def test_edit_image_data_url_uses_reference_image_and_high_fidelity(self):
+    def test_edit_image_data_url_uses_reference_image_without_unsupported_fidelity_param(self):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="edited123")])
 
         with (
@@ -545,7 +546,7 @@ class LLMTests(TestCase):
             data_url = edit_image_data_url(
                 prompt="Change the sky only.",
                 image_data_url="data:image/png;base64,YWJjMTIz",
-                model_name="gpt-image-1",
+                model_name="gpt-image-2",
                 size="1024x1024",
             )
 
@@ -555,10 +556,10 @@ class LLMTests(TestCase):
             reference_data_url="data:image/png;base64,YWJjMTIz",
         )
         kwargs = mocked.call_args.kwargs
-        self.assertEqual(kwargs["model"], "gpt-image-1")
+        self.assertEqual(kwargs["model"], "gpt-image-2")
         self.assertEqual(kwargs["prompt"], "Change the sky only.")
         self.assertEqual(kwargs["output_format"], "png")
-        self.assertEqual(kwargs["input_fidelity"], "high")
+        self.assertNotIn("input_fidelity", kwargs)
         self.assertEqual(kwargs["quality"], "high")
         self.assertEqual(kwargs["image"].name, "reference.png")
 
@@ -4531,3 +4532,4 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertContains(resp, 'data-billing-enabled="true"')
         self.assertContains(resp, 'data-has-active-plan="false"')
         self.assertContains(resp, 'data-ai-billing-url="')
+

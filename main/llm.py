@@ -9,9 +9,6 @@ from PIL import Image, ImageFilter, ImageStat
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash character (U+2014); use a plain hyphen instead."
-IMAGE_MODEL_ALIASES = {
-    "gpt-image-2": "gpt-image-1",
-}
 
 
 @dataclass
@@ -76,10 +73,7 @@ def _responses_reasoning_effort(model_name: str) -> str | None:
 
 
 def normalize_image_model_name(model_name: str) -> str:
-    normalized = (model_name or "").strip()
-    if not normalized:
-        return "gpt-image-1"
-    return IMAGE_MODEL_ALIASES.get(normalized.lower(), normalized)
+    return "gpt-image-2"
 
 
 def _is_gpt_image_model(model_name: str) -> bool:
@@ -320,7 +314,6 @@ def edit_image_data_url(*, prompt: str, image_data_url: str, model_name: str, si
     }
     if _is_gpt_image_model(resolved_model_name):
         image_params["output_format"] = "png"
-        image_params["input_fidelity"] = "high"
         image_params["quality"] = "high"
     else:
         image_params["response_format"] = "b64_json"

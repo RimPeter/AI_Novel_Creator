@@ -160,6 +160,43 @@
     }
   };
 
+  const postFormData = async ({ url, formData, csrfToken = "", failureLabel = "Request failed" }) => {
+    showLoading();
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
+        },
+        credentials: "same-origin",
+        body: formData,
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.ok !== true) {
+        return {
+          ok: false,
+          data,
+          status: response.status,
+          error: data?.error || `${failureLabel} (${response.status})`,
+        };
+      }
+
+      return { ok: true, data, status: response.status, error: "" };
+    } catch (error) {
+      return {
+        ok: false,
+        data: null,
+        status: 0,
+        error: `${failureLabel}: ${error?.message || error}`,
+      };
+    } finally {
+      hideLoading();
+    }
+  };
+
   window.AppUI = {
     getCookie,
     getCsrfToken,
@@ -168,6 +205,7 @@
     showMessage,
     storeMessage,
     postFormUrlEncoded,
+    postFormData,
   };
 
   initializeExistingMessages();

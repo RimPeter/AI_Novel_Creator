@@ -75,7 +75,6 @@
                 <h2 class="page-panel-title">Page {{ selected_page.page_number }}{% if selected_page.title %}: {{ selected_page.title }}{% endif %}</h2>
               </div>
               <div class="actions">
-                <a class="btn btn-primary btn-sm" href="{% url 'comic_book:panel-create' slug=project.slug issue_pk=issue.pk page_pk=selected_page.pk %}">Add panel</a>
                 <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:page-edit' slug=project.slug issue_pk=issue.pk pk=selected_page.pk %}">Edit page</a>
                 <form method="post" action="{% url 'comic_book:page-shift' slug=project.slug issue_pk=issue.pk pk=selected_page.pk %}">
                   {% csrf_token %}

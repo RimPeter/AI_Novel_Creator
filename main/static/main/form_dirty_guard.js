@@ -10,6 +10,7 @@
   let initial = serializeForm();
   let isSubmitting = false;
   const alwaysPrompt = form.dataset.dirtyGuardAlways === "true";
+  const autoSave = form.dataset.dirtyGuardAutosave === "true";
   let pendingHref = "";
   let toast = null;
 
@@ -33,6 +34,39 @@
     removeToast();
     isSubmitting = true;
     form.requestSubmit();
+  };
+
+  const autoSaveThenLeave = async (href) => {
+    pendingHref = href;
+    removeToast();
+    isSubmitting = true;
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+
+    try {
+      const response = await fetch(form.action || window.location.href, {
+        method: (form.method || "post").toUpperCase(),
+        body: new FormData(form),
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Comic-Page-Autosave": "true",
+        },
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        isSubmitting = false;
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        showSaveToast(href);
+        return;
+      }
+
+      initial = serializeForm();
+      window.location.href = href;
+    } catch (_error) {
+      isSubmitting = false;
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      showSaveToast(href);
+    }
   };
 
   const showSaveToast = (href) => {
@@ -110,6 +144,10 @@
 
       event.preventDefault();
       event.stopPropagation();
+      if (autoSave) {
+        autoSaveThenLeave(nextUrl.href);
+        return;
+      }
       showSaveToast(nextUrl.href);
     },
     true

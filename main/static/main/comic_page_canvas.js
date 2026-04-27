@@ -531,6 +531,34 @@
     panel.parentElement instanceof HTMLElement &&
     panel.parentElement.classList.contains("comic-canvas-split");
 
+  const hasNestedCanvasSplit = (panel) =>
+    panel instanceof HTMLElement &&
+    Array.from(panel.children).some((child) => child instanceof HTMLElement && child.classList.contains("comic-canvas-split"));
+
+  const updateCanvasNumbers = () => {
+    const panels = [rootPanel, ...Array.from(rootPanel.querySelectorAll("[data-canvas-panel]"))].filter(
+      (panel) => panel instanceof HTMLElement
+    );
+    let canvasNumber = 1;
+    panels.forEach((panel) => {
+      const menuToggle = panel.querySelector(":scope > .comic-canvas-menu > .comic-canvas-menu-toggle");
+      if (hasNestedCanvasSplit(panel)) {
+        panel.removeAttribute("data-canvas-number");
+        panel.removeAttribute("aria-label");
+        if (menuToggle instanceof HTMLElement) {
+          menuToggle.textContent = "Canvas menu";
+        }
+        return;
+      }
+      panel.dataset.canvasNumber = String(canvasNumber);
+      panel.setAttribute("aria-label", `Canvas ${canvasNumber}`);
+      if (menuToggle instanceof HTMLElement) {
+        menuToggle.textContent = `Canvas ${canvasNumber} menu`;
+      }
+      canvasNumber += 1;
+    });
+  };
+
   const getEventCanvasPanel = (event) => {
     const panel = event.target?.closest?.("[data-canvas-panel]");
     return panel instanceof HTMLElement ? panel : null;
@@ -588,6 +616,7 @@
     secondPanel.dataset.canvasKeyRegistered = "true";
 
     syncLayoutInput();
+    updateCanvasNumbers();
     renderJunctionHandles();
     syncCanvasMenuLayering();
     syncCanvasPanelDraggability();
@@ -696,19 +725,19 @@
     context.restore();
   };
 
-  const createCanvasReferenceImage = async (panel) => {
-    if (!(panel instanceof HTMLElement)) return "";
+  const createCanvasReferenceImageBlob = async (panel) => {
+    if (!(panel instanceof HTMLElement)) return null;
     const image = panel.querySelector(":scope > .comic-canvas-surface .comic-canvas-image");
-    if (!(image instanceof HTMLImageElement) || !image.src) return "";
+    if (!(image instanceof HTMLImageElement) || !image.src) return null;
     const loadedImage = await loadImageForCanvas(image.src);
     const canvasSize = 1024;
     const canvas = document.createElement("canvas");
     canvas.width = canvasSize;
     canvas.height = canvasSize;
     const context = canvas.getContext("2d");
-    if (!context) return "";
+    if (!context) return null;
     context.drawImage(loadedImage, 0, 0, canvasSize, canvasSize);
-    return canvas.toDataURL("image/png");
+    return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
   };
 
   const quickPromptCanvasImage = async (panel, action, menu) => {
@@ -734,11 +763,17 @@
         ui.showMessage("Generate this canvas image before using Quick Prompt.", "warning");
         return;
       }
-      const params = new URLSearchParams();
-      params.set("prompt", prompt);
-      const result = await ui.postFormUrlEncoded({
+      const formData = new FormData();
+      formData.set("prompt", prompt);
+      const referenceImageBlob = await createCanvasReferenceImageBlob(panel);
+      if (referenceImageBlob instanceof Blob) {
+        formData.set("reference_image_upload", referenceImageBlob, "reference.png");
+      } else if (image.src.length < 1500000) {
+        formData.set("reference_image_data_url", image.src);
+      }
+      const result = await ui.postFormData({
         url,
-        params,
+        formData,
         csrfToken: ui.getCsrfToken(),
         failureLabel: "Quick Prompt failed",
       });
@@ -992,6 +1027,7 @@
 
     panel.replaceChildren(split);
     syncLayoutInput();
+    updateCanvasNumbers();
     renderJunctionHandles();
     syncCanvasPanelDraggability();
   };
@@ -1010,6 +1046,7 @@
 
     parentPanel.replaceChildren(...Array.from(siblingPanel.childNodes));
     syncLayoutInput();
+    updateCanvasNumbers();
     renderJunctionHandles();
     syncCanvasPanelDraggability();
   };
@@ -1021,6 +1058,7 @@
     rootPanel.style.flexShrink = "";
     rootPanel.dataset.canvasKey = "root";
     syncLayoutInput();
+    updateCanvasNumbers();
     renderJunctionHandles();
     syncCanvasMenuLayering();
     syncCanvasPanelDraggability();
@@ -1131,6 +1169,7 @@
     }
 
     syncLayoutInput();
+    updateCanvasNumbers();
     renderJunctionHandles();
     syncCanvasPanelDraggability();
   };
@@ -1445,6 +1484,7 @@
   ensureCanvasKey(rootPanel, "root");
   loadSavedLayout();
   loadCanvasImages();
+  updateCanvasNumbers();
   updateMenuVisibilityButton();
   rootPanel.querySelectorAll(".comic-canvas-menu").forEach((menu) => ensureMenuToggleListener(menu));
   syncCanvasMenuLayering();

@@ -25,7 +25,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
 from main.billing import billing_enabled, user_has_active_plan
-from main.llm import call_llm, edit_image_data_url, generate_image_data_url, normalize_image_model_name
+from main.llm import call_llm, edit_image_data_url, generate_image_data_url
 from main.text_models import get_user_text_model
 
 from .forms import ComicBibleForm, ComicCanvasNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
@@ -283,12 +283,6 @@ def _json_provider_billing_limit_error() -> JsonResponse:
         },
         status=400,
     )
-
-
-def _default_image_fallback_model(model_name: str, fallback_model: str = "") -> str:
-    if fallback_model:
-        return fallback_model
-    return "dall-e-3" if normalize_image_model_name(model_name) == "gpt-image-1" else ""
 
 
 def _json_image_generation_error(error: Exception) -> JsonResponse:
@@ -620,6 +614,8 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
     ]:
         _append_detail_line(prompt_lines, label, value, limit=240)
 
+    _append_detail_line(prompt_lines, "Primary issue notes", issue.notes, limit=320)
+
     if location:
         prompt_lines.extend(["", "Selected location details:"])
         _append_detail_line(prompt_lines, "Location name", location.name, limit=100)
@@ -648,7 +644,7 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
     if bible_lines:
         context_lines.append("")
         context_lines.extend(bible_lines)
-    issue_lines = _comic_issue_context_lines(issue)
+    issue_lines = _comic_issue_context_lines(issue, include_notes=False)
     if issue_lines:
         context_lines.append("")
         context_lines.extend(issue_lines)
@@ -969,15 +965,17 @@ def _issue_add_detail_suggestions(*, project: ComicProject, current: dict[str, s
     return filtered
 
 
-def _comic_issue_context_lines(issue: ComicIssue) -> list[str]:
+def _comic_issue_context_lines(issue: ComicIssue, *, include_notes: bool = True) -> list[str]:
     lines = [f"Issue number: {issue.number}", "Issue title: " + (issue.title or "")]
-    for label, value in [
+    detail_fields = [
         ("Issue summary", issue.summary),
         ("Issue theme", issue.theme),
         ("Issue opening hook", issue.opening_hook),
         ("Issue closing hook", issue.closing_hook),
-        ("Issue notes", issue.notes),
-    ]:
+    ]
+    if include_notes:
+        detail_fields.append(("Issue notes", issue.notes))
+    for label, value in detail_fields:
         text = _truncate_ai_context(value)
         if text:
             lines.append(f"{label}: {text}")
@@ -2067,23 +2065,18 @@ def preview_character_faces(request, slug: str):
         return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
 
     temp_character = ComicCharacter(project=project, **current)
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
-
-    def render_with_fallback(prompt: str) -> str:
-        try:
-            return generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
-        except Exception:
-            if fallback_model and fallback_model != model_name:
-                return generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
-            raise
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
-        frontal_url = render_with_fallback(
-            _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="frontal")
+        frontal_url = generate_image_data_url(
+            prompt=_comic_character_image_prompt(project=project, character=temp_character, current=current, pose="frontal"),
+            model_name=model_name,
+            size="1024x1024",
         )
-        sideways_url = render_with_fallback(
-            _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="sideways")
+        sideways_url = generate_image_data_url(
+            prompt=_comic_character_image_prompt(project=project, character=temp_character, current=current, pose="sideways"),
+            model_name=model_name,
+            size="1024x1024",
         )
     except Exception:
         return _json_internal_error()
@@ -2115,18 +2108,11 @@ def preview_character_full_body(request, slug: str):
         return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
 
     temp_character = ComicCharacter(project=project, **current)
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     prompt = _comic_character_image_prompt(project=project, character=temp_character, current=current, pose="full_body")
     try:
-        try:
-            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
-        except Exception:
-            if fallback_model and fallback_model != model_name:
-                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1792")
-            else:
-                raise
+        body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
     except Exception:
         return _json_internal_error()
 
@@ -2157,25 +2143,18 @@ def generate_character_faces(request, slug: str, pk):
     if not current["name"]:
         return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
 
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
-
-    def render_with_fallback(prompt: str) -> str:
-        try:
-            return generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
-        except Exception:
-            if fallback_model and fallback_model != model_name:
-                return generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
-            raise
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
-        frontal_url = render_with_fallback(
-            _comic_character_image_prompt(project=project, character=character, current=current, pose="frontal")
+        frontal_url = generate_image_data_url(
+            prompt=_comic_character_image_prompt(project=project, character=character, current=current, pose="frontal"),
+            model_name=model_name,
+            size="1024x1024",
         )
-        sideways_url = render_with_fallback(
-            _comic_character_image_prompt(project=project, character=character, current=current, pose="sideways")
+        sideways_url = generate_image_data_url(
+            prompt=_comic_character_image_prompt(project=project, character=character, current=current, pose="sideways"),
+            model_name=model_name,
+            size="1024x1024",
         )
     except Exception:
         return _json_internal_error()
@@ -2210,20 +2189,11 @@ def generate_character_full_body(request, slug: str, pk):
     if not current["name"]:
         return JsonResponse({"ok": False, "error": "Character name is required."}, status=400)
 
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     prompt = _comic_character_image_prompt(project=project, character=character, current=current, pose="full_body")
     try:
-        try:
-            body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
-        except Exception:
-            if fallback_model and fallback_model != model_name:
-                body_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1792")
-            else:
-                raise
+        body_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1536")
     except Exception:
         return _json_internal_error()
 
@@ -2247,19 +2217,10 @@ def preview_location_image(request, slug: str):
         return JsonResponse({"ok": False, "error": "Location name is required."}, status=400)
 
     prompt = _comic_location_image_prompt(project=project, current=current)
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", "")
-    if not fallback_model and model_name == "gpt-image-1":
-        fallback_model = "dall-e-3"
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
-        try:
-            image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
-        except Exception:
-            if fallback_model and fallback_model != model_name:
-                image_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
-            else:
-                raise
+        image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
     except Exception:
         return _json_internal_error()
 
@@ -2630,8 +2591,14 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         form.instance.canvas_layout = _ensure_unique_canvas_layout_keys(form.instance.canvas_layout)
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
-        messages.success(self.request, "Page saved.")
+        if self.request.headers.get("x-comic-page-autosave") == "true":
+            return JsonResponse({"ok": True})
         return response
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-comic-page-autosave") == "true":
+            return JsonResponse({"ok": False, "error": "Page autosave failed."}, status=400)
+        return super().form_invalid(form)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -3100,18 +3067,10 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
         return blocked
 
     prompt = _comic_canvas_node_image_prompt(project=project, issue=issue, page=page, node=node)
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
-    fallback_model = _default_image_fallback_model(model_name, getattr(settings, "OPENAI_IMAGE_FALLBACK_MODEL", ""))
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
-        try:
-            image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
-        except Exception as primary_error:
-            if _is_image_moderation_block(primary_error):
-                raise
-            if not fallback_model or fallback_model == model_name:
-                raise
-            image_url = generate_image_data_url(prompt=prompt, model_name=fallback_model, size="1024x1024")
+        image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
     except Exception as error:
         node.image_status = ComicCanvasNode.ImageStatus.FAILED
         node.save(update_fields=["image_status", "updated_at"])
@@ -3157,7 +3116,8 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
     if not user_prompt:
         return JsonResponse({"ok": False, "error": "Write what to change first."}, status=400)
 
-    reference_image = (request.POST.get("reference_image_data_url") or "").strip() or node.image_data_url
+    uploaded_reference_image = _image_data_url_from_upload(request.FILES.get("reference_image_upload"))
+    reference_image = uploaded_reference_image or (request.POST.get("reference_image_data_url") or "").strip() or node.image_data_url
     if not reference_image:
         return JsonResponse({"ok": False, "error": "Generate this canvas image before using Quick Prompt."}, status=400)
 
@@ -3173,7 +3133,7 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
             user_prompt,
         ]
     )
-    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-1")
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
         image_url = edit_image_data_url(prompt=edit_prompt, image_data_url=reference_image, model_name=model_name, size="1024x1024")
@@ -3184,7 +3144,7 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
             return _json_image_moderation_error()
         if _is_provider_billing_limit_error(error):
             return _json_provider_billing_limit_error()
-        return _json_internal_error()
+        return _json_image_generation_error(error)
 
     token = uuid.uuid4().hex
     cache.set(

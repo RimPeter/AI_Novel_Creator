@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.test import TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -426,7 +427,7 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], edit_url)
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_preview_character_faces_returns_two_images_for_unsaved_character(self):
         project = self._create_project()
         self.client.force_login(self.user)
@@ -473,7 +474,7 @@ class ComicBookAppTests(TestCase):
         self.assertIn("complete head, hairline, nose, chin, neck, and upper shoulders", prompts[1])
         self.assertIn("small safety gap above the hair", prompts[1])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_preview_character_full_body_returns_image_for_unsaved_character(self):
         project = self._create_project()
         self.client.force_login(self.user)
@@ -604,7 +605,7 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, reverse("comic_book:location-add-details", kwargs={"slug": project.slug}))
         self.assertContains(response, reverse("comic_book:location-image-preview", kwargs={"slug": project.slug}))
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_preview_location_image_returns_project_style_image(self):
         project = self._create_project()
         ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
@@ -933,7 +934,7 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(character.gender, "Woman")
         self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,body")
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_character_faces_saves_both_project_style_images(self):
         project = self._create_project()
         project.art_style_notes = "Clean European sci-fi line art with restrained cel shading."
@@ -1003,7 +1004,7 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Gender: Woman", prompts[0])
         self.assertIn("Visual notes: Shaved sidecut, narrow face, tired eyes.", prompts[0])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_character_full_body_saves_project_style_image(self):
         project = self._create_project()
         project.art_style_notes = "Clean European sci-fi line art with restrained cel shading."
@@ -1200,6 +1201,66 @@ class ComicBookAppTests(TestCase):
             ),
             fetch_redirect_response=False,
         )
+        self.assertNotIn("Page saved.", [str(message) for message in get_messages(response.wsgi_request)])
+
+    def test_page_update_autosave_returns_json_without_save_message(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Autosaved opening page",
+                "summary": "The courier leaves quietly.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_X_COMIC_PAGE_AUTOSAVE="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        page.refresh_from_db()
+        self.assertEqual(page.title, "Autosaved opening page")
+        self.assertNotIn("Page saved.", [str(message) for message in get_messages(response.wsgi_request)])
+
+    def test_page_update_autosave_validation_error_returns_json_error(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": "",
+                "title": "Invalid autosave",
+                "summary": "",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_X_COMIC_PAGE_AUTOSAVE="true",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"ok": False, "error": "Page autosave failed."})
 
     def test_page_update_normalizes_duplicate_canvas_keys_for_unique_child_briefs(self):
         project = self._create_project()
@@ -1504,13 +1565,20 @@ class ComicBookAppTests(TestCase):
             {"ok": True, "suggestions": {"characters": ["Sera Flint"], "action": "Her hand hovers over the sealed relay lock."}},
         )
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_canvas_node_image_uses_canvas_brief_links_and_bible(self):
         project = self._create_project()
         project.art_style_notes = "Clean European sci-fi line art."
         project.save(update_fields=["art_style_notes", "updated_at"])
         ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
-        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", summary="The courier enters the relay.", planned_page_count=1)
+        issue = ComicIssue.objects.create(
+            project=project,
+            number=1,
+            title="Issue One",
+            summary="The courier enters the relay.",
+            notes="The relay lock is the emotional priority for this issue.",
+            planned_page_count=1,
+        )
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Nika crosses the abandoned dock.")
         location = ComicLocation.objects.create(
             project=project,
@@ -1571,8 +1639,10 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Costume notes: Signal-thread jacket.", prompts[0])
         self.assertIn("Focus: Nika at the threshold", prompts[0])
         self.assertIn("Must include: Relay lock", prompts[0])
+        self.assertIn("Primary issue notes: The relay lock is the emotional priority for this issue.", prompts[0])
+        self.assertNotIn("Issue notes: The relay lock is the emotional priority for this issue.", prompts[0])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_canvas_node_image_compacts_long_prompt_under_provider_limit(self):
         project = self._create_project()
         project.art_style_notes = "Style. " * 500
@@ -1617,7 +1687,7 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Focus: Nika at the threshold", prompts[0])
         self.assertIn("Must include: Relay lock", prompts[0])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1", OPENAI_IMAGE_FALLBACK_MODEL="dall-e-3")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_canvas_node_image_returns_moderation_message_without_fallback(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1647,12 +1717,12 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["ok"])
         self.assertIn("blocked by the safety system", response.json()["error"])
-        self.assertEqual(calls, ["gpt-image-1"])
+        self.assertEqual(calls, ["gpt-image-2"])
         node.refresh_from_db()
         self.assertEqual(node.image_status, ComicCanvasNode.ImageStatus.FAILED)
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2", OPENAI_IMAGE_FALLBACK_MODEL="")
-    def test_generate_canvas_node_image_uses_fallback_for_gpt_image_alias_failure(self):
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
+    def test_generate_canvas_node_image_does_not_fallback_from_gpt_image_2_failure(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
@@ -1663,9 +1733,7 @@ class ComicBookAppTests(TestCase):
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             calls.append(model_name)
-            if model_name == "gpt-image-2":
-                raise Exception("Primary image model unavailable.")
-            return "data:image/png;base64,fallback"
+            raise Exception("Primary image model unavailable.")
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
             response = self.client.post(
@@ -1677,11 +1745,11 @@ class ComicBookAppTests(TestCase):
                 HTTP_ACCEPT="application/json",
             )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["image_url"], "data:image/png;base64,fallback")
-        self.assertEqual(calls, ["gpt-image-2", "dall-e-3"])
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(calls, ["gpt-image-2"])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="unknown-image-model", OPENAI_IMAGE_FALLBACK_MODEL="")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_canvas_node_image_returns_specific_provider_error(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1702,7 +1770,7 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Image generation failed: Model does not exist.", response.json()["error"])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_quick_prompt_canvas_node_image_uses_only_reference_image_prompt(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1715,7 +1783,7 @@ class ComicBookAppTests(TestCase):
         def fake_edit_image_data_url(*, prompt, image_data_url, model_name, size):
             prompts.append(prompt)
             self.assertEqual(image_data_url, "data:image/png;base64,reference")
-            self.assertEqual(model_name, "gpt-image-1")
+            self.assertEqual(model_name, "gpt-image-2")
             self.assertEqual(size, "1024x1024")
             return "data:image/png;base64,edited"
 
@@ -1742,7 +1810,7 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Do not apply a global filter, haze, blur, fade, grain, static noise", prompts[0])
         self.assertIn("Make the background sunset.", prompts[0])
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_quick_prompt_canvas_node_image_uses_saved_image_when_reference_not_posted(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1768,7 +1836,36 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["image_url"], "data:image/png;base64,edited")
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
+    def test_quick_prompt_canvas_node_image_uses_uploaded_reference_image(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
+        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        self.client.force_login(self.user)
+
+        def fake_edit_image_data_url(*, prompt, image_data_url, model_name, size):
+            self.assertEqual(image_data_url, "data:image/png;base64,dXBsb2FkZWQ=")
+            return "data:image/png;base64,edited"
+
+        with patch("comic_book.views.edit_image_data_url", side_effect=fake_edit_image_data_url):
+            response = self.client.post(
+                reverse(
+                    "comic_book:canvas-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                ),
+                data={
+                    "prompt": "Make the jacket blue.",
+                    "reference_image_upload": SimpleUploadedFile("reference.png", b"uploaded", content_type="image/png"),
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["image_url"], "data:image/png;base64,edited")
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_accept_quick_prompt_canvas_node_image_persists_pending_preview(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1807,7 +1904,7 @@ class ComicBookAppTests(TestCase):
         node.refresh_from_db()
         self.assertEqual(node.image_data_url, "data:image/png;base64,edited")
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_reject_quick_prompt_canvas_node_image_keeps_original_image(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1840,7 +1937,7 @@ class ComicBookAppTests(TestCase):
         node.refresh_from_db()
         self.assertEqual(node.image_data_url, "data:image/png;base64,saved")
 
-    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-1")
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_quick_prompt_canvas_node_image_returns_provider_billing_limit_message(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
@@ -1896,3 +1993,4 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, "Page 1")
         self.assertContains(response, "Panel 1")
         self.assertContains(response, "This should have stayed dead.")
+

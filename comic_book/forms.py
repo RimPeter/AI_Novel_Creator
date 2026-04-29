@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicObject, ComicPage, ComicPanel, ComicProject
 
 
 def _autogrow_textarea(*, rows: int):
@@ -79,6 +79,23 @@ class ComicCharacterForm(forms.ModelForm):
 class ComicLocationForm(forms.ModelForm):
     class Meta:
         model = ComicLocation
+        fields = [
+            "name",
+            "description",
+            "visual_notes",
+            "continuity_notes",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "description": _autogrow_textarea(rows=5),
+            "visual_notes": _autogrow_textarea(rows=4),
+            "continuity_notes": _autogrow_textarea(rows=4),
+        }
+
+
+class ComicObjectForm(forms.ModelForm):
+    class Meta:
+        model = ComicObject
         fields = [
             "name",
             "description",

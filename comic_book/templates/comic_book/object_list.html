@@ -1,0 +1,51 @@
+{% extends "main/base.html" %}
+
+{% block title %}Objects | {{ project.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="card page-hero page-hero-compact comic-hero">
+      <div class="page-hero-head">
+        <div>
+          <span class="page-kicker">Object board</span>
+          <h1 class="page-title">{{ project.title }} objects</h1>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="{% url 'comic_book:object-create' slug=project.slug %}">New object</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-dashboard' slug=project.slug %}">Dashboard</a>
+        </div>
+      </div>
+      <p class="page-lead">Track recurring props, artifacts, weapons, clues, and symbolic items so visual rules stay consistent across pages.</p>
+    </section>
+
+    <section class="card page-panel">
+      <form method="get" class="form">
+        <div class="form-row">
+          <label class="form-label" for="object-search">Search</label>
+          <input class="form-control" id="object-search" type="text" name="q" value="{{ q }}" placeholder="Filter by object name" />
+        </div>
+      </form>
+
+      {% if objects %}
+        <ul class="list">
+          {% for object in objects %}
+            <li class="list-item comic-list-item">
+              <div>
+                <div class="list-title">{{ object.name }}</div>
+                {% if object.description %}
+                  <div class="comic-list-copy">{{ object.description|truncatechars:180 }}</div>
+                {% endif %}
+              </div>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:object-edit' slug=project.slug pk=object.pk %}">Edit</a>
+                <a class="btn btn-secondary btn-sm" href="{% url 'comic_book:object-delete' slug=project.slug pk=object.pk %}">Delete</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="page-panel-copy">No objects yet. Add reusable items that need consistent design, story function, or continuity rules.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

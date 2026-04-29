@@ -13,12 +13,13 @@ from .forms import (
     ComicCharacterForm,
     ComicIssueForm,
     ComicLocationForm,
+    ComicObjectForm,
     ComicPageForm,
     ComicPanelForm,
     ComicProjectForm,
 )
 from main.llm import LLMResult
-from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicObject, ComicPage, ComicPanel, ComicProject
 
 
 class ComicBookAppTests(TestCase):
@@ -720,6 +721,185 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(location.description, "A black-market concourse built inside a dead transmitter.")
         self.assertEqual(location.image_data_url, "data:image/png;base64,location")
 
+    def test_project_dashboard_links_object_board(self):
+        project = self._create_project()
+        ComicObject.objects.create(project=project, name="Signal Key")
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:project-dashboard", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="/comic-book/projects/star-signal/objects/"', html=False)
+        self.assertContains(response, "Objects")
+        self.assertContains(response, "<strong>1</strong>", html=False)
+
+    def test_object_create_saves_generated_image_from_hidden_input(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:object-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Signal Key",
+                "description": "A palm-sized relay key with a cracked amber core.",
+                "visual_notes": "",
+                "continuity_notes": "",
+                "image_data_url": "data:image/png;base64,object",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        comic_object = ComicObject.objects.get(project=project, name="Signal Key")
+        self.assertEqual(comic_object.image_data_url, "data:image/png;base64,object")
+
+    def test_object_update_save_redirects_back_to_same_object_edit_page(self):
+        project = self._create_project()
+        comic_object = ComicObject.objects.create(project=project, name="Signal Key")
+        self.client.force_login(self.user)
+
+        edit_url = reverse("comic_book:object-edit", kwargs={"slug": project.slug, "pk": comic_object.pk})
+        response = self.client.post(
+            edit_url,
+            data={
+                "name": "Signal Key",
+                "description": "A palm-sized relay key with a cracked amber core.",
+                "visual_notes": "- Amber core glows only near forbidden infrastructure.",
+                "continuity_notes": "- Never opens modern locks.",
+                "image_data_url": "data:image/png;base64,object",
+            },
+        )
+
+        self.assertRedirects(response, edit_url, fetch_redirect_response=False)
+        comic_object.refresh_from_db()
+        self.assertEqual(comic_object.description, "A palm-sized relay key with a cracked amber core.")
+        self.assertEqual(comic_object.image_data_url, "data:image/png;base64,object")
+
+    def test_object_update_can_delete_saved_image(self):
+        project = self._create_project()
+        comic_object = ComicObject.objects.create(
+            project=project,
+            name="Signal Key",
+            image_data_url="data:image/png;base64,object",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("comic_book:object-edit", kwargs={"slug": project.slug, "pk": comic_object.pk}),
+            data={
+                "name": "Signal Key",
+                "description": "",
+                "visual_notes": "",
+                "continuity_notes": "",
+                "image_data_url": "",
+                "delete_image": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        comic_object.refresh_from_db()
+        self.assertEqual(comic_object.image_data_url, "")
+
+    def test_object_brainstorm_returns_only_empty_field_suggestions(self):
+        project = self._create_project()
+        ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
+        ComicObject.objects.create(project=project, name="Relay Compass", description="An old directional instrument.")
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"name":"Signal Key","description":"A palm-sized relay key with a cracked amber core.","visual_notes":"- Amber core glows near forbidden infrastructure.","continuity_notes":"- Never opens modern locks."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ) as mock_call:
+            response = self.client.post(
+                reverse("comic_book:object-brainstorm", kwargs={"slug": project.slug}),
+                data={
+                    "name": "",
+                    "description": "Existing object description.",
+                    "visual_notes": "",
+                    "continuity_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "suggestions": {
+                    "name": "Signal Key",
+                    "visual_notes": "- Amber core glows near forbidden infrastructure.",
+                    "continuity_notes": "- Never opens modern locks.",
+                },
+            },
+        )
+        prompt = mock_call.call_args.kwargs["prompt"]
+        self.assertIn("Project title: Star Signal", prompt)
+        self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompt)
+        self.assertIn("Key objects:", prompt)
+
+    def test_object_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        with patch(
+            "comic_book.views.call_llm",
+            return_value=LLMResult(
+                text='{"description":"A palm-sized relay key with a cracked amber core. It warms when its matching door is within ten paces."}',
+                usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
+            ),
+        ):
+            response = self.client.post(
+                reverse("comic_book:object-add-details", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Signal Key",
+                    "description": "A palm-sized relay key with a cracked amber core.",
+                    "visual_notes": "",
+                    "continuity_notes": "",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"ok": True, "suggestions": {"description": "It warms when its matching door is within ten paces."}},
+        )
+
+    def test_object_image_preview_uses_object_prompt(self):
+        project = self._create_project()
+        ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
+        self.client.force_login(self.user)
+        prompts = []
+
+        def fake_generate_image_data_url(*, prompt, model_name, size):
+            prompts.append(prompt)
+            return "data:image/png;base64,objectpreview"
+
+        with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
+            response = self.client.post(
+                reverse("comic_book:object-image-preview", kwargs={"slug": project.slug}),
+                data={
+                    "name": "Signal Key",
+                    "description": "A palm-sized relay key with a cracked amber core.",
+                    "visual_notes": "- Amber core glows near forbidden infrastructure.",
+                    "continuity_notes": "- Never opens modern locks.",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "image_url": "data:image/png;base64,objectpreview"})
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("Create a polished comic-book object reference image", prompts[0])
+        self.assertIn("Name: Signal Key", prompts[0])
+        self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompts[0])
+
     def test_location_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()
         ComicBible.objects.create(project=project, visual_rules="Signal glow marks forbidden infrastructure.")
@@ -1111,6 +1291,7 @@ class ComicBookAppTests(TestCase):
             ComicBibleForm(),
             ComicCharacterForm(),
             ComicLocationForm(),
+            ComicObjectForm(),
             ComicIssueForm(),
             ComicPageForm(),
             ComicPanelForm(),

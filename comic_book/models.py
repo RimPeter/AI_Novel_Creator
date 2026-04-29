@@ -97,6 +97,25 @@ class ComicLocation(TimeStampedModel):
         return self.name
 
 
+class ComicObject(TimeStampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(ComicProject, on_delete=models.CASCADE, related_name="comic_objects")
+    name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default="")
+    visual_notes = models.TextField(blank=True, default="")
+    continuity_notes = models.TextField(blank=True, default="")
+    image_data_url = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["name", "created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="uniq_comic_object_project_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class ComicIssue(TimeStampedModel):
     class Status(models.TextChoices):
         PLANNING = "PLANNING", "Planning"

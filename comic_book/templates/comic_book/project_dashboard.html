@@ -15,6 +15,7 @@
           <a class="btn btn-secondary" href="{% url 'comic_book:bible-edit' slug=project.slug %}">Bible</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:character-list' slug=project.slug %}">Characters</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Locations</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:object-list' slug=project.slug %}">Objects</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:project-edit' slug=project.slug %}">Edit</a>
           <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">Create issue</a>
         </div>
@@ -99,7 +100,7 @@
         <div class="page-panel-head">
           <div>
             <span class="page-panel-kicker">Reference pools</span>
-            <h2 class="page-panel-title">Cast and locations</h2>
+            <h2 class="page-panel-title">Cast, locations, and objects</h2>
           </div>
         </div>
 
@@ -112,11 +113,16 @@
             <strong>{{ location_count }}</strong>
             <span>Locations</span>
           </div>
+          <div class="comic-fact">
+            <strong>{{ object_count }}</strong>
+            <span>Objects</span>
+          </div>
         </div>
 
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'comic_book:character-list' slug=project.slug %}">Open cast</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Open locations</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:object-list' slug=project.slug %}">Open objects</a>
         </div>
       </section>
     </div>

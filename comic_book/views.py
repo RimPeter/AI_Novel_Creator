@@ -28,8 +28,8 @@ from main.billing import billing_enabled, user_has_active_plan
 from main.llm import call_llm, edit_image_data_url, generate_image_data_url
 from main.text_models import get_user_text_model
 
-from .forms import ComicBibleForm, ComicPanelNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
-from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .forms import ComicBibleForm, ComicPanelNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicObjectForm, ComicPageForm, ComicPanelForm, ComicProjectForm
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicObject, ComicPage, ComicPanel, ComicProject
 
 logger = logging.getLogger(__name__)
 ISSUE_AI_FIELDS = [
@@ -76,6 +76,14 @@ LOCATION_AI_FIELDS = [
 ]
 LOCATION_AI_APPEND_FIELDS = {"description", "visual_notes", "continuity_notes"}
 LOCATION_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
+OBJECT_AI_FIELDS = [
+    "name",
+    "description",
+    "visual_notes",
+    "continuity_notes",
+]
+OBJECT_AI_APPEND_FIELDS = {"description", "visual_notes", "continuity_notes"}
+OBJECT_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
 panel_node_AI_FIELDS = [
     "focus",
     "camera_angle",
@@ -341,6 +349,12 @@ def _location_image_data_url_from_request(request, *, fallback: str = "") -> str
     return (fallback or "").strip()
 
 
+def _object_image_data_url_from_request(request, *, fallback: str = "") -> str:
+    if (request.POST.get("delete_image") or "").strip() == "1":
+        return ""
+    return _location_image_data_url_from_request(request, fallback=fallback)
+
+
 def _dedupe_appended_text(existing: str, addition: str) -> str:
     existing_text = (existing or "").strip()
     addition_text = (addition or "").strip()
@@ -493,6 +507,24 @@ def _comic_location_context_lines(project: ComicProject) -> list[str]:
     return lines
 
 
+def _comic_object_context_lines(project: ComicProject) -> list[str]:
+    objects = list(project.comic_objects.order_by("name")[:8])
+    if not objects:
+        return []
+
+    lines = ["Key objects:"]
+    for object_ref in objects:
+        parts = [object_ref.name]
+        description = _truncate_ai_context(object_ref.description, max_length=140)
+        visual_notes = _truncate_ai_context(object_ref.visual_notes, max_length=120)
+        if description:
+            parts.append(description)
+        if visual_notes:
+            parts.append(f"Visual: {visual_notes}")
+        lines.append("- " + " | ".join(parts))
+    return lines
+
+
 def _comic_character_image_prompt(*, project: ComicProject, character: ComicCharacter, current: dict[str, str], pose: str) -> str:
     if pose == "frontal":
         pose_label = "straight-on frontal face"
@@ -568,6 +600,34 @@ def _comic_location_image_prompt(*, project: ComicProject, current: dict[str, st
         [
             "",
             "Location details:",
+        ]
+    )
+    _append_detail_line(prompt_lines, "Name", current.get("name"), limit=100)
+    _append_detail_line(prompt_lines, "Description", current.get("description"))
+    _append_detail_line(prompt_lines, "Visual notes", current.get("visual_notes"))
+    _append_detail_line(prompt_lines, "Continuity notes", current.get("continuity_notes"))
+    return "\n".join(prompt_lines).strip()
+
+
+def _comic_object_image_prompt(*, project: ComicProject, current: dict[str, str]) -> str:
+    prompt_lines = [
+        "Create a polished comic-book object reference image.",
+        "Composition: clear product-style reference view of the object, isolated enough to reuse as visual canon.",
+        "This is a design reference for a recurring story object, not a scene illustration.",
+        "The image must match the project's established comic style, rendering language, and tone.",
+        "No text, captions, labels, logos, watermarks, characters, hands, UI, or background signage.",
+        "",
+        "Project style context:",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Object details:",
         ]
     )
     _append_detail_line(prompt_lines, "Name", current.get("name"), limit=100)
@@ -1449,6 +1509,14 @@ def _location_ai_image_data_url(request) -> str:
     return _location_image_data_url_from_request(request)
 
 
+def _object_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in OBJECT_AI_FIELDS}
+
+
+def _object_ai_image_data_url(request) -> str:
+    return _object_image_data_url_from_request(request)
+
+
 def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user, image_data_url: str = "") -> dict[str, str]:
     empty_fields = [field for field in LOCATION_AI_FIELDS if not current.get(field)]
     if not empty_fields:
@@ -1511,6 +1579,149 @@ def _location_brainstorm_suggestions(*, project: ComicProject, current: dict[str
             text = _normalize_bullet_block(text)
             if not text:
                 continue
+        filtered[key] = text
+    return filtered
+
+
+def _object_brainstorm_suggestions(*, project: ComicProject, current: dict[str, str], user, image_data_url: str = "") -> dict[str, str]:
+    empty_fields = [field for field in OBJECT_AI_FIELDS if not current.get(field)]
+    if not empty_fields:
+        return {}
+
+    has_image = bool((image_data_url or "").strip())
+    prompt_lines = [
+        "You are a comic-book object development assistant.",
+        "Goal: fill ONLY the currently-empty object fields so the item fits the comic project's world, tone, and visual language.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(OBJECT_AI_FIELDS),
+        "- Only include keys that are empty right now: " + ", ".join(empty_fields),
+        "- name: 2-5 words.",
+        "- description: 2-4 sentences covering story purpose, physical form, and recurring use.",
+        "- visual_notes and continuity_notes: 2-5 bullet points each with concrete, production-friendly detail.",
+        "- For visual_notes and continuity_notes, each bullet must start with '- '.",
+        "- Keep details specific enough to guide scripting and art direction without contradicting the series bible.",
+        "- If an image is provided, use visible materials, silhouette, wear, scale cues, mechanisms, and color as visual evidence.",
+        "- Do not invent hard story canon from the image alone; keep image-derived continuity notes as practical visual constraints.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    object_lines = _comic_object_context_lines(project)
+    if object_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(object_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Image provided: " + ("yes" if has_image else "no"),
+            "Current object fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+        image_data_url=image_data_url,
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in empty_fields:
+            continue
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in OBJECT_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        filtered[key] = text
+    return filtered
+
+
+def _object_add_detail_suggestions(*, project: ComicProject, current: dict[str, str], user, image_data_url: str = "") -> dict[str, str]:
+    has_image = bool((image_data_url or "").strip())
+    prompt_lines = [
+        "You are a comic-book object development assistant.",
+        "Goal: add fresh detail to the current object profile without repeating or contradicting what already exists.",
+        "Rules:",
+        "- Return STRICT JSON only (no markdown, no extra text).",
+        "- Output an object with only keys from: " + ", ".join(OBJECT_AI_FIELDS),
+        "- name: only include it if it is currently blank.",
+        "- description, visual_notes, and continuity_notes: return ONLY additive text to append, not a rewrite.",
+        "- For visual_notes and continuity_notes, each added bullet must start with '- '.",
+        "- Keep additions aligned with the project's tone, genre, visual rules, existing cast, locations, and series bible.",
+        "- Make additions concrete and useful for scripting, staging, art direction, and continuity.",
+        "- If an image is provided, use visible materials, silhouette, wear, scale cues, mechanisms, and color as visual evidence.",
+        "- Do not invent hard story canon from the image alone; keep image-derived continuity notes as practical visual constraints.",
+        "",
+    ]
+    prompt_lines.extend(_comic_project_context_lines(project))
+    bible_lines = _comic_bible_context_lines(project)
+    if bible_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(bible_lines)
+    character_lines = _comic_character_context_lines(project)
+    if character_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(character_lines)
+    location_lines = _comic_location_context_lines(project)
+    if location_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(location_lines)
+    object_lines = _comic_object_context_lines(project)
+    if object_lines:
+        prompt_lines.append("")
+        prompt_lines.extend(object_lines)
+    prompt_lines.extend(
+        [
+            "",
+            "Image provided: " + ("yes" if has_image else "no"),
+            "Current object fields (JSON):",
+            json.dumps(current, ensure_ascii=False),
+        ]
+    )
+
+    data = _call_llm_json_object(
+        prompt="\n".join(prompt_lines).strip(),
+        model_name=get_user_text_model(user),
+        params={"temperature": 0.7, "max_tokens": 550},
+        image_data_url=image_data_url,
+    )
+
+    filtered = {}
+    for key, value in data.items():
+        if key not in OBJECT_AI_FIELDS:
+            continue
+        existing = current.get(key, "")
+        if key not in OBJECT_AI_APPEND_FIELDS and existing:
+            continue
+
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if key in OBJECT_AI_BULLET_FIELDS:
+            text = _normalize_bullet_block(text)
+            if not text:
+                continue
+        if key in OBJECT_AI_APPEND_FIELDS:
+            text = _dedupe_appended_text(existing, text)
+        if not text:
+            continue
         filtered[key] = text
     return filtered
 
@@ -1897,6 +2108,7 @@ class ComicProjectDashboardView(LoginRequiredMixin, DetailView):
         ctx["dialogue_total"] = dialogue_total
         ctx["character_count"] = project.characters.count()
         ctx["location_count"] = project.locations.count()
+        ctx["object_count"] = project.comic_objects.count()
         return ctx
 
 
@@ -2273,6 +2485,31 @@ def preview_location_image(request, slug: str):
     return JsonResponse({"ok": True, "image_url": image_url})
 
 
+@login_required
+@require_POST
+def preview_object_image(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    if not getattr(settings, "OPENAI_API_KEY", ""):
+        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
+    blocked = _subscription_required_response(request)
+    if blocked is not None:
+        return blocked
+
+    current = _object_ai_current(request)
+    if not current.get("name"):
+        return JsonResponse({"ok": False, "error": "Object name is required."}, status=400)
+
+    prompt = _comic_object_image_prompt(project=project, current=current)
+    model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
+
+    try:
+        image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
+    except Exception:
+        return _json_internal_error()
+
+    return JsonResponse({"ok": True, "image_url": image_url})
+
+
 class ComicCharacterDeleteView(LoginRequiredMixin, DeleteView):
     template_name = "comic_book/confirm_delete.html"
 
@@ -2407,6 +2644,116 @@ class ComicLocationDeleteView(LoginRequiredMixin, DeleteView):
 
     def form_valid(self, form):
         messages.success(self.request, "Comic location deleted.")
+        return super().form_valid(form)
+
+
+class ComicObjectListView(LoginRequiredMixin, ListView):
+    model = ComicObject
+    template_name = "comic_book/object_list.html"
+    context_object_name = "objects"
+
+    def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = ComicObject.objects.filter(project=self.project).order_by("name")
+        query = (self.request.GET.get("q") or "").strip()
+        if query:
+            queryset = queryset.filter(name__icontains=query)
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["q"] = (self.request.GET.get("q") or "").strip()
+        return ctx
+
+
+class ComicObjectCreateView(LoginRequiredMixin, CreateView):
+    model = ComicObject
+    form_class = ComicObjectForm
+    template_name = "comic_book/object_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        form.instance.project = self.project
+        form.instance.image_data_url = _object_image_data_url_from_request(self.request)
+        messages.success(self.request, "Comic object created.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
+        return ctx
+
+    def get_success_url(self):
+        return reverse("comic_book:object-list", kwargs={"slug": self.project.slug})
+
+
+class ComicObjectUpdateView(LoginRequiredMixin, UpdateView):
+    form_class = ComicObjectForm
+    template_name = "comic_book/object_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return ComicObject.objects.filter(project=self.project)
+
+    def form_valid(self, form):
+        form.instance.image_data_url = _object_image_data_url_from_request(
+            self.request,
+            fallback=form.instance.image_data_url,
+        )
+        messages.success(self.request, "Comic object saved.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx.update(_ai_context_for_request(self.request))
+        return ctx
+
+    def get_success_url(self):
+        return reverse("comic_book:object-edit", kwargs={"slug": self.project.slug, "pk": self.object.pk})
+
+
+class ComicObjectDeleteView(LoginRequiredMixin, DeleteView):
+    template_name = "comic_book/confirm_delete.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if response := _anonymous_login_response(self, request):
+            return response
+        self.project = _get_project_for_user(request, kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return ComicObject.objects.filter(project=self.project)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["project"] = self.project
+        ctx["object_kind"] = "comic object"
+        ctx["cancel_url"] = reverse("comic_book:object-list", kwargs={"slug": self.project.slug})
+        return ctx
+
+    def get_success_url(self):
+        return reverse("comic_book:object-list", kwargs={"slug": self.project.slug})
+
+    def form_valid(self, form):
+        messages.success(self.request, "Comic object deleted.")
         return super().form_valid(form)
 
 
@@ -2946,6 +3293,43 @@ def add_location_details(request, slug: str):
     image_data_url = _location_ai_image_data_url(request)
     try:
         suggestions = _location_add_detail_suggestions(project=project, current=current, user=request.user, image_data_url=image_data_url)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def brainstorm_object(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _object_ai_current(request)
+    image_data_url = _object_ai_image_data_url(request)
+    try:
+        suggestions = _object_brainstorm_suggestions(project=project, current=current, user=request.user, image_data_url=image_data_url)
+        return JsonResponse({"ok": True, "suggestions": suggestions})
+    except Exception:
+        return _json_internal_error()
+
+
+@login_required
+@require_POST
+def add_object_details(request, slug: str):
+    project = _get_project_for_user(request, slug)
+    blocked = _ensure_json_ai_request(request)
+    if blocked is not None:
+        return blocked
+
+    current = _object_ai_current(request)
+    if not current.get("name"):
+        return JsonResponse({"ok": False, "error": "Add an object name first."}, status=400)
+
+    image_data_url = _object_ai_image_data_url(request)
+    try:
+        suggestions = _object_add_detail_suggestions(project=project, current=current, user=request.user, image_data_url=image_data_url)
         return JsonResponse({"ok": True, "suggestions": suggestions})
     except Exception:
         return _json_internal_error()

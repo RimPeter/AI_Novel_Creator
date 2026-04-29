@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicCharacter, ComicIssue, ComicLocation, ComicObject, ComicPage, ComicPanel, ComicProject
 
 
 @admin.register(ComicProject)
@@ -23,6 +23,12 @@ class ComicCharacterAdmin(admin.ModelAdmin):
 
 @admin.register(ComicLocation)
 class ComicLocationAdmin(admin.ModelAdmin):
+    list_display = ("name", "project", "updated_at")
+    search_fields = ("name", "project__title", "description")
+
+
+@admin.register(ComicObject)
+class ComicObjectAdmin(admin.ModelAdmin):
     list_display = ("name", "project", "updated_at")
     search_fields = ("name", "project__title", "description")
 

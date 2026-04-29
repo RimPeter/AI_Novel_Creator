@@ -316,6 +316,10 @@
 
   const getBubbleFontSize = (bubbleState = {}) => clampPercent(bubbleState.font_size ?? 16, 8, 36);
 
+  const getBubbleWidth = (bubbleState = {}) => clampPercent(bubbleState.width ?? 34, 1, 100);
+
+  const getBubbleHeight = (bubbleState = {}) => clampPercent(bubbleState.height ?? 18, 1, 100);
+
   const getDefaultBubblePointer = (bubbleState = {}) => ({
     pointer_x: clampPercent(
       bubbleState.pointer_x ?? (Number(bubbleState.x ?? 14) + Number(bubbleState.width ?? 34) * 0.68),
@@ -373,8 +377,8 @@
     bubble.dataset.flipped = bubbleState.flipped ? "true" : "false";
     bubble.style.left = `${clampPercent(bubbleState.x ?? 14, 0, 85)}%`;
     bubble.style.top = `${clampPercent(bubbleState.y ?? 12, 0, 85)}%`;
-    bubble.style.width = `${clampPercent(bubbleState.width ?? 34, 12, 90)}%`;
-    bubble.style.height = `${clampPercent(bubbleState.height ?? 18, 10, 80)}%`;
+    bubble.style.width = `${getBubbleWidth(bubbleState)}%`;
+    bubble.style.height = `${getBubbleHeight(bubbleState)}%`;
     bubble.style.borderRadius = `${getBubbleBorderRadius(bubbleState)}%`;
     const pointerTarget = getDefaultBubblePointer(bubbleState);
     bubble.dataset.pointerX = String(pointerTarget.pointer_x);
@@ -1513,6 +1517,10 @@
         pageForm.requestSubmit();
       }
     });
+  }
+
+  if (pageForm instanceof HTMLFormElement) {
+    pageForm.addEventListener("submit", syncLayoutInput);
   }
 
   window.addEventListener("resize", updateAllSpeechBubblePointers);

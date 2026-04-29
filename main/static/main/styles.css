@@ -1090,14 +1090,14 @@ ul {
   overflow: hidden;
 }
 
-.comic-canvas-panel,
-.comic-canvas-surface,
-.comic-canvas-split {
+.comic-panel-panel,
+.comic-panel-surface,
+.comic-panel-split {
   min-width: 0;
   min-height: 0;
 }
 
-.comic-canvas-panel {
+.comic-panel-panel {
   position: relative;
   width: 100%;
   height: 100%;
@@ -1105,7 +1105,7 @@ ul {
   z-index: 0;
 }
 
-.comic-canvas-surface {
+.comic-panel-surface {
   width: 100%;
   height: 100%;
   display: grid;
@@ -1113,48 +1113,48 @@ ul {
   overflow: hidden;
 }
 
-.comic-canvas-image {
+.comic-panel-image {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
 }
 
-.comic-canvas-split {
+.comic-panel-split {
   display: flex;
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-.comic-canvas-split[data-split-direction="horizontal"] {
+.comic-panel-split[data-split-direction="horizontal"] {
   flex-direction: column;
 }
 
-.comic-canvas-split[data-split-direction="vertical"] {
+.comic-panel-split[data-split-direction="vertical"] {
   flex-direction: row;
 }
 
-.comic-canvas-split > .comic-canvas-panel {
+.comic-panel-split > .comic-panel-panel {
   flex: 1 1 0;
   border-color: rgba(35, 44, 63, 0.1);
   overflow: hidden;
 }
 
-.comic-canvas-panel[data-canvas-swap-panel="true"] {
+.comic-panel-panel[data-panel-swap-panel="true"] {
   cursor: grab;
 }
 
-.comic-canvas-panel[data-canvas-swap-panel="true"]:active,
-.comic-canvas-panel.is-canvas-swapping {
+.comic-panel-panel[data-panel-swap-panel="true"]:active,
+.comic-panel-panel.is-panel-swapping {
   cursor: grabbing;
 }
 
-.comic-canvas-panel.is-canvas-swapping {
+.comic-panel-panel.is-panel-swapping {
   opacity: 0.62;
 }
 
-.comic-canvas-panel.is-canvas-swap-target {
+.comic-panel-panel.is-panel-swap-target {
   outline: 3px solid rgba(255, 174, 77, 0.82);
   outline-offset: -6px;
   box-shadow: inset 0 0 0 999px rgba(255, 174, 77, 0.12);
@@ -1323,19 +1323,19 @@ ul {
   border-bottom: 2px solid rgba(35, 44, 63, 0.65);
 }
 
-.comic-canvas-panel.is-canvas-menu-active {
+.comic-panel-panel.is-panel-menu-active {
   overflow: visible;
   z-index: 20;
 }
 
-.comic-canvas-divider {
+.comic-panel-divider {
   position: relative;
   z-index: 1;
   flex: 0 0 14px;
   background: rgba(35, 44, 63, 0.06);
 }
 
-.comic-canvas-divider::before {
+.comic-panel-divider::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1344,37 +1344,37 @@ ul {
   background: rgba(35, 44, 63, 0.22);
 }
 
-.comic-canvas-split[data-split-direction="horizontal"] > .comic-canvas-divider {
+.comic-panel-split[data-split-direction="horizontal"] > .comic-panel-divider {
   cursor: row-resize;
 }
 
 /* Horizontal split = top/bottom panels, so the divider itself is horizontal. */
-.comic-canvas-split[data-split-direction="horizontal"] > .comic-canvas-divider::before {
+.comic-panel-split[data-split-direction="horizontal"] > .comic-panel-divider::before {
   width: 56px;
   height: 4px;
 }
 
-.comic-canvas-split[data-split-direction="vertical"] > .comic-canvas-divider {
+.comic-panel-split[data-split-direction="vertical"] > .comic-panel-divider {
   cursor: col-resize;
 }
 
 /* Vertical split = left/right panels, so the divider itself is vertical. */
-.comic-canvas-split[data-split-direction="vertical"] > .comic-canvas-divider::before {
+.comic-panel-split[data-split-direction="vertical"] > .comic-panel-divider::before {
   width: 4px;
   height: 56px;
 }
 
-.comic-canvas-divider:hover,
-.comic-canvas-divider.is-dragging {
+.comic-panel-divider:hover,
+.comic-panel-divider.is-dragging {
   background: rgba(255, 174, 77, 0.18);
 }
 
-.comic-canvas-divider:hover::before,
-.comic-canvas-divider.is-dragging::before {
+.comic-panel-divider:hover::before,
+.comic-panel-divider.is-dragging::before {
   background: rgba(255, 174, 77, 0.72);
 }
 
-.comic-canvas-junction {
+.comic-panel-junction {
   position: absolute;
   z-index: 3;
   width: 18px;
@@ -1386,33 +1386,33 @@ ul {
   transform: translate(-50%, -50%);
 }
 
-.comic-canvas-junction:hover,
-.comic-canvas-junction.is-dragging {
+.comic-panel-junction:hover,
+.comic-panel-junction.is-dragging {
   background: rgba(255, 240, 214, 1);
   box-shadow: 0 10px 24px rgba(35, 44, 63, 0.24);
 }
 
-.comic-canvas-junction[data-junction-axis="vertical-horizontal"] {
+.comic-panel-junction[data-junction-axis="vertical-horizontal"] {
   cursor: move;
 }
 
-.comic-canvas-junction[data-junction-axis="horizontal-vertical"] {
+.comic-panel-junction[data-junction-axis="horizontal-vertical"] {
   cursor: move;
 }
 
-.comic-canvas-reset-menu {
+.comic-panel-reset-menu {
   position: relative;
 }
 
-.comic-canvas-reset-menu summary {
+.comic-panel-reset-menu summary {
   list-style: none;
 }
 
-.comic-canvas-reset-menu summary::-webkit-details-marker {
+.comic-panel-reset-menu summary::-webkit-details-marker {
   display: none;
 }
 
-.comic-canvas-reset-panel {
+.comic-panel-reset-panel {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
@@ -1429,7 +1429,7 @@ ul {
   box-shadow: 0 18px 36px rgba(3, 8, 18, 0.28);
 }
 
-.comic-canvas-reset-copy {
+.comic-panel-reset-copy {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
@@ -1437,13 +1437,13 @@ ul {
   color: rgba(120, 28, 28, 0.94);
 }
 
-.comic-canvas-reset-actions {
+.comic-panel-reset-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.comic-canvas-reset-btn {
+.comic-panel-reset-btn {
   min-height: 36px;
   padding: 8px 10px;
   border-radius: 10px;
@@ -1458,53 +1458,53 @@ ul {
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
-.comic-canvas-reset-btn:hover,
-.comic-canvas-reset-btn:focus-visible {
+.comic-panel-reset-btn:hover,
+.comic-panel-reset-btn:focus-visible {
   transform: translateY(-1px);
 }
 
-.comic-canvas-reset-btn.is-cancel:hover,
-.comic-canvas-reset-btn.is-cancel:focus-visible {
+.comic-panel-reset-btn.is-cancel:hover,
+.comic-panel-reset-btn.is-cancel:focus-visible {
   border-color: rgba(35, 44, 63, 0.22);
   background: rgba(247, 244, 237, 0.98);
 }
 
-.comic-canvas-reset-btn.is-confirm {
+.comic-panel-reset-btn.is-confirm {
   border-color: rgba(176, 58, 58, 0.28);
   background: rgba(192, 52, 52, 0.92);
   color: rgba(255, 248, 248, 0.98);
 }
 
-.comic-canvas-reset-btn.is-confirm:hover,
-.comic-canvas-reset-btn.is-confirm:focus-visible {
+.comic-panel-reset-btn.is-confirm:hover,
+.comic-panel-reset-btn.is-confirm:focus-visible {
   border-color: rgba(176, 58, 58, 0.48);
   background: rgba(171, 40, 40, 0.96);
 }
 
-.comic-canvas-menu {
+.comic-panel-menu {
   position: absolute;
   top: 14px;
   left: 14px;
   z-index: 40;
 }
 
-.comic-page-editor.is-canvas-menu-hidden .comic-canvas-menu,
-.comic-page-editor.is-canvas-menu-hidden .comic-canvas-divider,
-.comic-page-editor.is-canvas-menu-hidden .comic-canvas-junction,
-.comic-page-editor.is-canvas-menu-hidden .comic-speech-bubble-toolbar,
-.comic-page-editor.is-canvas-menu-hidden .comic-speech-bubble-resize {
+.comic-page-editor.is-panel-menu-hidden .comic-panel-menu,
+.comic-page-editor.is-panel-menu-hidden .comic-panel-divider,
+.comic-page-editor.is-panel-menu-hidden .comic-panel-junction,
+.comic-page-editor.is-panel-menu-hidden .comic-speech-bubble-toolbar,
+.comic-page-editor.is-panel-menu-hidden .comic-speech-bubble-resize {
   display: none;
 }
 
-.comic-canvas-menu summary {
+.comic-panel-menu summary {
   list-style: none;
 }
 
-.comic-canvas-menu summary::-webkit-details-marker {
+.comic-panel-menu summary::-webkit-details-marker {
   display: none;
 }
 
-.comic-canvas-menu-toggle {
+.comic-panel-menu-toggle {
   display: inline-flex;
   align-items: center;
   min-height: 40px;
@@ -1522,7 +1522,7 @@ ul {
   user-select: none;
 }
 
-.comic-canvas-menu-toggle::after {
+.comic-panel-menu-toggle::after {
   content: "";
   width: 8px;
   height: 8px;
@@ -1534,11 +1534,11 @@ ul {
   transition: transform 0.16s ease;
 }
 
-.comic-canvas-menu[open] .comic-canvas-menu-toggle::after {
+.comic-panel-menu[open] .comic-panel-menu-toggle::after {
   transform: rotate(-135deg) translateX(-1px);
 }
 
-.comic-canvas-menu-panel {
+.comic-panel-menu-panel {
   width: min(220px, calc(100vw - 48px), calc(100% - 28px));
   min-width: 0;
   max-width: calc(100% - 28px);
@@ -1552,7 +1552,7 @@ ul {
   box-shadow: 0 18px 40px rgba(35, 44, 63, 0.16);
 }
 
-.comic-canvas-menu-action {
+.comic-panel-menu-action {
   display: block;
   width: 100%;
   box-sizing: border-box;
@@ -1571,31 +1571,31 @@ ul {
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
-.comic-canvas-menu-link {
+.comic-panel-menu-link {
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.comic-canvas-menu-action:hover,
-.comic-canvas-menu-action:focus-visible {
+.comic-panel-menu-action:hover,
+.comic-panel-menu-action:focus-visible {
   border-color: rgba(255, 174, 77, 0.5);
   background: rgba(255, 240, 214, 0.98);
   transform: translateY(-1px);
 }
 
-.comic-canvas-menu-action-delete {
+.comic-panel-menu-action-delete {
   color: rgba(146, 32, 32, 0.92);
   background: rgba(255, 236, 236, 0.98);
   border-color: rgba(176, 58, 58, 0.2);
 }
 
-.comic-canvas-menu-action-delete:hover,
-.comic-canvas-menu-action-delete:focus-visible {
+.comic-panel-menu-action-delete:hover,
+.comic-panel-menu-action-delete:focus-visible {
   border-color: rgba(176, 58, 58, 0.42);
   background: rgba(255, 220, 220, 0.98);
 }
 
-.comic-canvas-delete-confirm {
+.comic-panel-delete-confirm {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -1606,11 +1606,11 @@ ul {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.comic-canvas-delete-confirm[hidden] {
+.comic-panel-delete-confirm[hidden] {
   display: none;
 }
 
-.comic-canvas-quick-prompt {
+.comic-panel-quick-prompt {
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -1619,7 +1619,7 @@ ul {
   background: rgba(247, 244, 237, 0.98);
 }
 
-.comic-canvas-quick-prompt-review {
+.comic-panel-quick-prompt-review {
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -1628,15 +1628,15 @@ ul {
   background: rgba(255, 240, 214, 0.98);
 }
 
-.comic-canvas-quick-prompt[hidden] {
+.comic-panel-quick-prompt[hidden] {
   display: none;
 }
 
-.comic-canvas-quick-prompt-review[hidden] {
+.comic-panel-quick-prompt-review[hidden] {
   display: none;
 }
 
-.comic-canvas-quick-prompt-input {
+.comic-panel-quick-prompt-input {
   width: 100%;
   min-height: 84px;
   box-sizing: border-box;
@@ -1651,13 +1651,13 @@ ul {
   color: rgba(35, 44, 63, 0.9);
 }
 
-.comic-canvas-quick-prompt-actions {
+.comic-panel-quick-prompt-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.comic-canvas-quick-prompt-review-copy {
+.comic-panel-quick-prompt-review-copy {
   margin: 0;
   font-size: 12px;
   line-height: 1.35;
@@ -1665,7 +1665,7 @@ ul {
   color: rgba(82, 51, 12, 0.92);
 }
 
-.comic-canvas-delete-confirm-copy {
+.comic-panel-delete-confirm-copy {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
@@ -1673,13 +1673,13 @@ ul {
   color: rgba(120, 28, 28, 0.94);
 }
 
-.comic-canvas-delete-confirm-actions {
+.comic-panel-delete-confirm-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.comic-canvas-delete-confirm-btn {
+.comic-panel-delete-confirm-btn {
   min-height: 36px;
   padding: 8px 10px;
   border-radius: 10px;
@@ -1694,25 +1694,25 @@ ul {
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
-.comic-canvas-delete-confirm-btn:hover,
-.comic-canvas-delete-confirm-btn:focus-visible {
+.comic-panel-delete-confirm-btn:hover,
+.comic-panel-delete-confirm-btn:focus-visible {
   transform: translateY(-1px);
 }
 
-.comic-canvas-delete-confirm-btn.is-cancel:hover,
-.comic-canvas-delete-confirm-btn.is-cancel:focus-visible {
+.comic-panel-delete-confirm-btn.is-cancel:hover,
+.comic-panel-delete-confirm-btn.is-cancel:focus-visible {
   border-color: rgba(35, 44, 63, 0.22);
   background: rgba(247, 244, 237, 0.98);
 }
 
-.comic-canvas-delete-confirm-btn.is-confirm {
+.comic-panel-delete-confirm-btn.is-confirm {
   border-color: rgba(176, 58, 58, 0.28);
   background: rgba(192, 52, 52, 0.92);
   color: rgba(255, 248, 248, 0.98);
 }
 
-.comic-canvas-delete-confirm-btn.is-confirm:hover,
-.comic-canvas-delete-confirm-btn.is-confirm:focus-visible {
+.comic-panel-delete-confirm-btn.is-confirm:hover,
+.comic-panel-delete-confirm-btn.is-confirm:focus-visible {
   border-color: rgba(176, 58, 58, 0.48);
   background: rgba(171, 40, 40, 0.96);
 }

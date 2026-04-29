@@ -28,8 +28,8 @@ from main.billing import billing_enabled, user_has_active_plan
 from main.llm import call_llm, edit_image_data_url, generate_image_data_url
 from main.text_models import get_user_text_model
 
-from .forms import ComicBibleForm, ComicCanvasNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
-from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .forms import ComicBibleForm, ComicPanelNodeForm, ComicCharacterForm, ComicIssueForm, ComicLocationForm, ComicPageForm, ComicPanelForm, ComicProjectForm
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 logger = logging.getLogger(__name__)
 ISSUE_AI_FIELDS = [
@@ -76,7 +76,7 @@ LOCATION_AI_FIELDS = [
 ]
 LOCATION_AI_APPEND_FIELDS = {"description", "visual_notes", "continuity_notes"}
 LOCATION_AI_BULLET_FIELDS = {"visual_notes", "continuity_notes"}
-CANVAS_NODE_AI_FIELDS = [
+panel_node_AI_FIELDS = [
     "focus",
     "camera_angle",
     "action",
@@ -88,8 +88,8 @@ CANVAS_NODE_AI_FIELDS = [
     "style_override",
     "notes",
 ]
-CANVAS_NODE_AI_OUTPUT_FIELDS = CANVAS_NODE_AI_FIELDS + ["characters"]
-CANVAS_NODE_AI_APPEND_FIELDS = {
+panel_node_AI_OUTPUT_FIELDS = panel_node_AI_FIELDS + ["characters"]
+panel_node_AI_APPEND_FIELDS = {
     "action",
     "lighting_notes",
     "must_include",
@@ -97,12 +97,12 @@ CANVAS_NODE_AI_APPEND_FIELDS = {
     "style_override",
     "notes",
 }
-CANVAS_QUICK_PROMPT_CACHE_SECONDS = 20 * 60
+PANEL_QUICK_PROMPT_CACHE_SECONDS = 20 * 60
 IMAGE_PROMPT_MAX_CHARS = 3800
 
 
-def _canvas_quick_prompt_cache_key(user_id, node_id, token: str) -> str:
-    return f"comic-canvas-quick-prompt:{user_id}:{node_id}:{token}"
+def _panel_quick_prompt_cache_key(user_id, node_id, token: str) -> str:
+    return f"comic-panel-quick-prompt:{user_id}:{node_id}:{token}"
 
 
 def _truncate_text(value, limit: int) -> str:
@@ -269,7 +269,7 @@ def _json_image_moderation_error() -> JsonResponse:
     return JsonResponse(
         {
             "ok": False,
-            "error": "Image generation was blocked by the safety system. Revise the canvas brief to avoid graphic violence, explicit sexual content, real-person likenesses, or other sensitive details, then try again.",
+            "error": "Image generation was blocked by the safety system. Revise the panel brief to avoid graphic violence, explicit sexual content, real-person likenesses, or other sensitive details, then try again.",
         },
         status=400,
     )
@@ -497,17 +497,17 @@ def _comic_character_image_prompt(*, project: ComicProject, character: ComicChar
     if pose == "frontal":
         pose_label = "straight-on frontal face"
         composition = "show a tight square head-and-shoulders reference: complete head, hairline, chin, neck, and upper shoulders, facing the viewer directly"
-        framing = "fill the square canvas with the head and shoulders while keeping the entire hair, scalp, forehead, ears, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
+        framing = "fill the square Panel with the head and shoulders while keeping the entire hair, scalp, forehead, ears, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
         output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
     elif pose == "sideways":
         pose_label = "sideways profile face"
         composition = "show a tight square side-profile head-and-shoulders reference: complete head, hairline, nose, chin, neck, and upper shoulders visible, looking to the side"
-        framing = "fill the square canvas with the profile head and shoulders while keeping the entire hair, scalp, forehead, nose, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
+        framing = "fill the square Panel with the profile head and shoulders while keeping the entire hair, scalp, forehead, nose, jaw, chin, neck, and shoulders visible. Leave only a small safety gap above the hair and below the shoulders; no large blank padding, no cropped head. Use a clean neutral background and no props."
         output_goal = "high-clarity character reference art with stable facial structure and consistent styling."
     else:
         pose_label = "full-body frontal view"
         composition = "show a full-body character reference from the very top of the hair to the soles of the boots, standing upright and facing forward"
-        framing = "use a vertical portrait canvas. The entire figure must be visible from hair to feet, including the complete top of the head. Center the figure and scale it down if needed so nothing is cropped; leave only a narrow safety gap above the hair and below the feet, with no large blank padding. Use a clean neutral background and no props."
+        framing = "use a vertical portrait Panel. The entire figure must be visible from hair to feet, including the complete top of the head. Center the figure and scale it down if needed so nothing is cropped; leave only a narrow safety gap above the hair and below the feet, with no large blank padding. Use a clean neutral background and no props."
         output_goal = "high-clarity full-body character reference art with readable silhouette, costume, proportions, and consistent styling."
     prompt_lines = [
         "Create a polished comic-book character reference portrait.",
@@ -577,22 +577,22 @@ def _comic_location_image_prompt(*, project: ComicProject, current: dict[str, st
     return "\n".join(prompt_lines).strip()
 
 
-def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue, page: ComicPage, node: ComicCanvasNode) -> str:
-    _sync_canvas_node_from_layout(node)
+def _comic_panel_node_image_prompt(*, project: ComicProject, issue: ComicIssue, page: ComicPage, node: ComicPanelNode) -> str:
+    _sync_panel_node_from_layout(node)
     characters = list(node.characters.order_by("name"))
     location = node.location
     shot_type = node.get_shot_type_display()
 
     prompt_lines = [
-        "Create a polished comic-book canvas image.",
-        "This image is one canvas/panel inside a comic page, not a full page.",
+        "Create a polished comic-book panel image.",
+        "This image is one Panel/panel inside a comic page, not a full page.",
         "The image must match the project's established comic style, rendering language, and tone.",
         "No text, captions, logos, speech bubbles, signage text, watermarks, panel borders, or UI.",
-        "Respect the canvas brief exactly; do not add unrelated characters, props, or story events.",
+        "Respect the panel brief exactly; do not add unrelated characters, props, or story events.",
         "",
-        "Canvas brief:",
-        f"Canvas key: {node.canvas_key}",
-        f"Canvas type: {node.get_node_type_display()}",
+        "panel brief:",
+        f"Panel key: {node.panel_key}",
+        f"Panel type: {node.get_node_type_display()}",
         f"Shot type: {shot_type}",
     ]
     if node.split_direction:
@@ -610,7 +610,7 @@ def _comic_canvas_node_image_prompt(*, project: ComicProject, issue: ComicIssue,
         ("Must include", node.must_include),
         ("Must avoid", node.must_avoid),
         ("Style override", node.style_override),
-        ("Canvas notes", node.notes),
+        ("Panel notes", node.notes),
     ]:
         _append_detail_line(prompt_lines, label, value, limit=240)
 
@@ -684,13 +684,13 @@ def _page_ai_meta(request) -> dict[str, str]:
     }
 
 
-def _canvas_node_ai_current(request) -> dict[str, str]:
-    return {field: (request.POST.get(field) or "").strip() for field in CANVAS_NODE_AI_FIELDS}
+def _panel_node_ai_current(request) -> dict[str, str]:
+    return {field: (request.POST.get(field) or "").strip() for field in panel_node_AI_FIELDS}
 
 
-def _canvas_node_ai_meta(request, node: ComicCanvasNode) -> dict[str, str]:
+def _panel_node_ai_meta(request, node: ComicPanelNode) -> dict[str, str]:
     return {
-        "canvas_key": node.canvas_key,
+        "panel_key": node.panel_key,
         "node_type": node.get_node_type_display(),
         "split_direction": node.get_split_direction_display() if node.split_direction else "",
         "split_ratio": str(node.split_ratio or ""),
@@ -997,7 +997,7 @@ def _comic_page_context_lines(page: ComicPage) -> list[str]:
     return lines
 
 
-def _canvas_character_suggestions(value, *, project: ComicProject, selected_labels: str = "") -> list[str]:
+def _panel_character_suggestions(value, *, project: ComicProject, selected_labels: str = "") -> list[str]:
     allowed = {
         name.casefold(): name
         for name in ComicCharacter.objects.filter(project=project).order_by("name").values_list("name", flat=True)
@@ -1138,17 +1138,17 @@ def _page_add_detail_suggestions(*, project: ComicProject, issue: ComicIssue, cu
     return filtered
 
 
-def _canvas_node_brainstorm_suggestions(
+def _panel_node_brainstorm_suggestions(
     *,
     project: ComicProject,
     issue: ComicIssue,
     page: ComicPage,
-    node: ComicCanvasNode,
+    node: ComicPanelNode,
     current: dict[str, str],
     meta: dict[str, str],
     user,
 ) -> dict[str, str]:
-    empty_fields = [field for field in CANVAS_NODE_AI_FIELDS if not current.get(field)]
+    empty_fields = [field for field in panel_node_AI_FIELDS if not current.get(field)]
     selected_characters = meta.get("characters") or ""
     if not selected_characters:
         empty_fields.append("characters")
@@ -1156,16 +1156,16 @@ def _canvas_node_brainstorm_suggestions(
         return {}
 
     prompt_lines = [
-        "You are a comic-book canvas brief assistant.",
-        "Goal: fill ONLY the currently-empty canvas brief fields so this canvas has clear framing, staging, and generation notes.",
+        "You are a comic-book panel brief assistant.",
+        "Goal: fill ONLY the currently-empty panel brief fields so this panel has clear framing, staging, and generation notes.",
         "Rules:",
         "- Return STRICT JSON only (no markdown, no extra text).",
-        "- Output an object with only keys from: " + ", ".join(CANVAS_NODE_AI_OUTPUT_FIELDS),
+        "- Output an object with only keys from: " + ", ".join(panel_node_AI_OUTPUT_FIELDS),
         "- Only include keys that are empty right now: " + ", ".join(empty_fields),
         "- focus: a short phrase naming the visual subject.",
         "- characters: an array of exact names selected from Available characters only. Omit characters if none fit.",
         "- camera_angle, mood, and dialogue_space: concise production notes.",
-        "- action: 1-3 sentences describing what is visibly happening in this canvas.",
+        "- action: 1-3 sentences describing what is visibly happening in this panel.",
         "- lighting_notes, must_include, must_avoid, style_override, and notes: 2-5 short concrete lines each.",
         "- Keep additions aligned with the project, issue, page, selected shot type, location, and characters.",
         "",
@@ -1182,9 +1182,9 @@ def _canvas_node_brainstorm_suggestions(
     prompt_lines.extend(
         [
             "",
-            "Canvas metadata:",
-            "Canvas key: " + (meta.get("canvas_key") or node.canvas_key),
-            "Canvas type: " + (meta.get("node_type") or ""),
+            "Panel metadata:",
+            "Panel key: " + (meta.get("panel_key") or node.panel_key),
+            "Panel type: " + (meta.get("node_type") or ""),
             "Split direction: " + (meta.get("split_direction") or ""),
             "Split ratio: " + (meta.get("split_ratio") or ""),
             "Shot type: " + (meta.get("shot_type") or ""),
@@ -1192,7 +1192,7 @@ def _canvas_node_brainstorm_suggestions(
             "Selected characters: " + (meta.get("characters") or ""),
             "Available characters: " + (meta.get("available_characters") or ""),
             "",
-            "Current canvas fields (JSON):",
+            "Current panel fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
     )
@@ -1208,7 +1208,7 @@ def _canvas_node_brainstorm_suggestions(
         if key == "characters":
             if key not in empty_fields:
                 continue
-            names = _canvas_character_suggestions(value, project=project, selected_labels=selected_characters)
+            names = _panel_character_suggestions(value, project=project, selected_labels=selected_characters)
             if names:
                 filtered[key] = names
             continue
@@ -1221,22 +1221,22 @@ def _canvas_node_brainstorm_suggestions(
     return filtered
 
 
-def _canvas_node_add_detail_suggestions(
+def _panel_node_add_detail_suggestions(
     *,
     project: ComicProject,
     issue: ComicIssue,
     page: ComicPage,
-    node: ComicCanvasNode,
+    node: ComicPanelNode,
     current: dict[str, str],
     meta: dict[str, str],
     user,
 ) -> dict[str, str]:
     prompt_lines = [
-        "You are a comic-book canvas brief assistant.",
-        "Goal: add fresh detail to the current canvas brief without repeating or contradicting what is already there.",
+        "You are a comic-book panel brief assistant.",
+        "Goal: add fresh detail to the Current panel brief without repeating or contradicting what is already there.",
         "Rules:",
         "- Return STRICT JSON only (no markdown, no extra text).",
-        "- Output an object with only keys from: " + ", ".join(CANVAS_NODE_AI_OUTPUT_FIELDS),
+        "- Output an object with only keys from: " + ", ".join(panel_node_AI_OUTPUT_FIELDS),
         "- characters: an array of exact names selected from Available characters only. Include only names not already selected.",
         "- focus, camera_angle, mood, and dialogue_space: only include them if they are currently blank.",
         "- action, lighting_notes, must_include, must_avoid, style_override, and notes: return ONLY additive text to append, not a rewrite.",
@@ -1256,9 +1256,9 @@ def _canvas_node_add_detail_suggestions(
     prompt_lines.extend(
         [
             "",
-            "Canvas metadata:",
-            "Canvas key: " + (meta.get("canvas_key") or node.canvas_key),
-            "Canvas type: " + (meta.get("node_type") or ""),
+            "Panel metadata:",
+            "Panel key: " + (meta.get("panel_key") or node.panel_key),
+            "Panel type: " + (meta.get("node_type") or ""),
             "Split direction: " + (meta.get("split_direction") or ""),
             "Split ratio: " + (meta.get("split_ratio") or ""),
             "Shot type: " + (meta.get("shot_type") or ""),
@@ -1266,7 +1266,7 @@ def _canvas_node_add_detail_suggestions(
             "Selected characters: " + (meta.get("characters") or ""),
             "Available characters: " + (meta.get("available_characters") or ""),
             "",
-            "Current canvas fields (JSON):",
+            "Current panel fields (JSON):",
             json.dumps(current, ensure_ascii=False),
         ]
     )
@@ -1280,21 +1280,21 @@ def _canvas_node_add_detail_suggestions(
     filtered = {}
     for key, value in data.items():
         if key == "characters":
-            names = _canvas_character_suggestions(value, project=project, selected_labels=meta.get("characters") or "")
+            names = _panel_character_suggestions(value, project=project, selected_labels=meta.get("characters") or "")
             if names:
                 filtered[key] = names
             continue
-        if key not in CANVAS_NODE_AI_FIELDS:
+        if key not in panel_node_AI_FIELDS:
             continue
         existing = current.get(key, "")
-        if key not in CANVAS_NODE_AI_APPEND_FIELDS and existing:
+        if key not in panel_node_AI_APPEND_FIELDS and existing:
             continue
 
         text = str(value or "").strip()
         if not text:
             continue
 
-        if key in CANVAS_NODE_AI_APPEND_FIELDS:
+        if key in panel_node_AI_APPEND_FIELDS:
             text = _dedupe_appended_text(existing, text)
         if not text:
             continue
@@ -1598,12 +1598,12 @@ def _renumber_page_panels(page: ComicPage) -> None:
             panel.save(update_fields=["panel_number", "updated_at"])
 
 
-def _find_canvas_layout_node(layout: dict, canvas_key: str, *, parent_key: str = "") -> dict | None:
+def _find_panel_layout_node(layout: dict, panel_key: str, *, parent_key: str = "") -> dict | None:
     if not isinstance(layout, dict):
         return None
 
-    node_key = str(layout.get("canvas_key") or "").strip()
-    if node_key == canvas_key:
+    node_key = str(layout.get("panel_key") or "").strip()
+    if node_key == panel_key:
         return {
             "node": layout,
             "parent_key": parent_key,
@@ -1612,16 +1612,16 @@ def _find_canvas_layout_node(layout: dict, canvas_key: str, *, parent_key: str =
     for index, child in enumerate(layout.get("children") or []):
         if not isinstance(child, dict):
             continue
-        match = _find_canvas_layout_node(child, canvas_key, parent_key=node_key)
+        match = _find_panel_layout_node(child, panel_key, parent_key=node_key)
         if match is not None:
             match["child_index"] = index
             return match
     return None
 
 
-def _ensure_unique_canvas_layout_keys(layout) -> dict:
+def _ensure_unique_panel_layout_keys(layout) -> dict:
     if not isinstance(layout, dict):
-        return {"type": "panel", "canvas_key": "root"}
+        return {"type": "panel", "panel_key": "root"}
 
     max_sequence = 0
 
@@ -1629,8 +1629,8 @@ def _ensure_unique_canvas_layout_keys(layout) -> dict:
         nonlocal max_sequence
         if not isinstance(node, dict):
             return
-        key = str(node.get("canvas_key") or "").strip()
-        match = re.fullmatch(r"canvas-(\d+)", key)
+        key = str(node.get("panel_key") or "").strip()
+        match = re.fullmatch(r"panel-(\\d+)", key)
         if match:
             max_sequence = max(max_sequence, int(match.group(1)))
         for child in node.get("children") or []:
@@ -1643,7 +1643,7 @@ def _ensure_unique_canvas_layout_keys(layout) -> dict:
         nonlocal max_sequence
         while True:
             max_sequence += 1
-            candidate = f"canvas-{max_sequence}"
+            candidate = f"Panel-{max_sequence}"
             if candidate not in used:
                 used.add(candidate)
                 return candidate
@@ -1652,14 +1652,14 @@ def _ensure_unique_canvas_layout_keys(layout) -> dict:
         if not isinstance(node, dict):
             node = {}
         next_node = dict(node)
-        desired_key = str(next_node.get("canvas_key") or "").strip()
+        desired_key = str(next_node.get("panel_key") or "").strip()
         if not desired_key and is_root:
             desired_key = "root"
         if not desired_key or desired_key in used:
             desired_key = next_key()
         else:
             used.add(desired_key)
-        next_node["canvas_key"] = desired_key
+        next_node["panel_key"] = desired_key
 
         if str(next_node.get("type") or "").strip() == "split":
             children = [child for child in (next_node.get("children") or []) if isinstance(child, dict)]
@@ -1671,11 +1671,11 @@ def _ensure_unique_canvas_layout_keys(layout) -> dict:
     return normalize(layout, is_root=True)
 
 
-def _sync_canvas_node_from_layout(node: ComicCanvasNode) -> ComicCanvasNode:
-    layout = node.page.canvas_layout or {}
-    match = _find_canvas_layout_node(layout, node.canvas_key)
+def _sync_panel_node_from_layout(node: ComicPanelNode) -> ComicPanelNode:
+    layout = node.page.panel_layout or {}
+    match = _find_panel_layout_node(layout, node.panel_key)
     if match is None:
-        node.node_type = ComicCanvasNode.NodeType.PANEL
+        node.node_type = ComicPanelNode.NodeType.PANEL
         node.parent = None
         node.child_index = 0
         node.split_direction = ""
@@ -1685,18 +1685,18 @@ def _sync_canvas_node_from_layout(node: ComicCanvasNode) -> ComicCanvasNode:
     layout_node = match["node"]
     parent_key = str(match.get("parent_key") or "").strip()
     node.node_type = (
-        ComicCanvasNode.NodeType.SPLIT
+        ComicPanelNode.NodeType.SPLIT
         if str(layout_node.get("type") or "").strip() == "split"
-        else ComicCanvasNode.NodeType.PANEL
+        else ComicPanelNode.NodeType.PANEL
     )
     node.child_index = int(match.get("child_index") or 0)
     split_direction = str(layout_node.get("direction") or "").strip()
-    node.split_direction = split_direction if split_direction in {choice for choice, _label in ComicCanvasNode.SplitDirection.choices} else ""
+    node.split_direction = split_direction if split_direction in {choice for choice, _label in ComicPanelNode.SplitDirection.choices} else ""
     ratio = layout_node.get("ratio")
     node.split_ratio = ratio if ratio is not None else None
     node.parent = None
     if parent_key:
-        node.parent = ComicCanvasNode.objects.filter(page=node.page, canvas_key=parent_key).first()
+        node.parent = ComicPanelNode.objects.filter(page=node.page, panel_key=parent_key).first()
     return node
 
 
@@ -2555,7 +2555,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.issue = self.issue
-        form.instance.canvas_layout = _ensure_unique_canvas_layout_keys(form.instance.canvas_layout)
+        form.instance.panel_layout = _ensure_unique_panel_layout_keys(form.instance.panel_layout)
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         messages.success(self.request, "Page created.")
@@ -2565,7 +2565,7 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
-        ctx["canvas_image_map"] = {}
+        ctx["panel_image_map"] = {}
         ctx.update(_ai_context_for_request(self.request))
         return ctx
 
@@ -2588,7 +2588,7 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         return ComicPage.objects.filter(issue=self.issue)
 
     def form_valid(self, form):
-        form.instance.canvas_layout = _ensure_unique_canvas_layout_keys(form.instance.canvas_layout)
+        form.instance.panel_layout = _ensure_unique_panel_layout_keys(form.instance.panel_layout)
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         if self.request.headers.get("x-comic-page-autosave") == "true":
@@ -2604,9 +2604,9 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["project"] = self.project
         ctx["issue"] = self.issue
-        ctx["canvas_image_map"] = {
-            node.canvas_key: node.image_data_url
-            for node in self.object.canvas_nodes.exclude(image_data_url="").only("canvas_key", "image_data_url")
+        ctx["panel_image_map"] = {
+            node.panel_key: node.image_data_url
+            for node in self.object.panel_nodes.exclude(image_data_url="").only("panel_key", "image_data_url")
         }
         ctx.update(_ai_context_for_request(self.request))
         return ctx
@@ -2757,9 +2757,9 @@ class ComicPanelDeleteView(LoginRequiredMixin, DeleteView):
         return response
 
 
-class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
-    form_class = ComicCanvasNodeForm
-    template_name = "comic_book/canvas_node_form.html"
+class ComicPanelNodeUpdateView(LoginRequiredMixin, UpdateView):
+    form_class = ComicPanelNodeForm
+    template_name = "comic_book/panel_node_form.html"
 
     def dispatch(self, request, *args, **kwargs):
         if response := _anonymous_login_response(self, request):
@@ -2767,18 +2767,18 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
         self.project = _get_project_for_user(request, kwargs["slug"])
         self.issue = _get_issue_for_project(self.project, kwargs["issue_pk"])
         self.page = _get_page_for_issue(self.issue, kwargs["page_pk"])
-        self.canvas_key = (kwargs.get("canvas_key") or "").strip()
-        if not self.canvas_key:
-            raise Http404("Canvas key is required.")
+        self.panel_key = (kwargs.get("panel_key") or "").strip()
+        if not self.panel_key:
+            raise Http404("Panel key is required.")
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        obj, _created = ComicCanvasNode.objects.get_or_create(
+        obj, _created = ComicPanelNode.objects.get_or_create(
             page=self.page,
-            canvas_key=self.canvas_key,
-            defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+            panel_key=self.panel_key,
+            defaults={"node_type": ComicPanelNode.NodeType.PANEL},
         )
-        _sync_canvas_node_from_layout(obj)
+        _sync_panel_node_from_layout(obj)
         return obj
 
     def get_form_kwargs(self):
@@ -2788,14 +2788,14 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
 
     def form_valid(self, form):
         form.instance.page = self.page
-        _sync_canvas_node_from_layout(form.instance)
+        _sync_panel_node_from_layout(form.instance)
         response = super().form_valid(form)
-        messages.success(self.request, "Canvas brief saved.")
+        messages.success(self.request, "panel brief saved.")
         return response
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        canvas_node = self.object
+        panel_node = self.object
         form = ctx.get("form")
         selected_character_ids = []
         if form is not None:
@@ -2805,7 +2805,7 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
         ctx["project"] = self.project
         ctx["issue"] = self.issue
         ctx["page"] = self.page
-        ctx["canvas_node"] = canvas_node
+        ctx["panel_node"] = panel_node
         ctx["character_list"] = self.project.characters.order_by("name")
         ctx["selected_character_ids"] = selected_character_ids
         ctx.update(_ai_context_for_request(self.request))
@@ -2813,12 +2813,12 @@ class ComicCanvasNodeUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_success_url(self):
         return reverse(
-            "comic_book:canvas-node-edit",
+            "comic_book:panel-node-edit",
             kwargs={
                 "slug": self.project.slug,
                 "issue_pk": self.issue.pk,
                 "page_pk": self.page.pk,
-                "canvas_key": self.canvas_key,
+                "panel_key": self.panel_key,
             },
         )
 
@@ -2975,24 +2975,24 @@ def add_page_details(request, slug: str, issue_pk, pk):
 
 @login_required
 @require_POST
-def brainstorm_canvas_node(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def brainstorm_panel_node(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
     blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
-    current = _canvas_node_ai_current(request)
-    meta = _canvas_node_ai_meta(request, node)
+    current = _panel_node_ai_current(request)
+    meta = _panel_node_ai_meta(request, node)
     try:
-        suggestions = _canvas_node_brainstorm_suggestions(
+        suggestions = _panel_node_brainstorm_suggestions(
             project=project,
             issue=issue,
             page=page,
@@ -3008,27 +3008,27 @@ def brainstorm_canvas_node(request, slug: str, issue_pk, page_pk, canvas_key: st
 
 @login_required
 @require_POST
-def add_canvas_node_details(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def add_panel_node_details(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
     blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
-    current = _canvas_node_ai_current(request)
+    current = _panel_node_ai_current(request)
     if not any(current.values()) and not (request.POST.get("characters_label") or "").strip():
-        return JsonResponse({"ok": False, "error": "Add at least one canvas brief detail first."}, status=400)
+        return JsonResponse({"ok": False, "error": "Add at least one panel brief detail first."}, status=400)
 
-    meta = _canvas_node_ai_meta(request, node)
+    meta = _panel_node_ai_meta(request, node)
     try:
-        suggestions = _canvas_node_add_detail_suggestions(
+        suggestions = _panel_node_add_detail_suggestions(
             project=project,
             issue=issue,
             page=page,
@@ -3044,16 +3044,16 @@ def add_canvas_node_details(request, slug: str, issue_pk, page_pk, canvas_key: s
 
 @login_required
 @require_POST
-def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def generate_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
 
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
@@ -3066,13 +3066,13 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
     if blocked is not None:
         return blocked
 
-    prompt = _comic_canvas_node_image_prompt(project=project, issue=issue, page=page, node=node)
+    prompt = _comic_panel_node_image_prompt(project=project, issue=issue, page=page, node=node)
     model_name = getattr(settings, "OPENAI_IMAGE_MODEL", "gpt-image-2")
 
     try:
         image_url = generate_image_data_url(prompt=prompt, model_name=model_name, size="1024x1024")
     except Exception as error:
-        node.image_status = ComicCanvasNode.ImageStatus.FAILED
+        node.image_status = ComicPanelNode.ImageStatus.FAILED
         node.save(update_fields=["image_status", "updated_at"])
         if _is_image_moderation_block(error):
             return _json_image_moderation_error()
@@ -3082,7 +3082,7 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
 
     node.image_prompt = prompt
     node.image_data_url = image_url
-    node.image_status = ComicCanvasNode.ImageStatus.READY
+    node.image_status = ComicPanelNode.ImageStatus.READY
     node.last_generated_at = timezone.now()
     node.save(update_fields=["image_prompt", "image_data_url", "image_status", "last_generated_at", "updated_at"])
     return JsonResponse({"ok": True, "image_url": image_url})
@@ -3090,16 +3090,16 @@ def generate_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key
 
 @login_required
 @require_POST
-def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
 
     wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (
         request.headers.get("accept") or ""
@@ -3119,7 +3119,7 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
     uploaded_reference_image = _image_data_url_from_upload(request.FILES.get("reference_image_upload"))
     reference_image = uploaded_reference_image or (request.POST.get("reference_image_data_url") or "").strip() or node.image_data_url
     if not reference_image:
-        return JsonResponse({"ok": False, "error": "Generate this canvas image before using Quick Prompt."}, status=400)
+        return JsonResponse({"ok": False, "error": "Generate this panel image before using Quick Prompt."}, status=400)
 
     edit_prompt = "\n".join(
         [
@@ -3138,7 +3138,7 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
     try:
         image_url = edit_image_data_url(prompt=edit_prompt, image_data_url=reference_image, model_name=model_name, size="1024x1024")
     except Exception as error:
-        node.image_status = ComicCanvasNode.ImageStatus.FAILED
+        node.image_status = ComicPanelNode.ImageStatus.FAILED
         node.save(update_fields=["image_status", "updated_at"])
         if _is_image_moderation_block(error):
             return _json_image_moderation_error()
@@ -3148,56 +3148,56 @@ def quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas
 
     token = uuid.uuid4().hex
     cache.set(
-        _canvas_quick_prompt_cache_key(request.user.pk, node.pk, token),
+        _panel_quick_prompt_cache_key(request.user.pk, node.pk, token),
         {"image_url": image_url, "image_prompt": edit_prompt},
-        timeout=CANVAS_QUICK_PROMPT_CACHE_SECONDS,
+        timeout=PANEL_QUICK_PROMPT_CACHE_SECONDS,
     )
     return JsonResponse({"ok": True, "image_url": image_url, "pending_token": token})
 
 
 @login_required
 @require_POST
-def accept_quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def accept_quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
 
     blocked = _ensure_json_ai_request(request)
     if blocked is not None:
         return blocked
 
     token = (request.POST.get("pending_token") or "").strip()
-    pending = cache.get(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token)) if token else None
+    pending = cache.get(_panel_quick_prompt_cache_key(request.user.pk, node.pk, token)) if token else None
     if not isinstance(pending, dict) or not pending.get("image_url"):
         return JsonResponse({"ok": False, "error": "Quick Prompt preview expired. Run Quick Prompt again."}, status=400)
 
     node.image_prompt = str(pending.get("image_prompt") or "")
     node.image_data_url = str(pending["image_url"])
-    node.image_status = ComicCanvasNode.ImageStatus.READY
+    node.image_status = ComicPanelNode.ImageStatus.READY
     node.last_generated_at = timezone.now()
     node.save(update_fields=["image_prompt", "image_data_url", "image_status", "last_generated_at", "updated_at"])
-    cache.delete(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token))
+    cache.delete(_panel_quick_prompt_cache_key(request.user.pk, node.pk, token))
     return JsonResponse({"ok": True, "image_url": node.image_data_url})
 
 
 @login_required
 @require_POST
-def reject_quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk, canvas_key: str):
+def reject_quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: str):
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
-    node, _created = ComicCanvasNode.objects.get_or_create(
+    node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
-        canvas_key=(canvas_key or "").strip(),
-        defaults={"node_type": ComicCanvasNode.NodeType.PANEL},
+        panel_key=(panel_key or "").strip(),
+        defaults={"node_type": ComicPanelNode.NodeType.PANEL},
     )
-    _sync_canvas_node_from_layout(node)
+    _sync_panel_node_from_layout(node)
 
     blocked = _ensure_json_ai_request(request)
     if blocked is not None:
@@ -3205,7 +3205,7 @@ def reject_quick_prompt_canvas_node_image(request, slug: str, issue_pk, page_pk,
 
     token = (request.POST.get("pending_token") or "").strip()
     if token:
-        cache.delete(_canvas_quick_prompt_cache_key(request.user.pk, node.pk, token))
+        cache.delete(_panel_quick_prompt_cache_key(request.user.pk, node.pk, token))
     return JsonResponse({"ok": True, "image_url": node.image_data_url})
 
 

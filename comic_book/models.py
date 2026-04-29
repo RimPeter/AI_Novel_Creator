@@ -155,7 +155,7 @@ class ComicPage(TimeStampedModel):
     layout_type = models.CharField(max_length=20, choices=LayoutType.choices, default=LayoutType.STANDARD)
     page_turn_hook = models.TextField(blank=True, default="")
     notes = models.TextField(blank=True, default="")
-    canvas_layout = models.JSONField(blank=True, default=dict)
+    panel_layout = models.JSONField(blank=True, default=dict)
 
     class Meta:
         ordering = ["page_number", "created_at", "id"]
@@ -171,7 +171,7 @@ class ComicPage(TimeStampedModel):
         return total
 
 
-class ComicCanvasNode(TimeStampedModel):
+class ComicPanelNode(TimeStampedModel):
     class NodeType(models.TextChoices):
         PANEL = "PANEL", "Panel"
         SPLIT = "SPLIT", "Split"
@@ -194,7 +194,7 @@ class ComicCanvasNode(TimeStampedModel):
         INSERT = "INSERT", "Insert"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    page = models.ForeignKey(ComicPage, on_delete=models.CASCADE, related_name="canvas_nodes")
+    page = models.ForeignKey(ComicPage, on_delete=models.CASCADE, related_name="panel_nodes")
     parent = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -202,7 +202,7 @@ class ComicCanvasNode(TimeStampedModel):
         blank=True,
         null=True,
     )
-    canvas_key = models.CharField(max_length=120)
+    panel_key = models.CharField(max_length=120)
     node_type = models.CharField(max_length=10, choices=NodeType.choices, default=NodeType.PANEL)
     child_index = models.PositiveSmallIntegerField(default=0)
     split_direction = models.CharField(max_length=20, choices=SplitDirection.choices, blank=True, default="")
@@ -221,11 +221,11 @@ class ComicCanvasNode(TimeStampedModel):
     location = models.ForeignKey(
         ComicLocation,
         on_delete=models.SET_NULL,
-        related_name="canvas_nodes",
+        related_name="panel_nodes",
         blank=True,
         null=True,
     )
-    characters = models.ManyToManyField(ComicCharacter, related_name="canvas_nodes", blank=True)
+    characters = models.ManyToManyField(ComicCharacter, related_name="panel_nodes", blank=True)
     image_prompt = models.TextField(blank=True, default="")
     image_data_url = models.TextField(blank=True, default="")
     image_status = models.CharField(max_length=12, choices=ImageStatus.choices, default=ImageStatus.IDLE)
@@ -234,11 +234,11 @@ class ComicCanvasNode(TimeStampedModel):
     class Meta:
         ordering = ["created_at", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["page", "canvas_key"], name="uniq_comic_canvas_node_page_key"),
+            models.UniqueConstraint(fields=["page", "panel_key"], name="uniq_comic_panel_node_page_key"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.page} / {self.canvas_key}"
+        return f"{self.page} / {self.panel_key}"
 
 
 class ComicPanel(TimeStampedModel):

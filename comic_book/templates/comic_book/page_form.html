@@ -13,17 +13,17 @@
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'comic_book:issue-workspace' slug=project.slug pk=issue.pk %}{% if object %}?page={{ object.pk }}{% endif %}">Back to issue</a>
-          <details class="comic-canvas-reset-menu" data-canvas-reset-menu>
-            <summary class="btn btn-secondary comic-canvas-reset-toggle">Reset Canvas</summary>
-            <div class="comic-canvas-reset-panel">
-              <p class="comic-canvas-reset-copy">Reset to one blank canvas?</p>
-              <div class="comic-canvas-reset-actions">
-                <button class="comic-canvas-reset-btn is-cancel" type="button" data-canvas-reset-cancel>Cancel</button>
-                <button class="comic-canvas-reset-btn is-confirm" type="button" data-canvas-reset-confirm>Reset</button>
+          <details class="comic-panel-reset-menu" data-panel-reset-menu>
+            <summary class="btn btn-secondary comic-panel-reset-toggle">Reset Panel</summary>
+            <div class="comic-panel-reset-panel">
+              <p class="comic-panel-reset-copy">Reset to one blank Panel?</p>
+              <div class="comic-panel-reset-actions">
+                <button class="comic-panel-reset-btn is-cancel" type="button" data-panel-reset-cancel>Cancel</button>
+                <button class="comic-panel-reset-btn is-confirm" type="button" data-panel-reset-confirm>Reset</button>
               </div>
             </div>
           </details>
-          <button class="btn btn-secondary" type="button" data-canvas-menu-visibility-toggle aria-pressed="false">Hide Canvass Menu</button>
+          <button class="btn btn-secondary" type="button" data-panel-menu-visibility-toggle aria-pressed="false">Hide panels menu</button>
         </div>
       </div>
       <p class="page-lead">Define the purpose, pacing, and page-turn effect before you start scripting individual panels.</p>
@@ -42,55 +42,55 @@
       <div
         class="comic-page-editor"
         {% if object %}
-          data-canvas-node-url-template="{% url 'comic_book:canvas-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
-          data-canvas-generate-url-template="{% url 'comic_book:canvas-node-generate' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
-          data-canvas-quick-prompt-url-template="{% url 'comic_book:canvas-node-quick-prompt' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
-          data-canvas-quick-prompt-accept-url-template="{% url 'comic_book:canvas-node-quick-prompt-accept' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
-          data-canvas-quick-prompt-reject-url-template="{% url 'comic_book:canvas-node-quick-prompt-reject' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='__canvas_key__' %}"
+          data-panel-node-url-template="{% url 'comic_book:panel-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='__panel_key__' %}"
+          data-panel-generate-url-template="{% url 'comic_book:panel-node-generate' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='__panel_key__' %}"
+          data-panel-quick-prompt-url-template="{% url 'comic_book:panel-node-quick-prompt' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='__panel_key__' %}"
+          data-panel-quick-prompt-accept-url-template="{% url 'comic_book:panel-node-quick-prompt-accept' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='__panel_key__' %}"
+          data-panel-quick-prompt-reject-url-template="{% url 'comic_book:panel-node-quick-prompt-reject' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='__panel_key__' %}"
         {% endif %}
       >
         <div class="comic-paper-stage">
           <div class="comic-paper-sheet">
             <div class="comic-paper-sheet-inner">
-              <div class="comic-canvas-panel" data-canvas-panel>
-                <details class="comic-canvas-menu">
-                  <summary class="comic-canvas-menu-toggle">Canvas menu</summary>
-                  <div class="comic-canvas-menu-panel">
+              <div class="comic-panel-panel" data-panel-panel>
+                <details class="comic-panel-menu">
+                  <summary class="comic-panel-menu-toggle">panel menu</summary>
+                  <div class="comic-panel-menu-panel">
                     {% if object %}
-                      <a class="comic-canvas-menu-action comic-canvas-menu-link" href="{% url 'comic_book:canvas-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk canvas_key='root' %}">Edit canvas brief</a>
-                      <button class="comic-canvas-menu-action" type="button" data-canvas-action="generate">Generate</button>
-                      <button class="comic-canvas-menu-action" type="button" data-canvas-action="show-quick-prompt">Quick Prompt</button>
+                      <a class="comic-panel-menu-action comic-panel-menu-link" href="{% url 'comic_book:panel-node-edit' slug=project.slug issue_pk=issue.pk page_pk=object.pk panel_key='root' %}">Edit panel brief</a>
+                      <button class="comic-panel-menu-action" type="button" data-panel-action="generate">Generate</button>
+                      <button class="comic-panel-menu-action" type="button" data-panel-action="show-quick-prompt">Quick Prompt</button>
                     {% endif %}
-                    <button class="comic-canvas-menu-action" type="button" data-canvas-action="add-speech-bubble">Add speech bubble</button>
-                    <button class="comic-canvas-menu-action" type="button" data-split-direction="horizontal">Split Horizontally</button>
-                    <button class="comic-canvas-menu-action" type="button" data-split-direction="vertical">Split Vertically</button>
-                    <button class="comic-canvas-menu-action comic-canvas-menu-action-delete" type="button" data-canvas-action="delete">Delete</button>
-                    <div class="comic-canvas-quick-prompt" hidden>
-                      <textarea class="comic-canvas-quick-prompt-input" data-canvas-quick-prompt-input rows="4" placeholder="Describe only what to change in this picture."></textarea>
-                      <div class="comic-canvas-quick-prompt-actions">
-                        <button class="comic-canvas-delete-confirm-btn is-cancel" type="button" data-canvas-action="cancel-quick-prompt">Cancel</button>
-                        <button class="comic-canvas-delete-confirm-btn is-confirm" type="button" data-canvas-action="apply-quick-prompt">Apply</button>
+                    <button class="comic-panel-menu-action" type="button" data-panel-action="add-speech-bubble">Add speech bubble</button>
+                    <button class="comic-panel-menu-action" type="button" data-split-direction="horizontal">Split Horizontally</button>
+                    <button class="comic-panel-menu-action" type="button" data-split-direction="vertical">Split Vertically</button>
+                    <button class="comic-panel-menu-action comic-panel-menu-action-delete" type="button" data-panel-action="delete">Delete</button>
+                    <div class="comic-panel-quick-prompt" hidden>
+                      <textarea class="comic-panel-quick-prompt-input" data-panel-quick-prompt-input rows="4" placeholder="Describe only what to change in this picture."></textarea>
+                      <div class="comic-panel-quick-prompt-actions">
+                        <button class="comic-panel-delete-confirm-btn is-cancel" type="button" data-panel-action="cancel-quick-prompt">Cancel</button>
+                        <button class="comic-panel-delete-confirm-btn is-confirm" type="button" data-panel-action="apply-quick-prompt">Apply</button>
                       </div>
                     </div>
-                    <div class="comic-canvas-quick-prompt-review" hidden>
-                      <p class="comic-canvas-quick-prompt-review-copy">Use this Quick Prompt result?</p>
-                      <div class="comic-canvas-quick-prompt-actions">
-                        <button class="comic-canvas-delete-confirm-btn is-cancel" type="button" data-canvas-action="reject-quick-prompt">Reject</button>
-                        <button class="comic-canvas-delete-confirm-btn is-confirm" type="button" data-canvas-action="accept-quick-prompt">Accept</button>
+                    <div class="comic-panel-quick-prompt-review" hidden>
+                      <p class="comic-panel-quick-prompt-review-copy">Use this Quick Prompt result?</p>
+                      <div class="comic-panel-quick-prompt-actions">
+                        <button class="comic-panel-delete-confirm-btn is-cancel" type="button" data-panel-action="reject-quick-prompt">Reject</button>
+                        <button class="comic-panel-delete-confirm-btn is-confirm" type="button" data-panel-action="accept-quick-prompt">Accept</button>
                       </div>
                     </div>
                   </div>
                 </details>
-                <div class="comic-canvas-surface"></div>
+                <div class="comic-panel-surface"></div>
               </div>
             </div>
           </div>
-          <p class="comic-paper-caption">Blank canvas sized to A4 proportions.</p>
+          <p class="comic-paper-caption">Blank Panel sized to A4 proportions.</p>
         </div>
 
         <form method="post" class="form comic-page-form" data-dirty-guard="true" data-dirty-guard-autosave="true">
           {% csrf_token %}
-          {{ form.canvas_layout }}
+          {{ form.panel_layout }}
           {% if form.non_field_errors %}
             <div class="form-errors">{{ form.non_field_errors }}</div>
           {% endif %}
@@ -120,11 +120,11 @@
       </div>
     </section>
   </div>
-  {{ canvas_image_map|json_script:"comic-canvas-image-data" }}
+  {{ panel_image_map|json_script:"comic-panel-image-data" }}
   <script src="{% static 'main/ui_helpers.js' %}" defer></script>
   <script src="{% static 'main/ai_billing_guard.js' %}" defer></script>
   <script src="{% static 'main/autogrow_textareas.js' %}" defer></script>
-  <script src="{% static 'main/comic_page_canvas.js' %}" defer></script>
+  <script src="{% static 'main/comic_page_panel.js' %}" defer></script>
   <script src="{% static 'main/form_dirty_guard.js' %}" defer></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {

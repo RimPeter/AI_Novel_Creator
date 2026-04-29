@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from .forms import (
     ComicBibleForm,
-    ComicCanvasNodeForm,
+    ComicPanelNodeForm,
     ComicCharacterForm,
     ComicIssueForm,
     ComicLocationForm,
@@ -18,7 +18,7 @@ from .forms import (
     ComicProjectForm,
 )
 from main.llm import LLMResult
-from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
 class ComicBookAppTests(TestCase):
@@ -1069,7 +1069,7 @@ class ComicBookAppTests(TestCase):
             ComicIssueForm(),
             ComicPageForm(),
             ComicPanelForm(),
-            ComicCanvasNodeForm(),
+            ComicPanelNodeForm(),
         ]
 
         for form in forms_to_check:
@@ -1189,7 +1189,7 @@ class ComicBookAppTests(TestCase):
                 "layout_type": ComicPage.LayoutType.STANDARD,
                 "page_turn_hook": "",
                 "notes": "",
-                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+                "panel_layout": '{"type":"panel","panel_key":"root"}',
             },
         )
 
@@ -1222,7 +1222,7 @@ class ComicBookAppTests(TestCase):
                 "layout_type": ComicPage.LayoutType.STANDARD,
                 "page_turn_hook": "",
                 "notes": "",
-                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+                "panel_layout": '{"type":"panel","panel_key":"root"}',
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
             HTTP_X_COMIC_PAGE_AUTOSAVE="true",
@@ -1253,7 +1253,7 @@ class ComicBookAppTests(TestCase):
                 "layout_type": ComicPage.LayoutType.STANDARD,
                 "page_turn_hook": "",
                 "notes": "",
-                "canvas_layout": '{"type":"panel","canvas_key":"root"}',
+                "panel_layout": '{"type":"panel","panel_key":"root"}',
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
             HTTP_X_COMIC_PAGE_AUTOSAVE="true",
@@ -1262,7 +1262,7 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"ok": False, "error": "Page autosave failed."})
 
-    def test_page_update_normalizes_duplicate_canvas_keys_for_unique_child_briefs(self):
+    def test_page_update_normalizes_duplicate_panel_keys_for_unique_child_briefs(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
@@ -1281,15 +1281,15 @@ class ComicBookAppTests(TestCase):
                 "layout_type": ComicPage.LayoutType.STANDARD,
                 "page_turn_hook": "",
                 "notes": "",
-                "canvas_layout": json.dumps(
+                "panel_layout": json.dumps(
                     {
                         "type": "split",
-                        "canvas_key": "root",
+                        "panel_key": "root",
                         "direction": "vertical",
                         "ratio": 0.5,
                         "children": [
-                            {"type": "panel", "canvas_key": "canvas-2"},
-                            {"type": "panel", "canvas_key": "canvas-2"},
+                            {"type": "panel", "panel_key": "panel-2"},
+                            {"type": "panel", "panel_key": "panel-2"},
                         ],
                     }
                 ),
@@ -1298,12 +1298,12 @@ class ComicBookAppTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         page.refresh_from_db()
-        children = page.canvas_layout["children"]
-        self.assertEqual(children[0]["canvas_key"], "canvas-2")
-        self.assertNotEqual(children[0]["canvas_key"], children[1]["canvas_key"])
-        self.assertTrue(children[1]["canvas_key"].startswith("canvas-"))
+        children = page.panel_layout["children"]
+        self.assertEqual(children[0]["panel_key"], "panel-2")
+        self.assertNotEqual(children[0]["panel_key"], children[1]["panel_key"])
+        self.assertTrue(children[1]["panel_key"].startswith("Panel-"))
 
-    def test_page_update_preserves_canvas_speech_bubbles(self):
+    def test_page_update_preserves_panel_speech_bubbles(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
@@ -1322,10 +1322,10 @@ class ComicBookAppTests(TestCase):
                 "layout_type": ComicPage.LayoutType.STANDARD,
                 "page_turn_hook": "",
                 "notes": "",
-                "canvas_layout": json.dumps(
+                "panel_layout": json.dumps(
                     {
                         "type": "panel",
-                        "canvas_key": "root",
+                        "panel_key": "root",
                         "speech_bubbles": [
                             {
                                 "id": "speech-1",
@@ -1348,21 +1348,21 @@ class ComicBookAppTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         page.refresh_from_db()
-        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["text"], "We go now.")
-        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["border_radius"], 24)
-        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["font_size"], 22)
-        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["pointer_x"], 58)
-        self.assertEqual(page.canvas_layout["speech_bubbles"][0]["pointer_y"], 72)
-        self.assertNotIn("pointer_anchor_x", page.canvas_layout["speech_bubbles"][0])
-        self.assertNotIn("pointer_anchor_y", page.canvas_layout["speech_bubbles"][0])
-        self.assertTrue(page.canvas_layout["speech_bubbles"][0]["flipped"])
+        self.assertEqual(page.panel_layout["speech_bubbles"][0]["text"], "We go now.")
+        self.assertEqual(page.panel_layout["speech_bubbles"][0]["border_radius"], 24)
+        self.assertEqual(page.panel_layout["speech_bubbles"][0]["font_size"], 22)
+        self.assertEqual(page.panel_layout["speech_bubbles"][0]["pointer_x"], 58)
+        self.assertEqual(page.panel_layout["speech_bubbles"][0]["pointer_y"], 72)
+        self.assertNotIn("pointer_anchor_x", page.panel_layout["speech_bubbles"][0])
+        self.assertNotIn("pointer_anchor_y", page.panel_layout["speech_bubbles"][0])
+        self.assertTrue(page.panel_layout["speech_bubbles"][0]["flipped"])
 
     @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-    def test_page_edit_canvas_menu_renders_generate_control(self):
+    def test_page_edit_panel_menu_renders_generate_control(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        ComicCanvasNode.objects.create(page=page, canvas_key="root", image_data_url="data:image/png;base64,saved")
+        ComicPanelNode.objects.create(page=page, panel_key="root", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         response = self.client.get(
@@ -1373,74 +1373,74 @@ class ComicBookAppTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'data-canvas-generate-url-template=', html=False)
-        self.assertContains(response, 'data-canvas-quick-prompt-url-template=', html=False)
-        self.assertContains(response, 'data-canvas-quick-prompt-accept-url-template=', html=False)
-        self.assertContains(response, 'data-canvas-quick-prompt-reject-url-template=', html=False)
-        self.assertContains(response, 'data-canvas-action="generate"', html=False)
-        self.assertContains(response, 'data-canvas-action="show-quick-prompt"', html=False)
-        self.assertContains(response, 'data-canvas-action="accept-quick-prompt"', html=False)
-        self.assertContains(response, 'data-canvas-action="reject-quick-prompt"', html=False)
-        self.assertContains(response, 'data-canvas-action="add-speech-bubble"', html=False)
+        self.assertContains(response, 'data-panel-generate-url-template=', html=False)
+        self.assertContains(response, 'data-panel-quick-prompt-url-template=', html=False)
+        self.assertContains(response, 'data-panel-quick-prompt-accept-url-template=', html=False)
+        self.assertContains(response, 'data-panel-quick-prompt-reject-url-template=', html=False)
+        self.assertContains(response, 'data-panel-action="generate"', html=False)
+        self.assertContains(response, 'data-panel-action="show-quick-prompt"', html=False)
+        self.assertContains(response, 'data-panel-action="accept-quick-prompt"', html=False)
+        self.assertContains(response, 'data-panel-action="reject-quick-prompt"', html=False)
+        self.assertContains(response, 'data-panel-action="add-speech-bubble"', html=False)
         self.assertContains(response, ">Generate<", html=False)
         self.assertContains(response, ">Quick Prompt<", html=False)
-        self.assertContains(response, "comic-canvas-image-data")
+        self.assertContains(response, "comic-panel-image-data")
         self.assertContains(response, "data:image/png;base64,saved")
 
-    def test_canvas_node_edit_renders_brainstorm_and_add_detail_controls(self):
+    def test_panel_node_edit_renders_brainstorm_and_add_detail_controls(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
         self.client.force_login(self.user)
 
         response = self.client.get(
             reverse(
-                "comic_book:canvas-node-edit",
-                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                "comic_book:panel-node-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
             )
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id="comic-canvas-brainstorm-btn"', html=False)
-        self.assertContains(response, 'id="comic-canvas-add-details-btn"', html=False)
-        self.assertContains(response, 'data-canvas-character-menu', html=False)
+        self.assertContains(response, 'id="comic-panel-brainstorm-btn"', html=False)
+        self.assertContains(response, 'id="comic-panel-add-details-btn"', html=False)
+        self.assertContains(response, 'data-panel-character-menu', html=False)
         self.assertContains(response, 'name="characters"', html=False)
         self.assertContains(response, f'value="{character.id}"', html=False)
         self.assertContains(response, 'data-character-name="Nika Vale"', html=False)
         self.assertContains(
             response,
             reverse(
-                "comic_book:canvas-node-brainstorm",
-                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                "comic_book:panel-node-brainstorm",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
             ),
         )
         self.assertContains(
             response,
             reverse(
-                "comic_book:canvas-node-add-details",
-                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                "comic_book:panel-node-add-details",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
             ),
         )
 
-    def test_canvas_node_save_redirects_back_to_same_canvas_edit_page(self):
+    def test_panel_node_save_redirects_back_to_same_panel_edit_page(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
         self.client.force_login(self.user)
 
         edit_url = reverse(
-            "comic_book:canvas-node-edit",
-            kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+            "comic_book:panel-node-edit",
+            kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
         )
         response = self.client.post(
             edit_url,
             data={
                 "focus": "Nika at the threshold",
-                "shot_type": ComicCanvasNode.ShotType.WIDE,
+                "shot_type": ComicPanelNode.ShotType.WIDE,
                 "camera_angle": "Low angle",
                 "location": "",
                 "characters": [str(character.pk)],
@@ -1460,11 +1460,11 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(node.focus, "Nika at the threshold")
         self.assertEqual(list(node.characters.values_list("name", flat=True)), ["Nika Vale"])
 
-    def test_canvas_node_brainstorm_returns_only_empty_field_suggestions(self):
+    def test_panel_node_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", summary="The courier enters the relay.", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Nika crosses the abandoned dock.")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Nika at the threshold")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", focus="Nika at the threshold")
         ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
         self.client.force_login(self.user)
 
@@ -1477,12 +1477,12 @@ class ComicBookAppTests(TestCase):
         ) as mock_call:
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-brainstorm",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-brainstorm",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={
                     "focus": "Nika at the threshold",
-                    "shot_type": ComicCanvasNode.ShotType.WIDE,
+                    "shot_type": ComicPanelNode.ShotType.WIDE,
                     "camera_angle": "",
                     "action": "",
                     "mood": "",
@@ -1520,11 +1520,11 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Selected characters: ", prompt)
         self.assertIn("Available characters: Nika Vale", prompt)
 
-    def test_canvas_node_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
+    def test_panel_node_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
         ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
         self.client.force_login(self.user)
@@ -1538,12 +1538,12 @@ class ComicBookAppTests(TestCase):
         ):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-add-details",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-add-details",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={
                     "focus": "Nika at the threshold",
-                    "shot_type": ComicCanvasNode.ShotType.WIDE,
+                    "shot_type": ComicPanelNode.ShotType.WIDE,
                     "camera_angle": "",
                     "action": "Nika pauses under a flickering warning strip.",
                     "mood": "Uneasy",
@@ -1566,7 +1566,7 @@ class ComicBookAppTests(TestCase):
         )
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_generate_canvas_node_image_uses_canvas_brief_links_and_bible(self):
+    def test_generate_panel_node_image_uses_panel_brief_links_and_bible(self):
         project = self._create_project()
         project.art_style_notes = "Clean European sci-fi line art."
         project.save(update_fields=["art_style_notes", "updated_at"])
@@ -1594,11 +1594,11 @@ class ComicBookAppTests(TestCase):
             costume_notes="Signal-thread jacket.",
             visual_notes="Sharp undercut silhouette.",
         )
-        node = ComicCanvasNode.objects.create(
+        node = ComicPanelNode.objects.create(
             page=page,
-            canvas_key="canvas-2",
+            panel_key="panel-2",
             focus="Nika at the threshold",
-            shot_type=ComicCanvasNode.ShotType.WIDE,
+            shot_type=ComicPanelNode.ShotType.WIDE,
             camera_angle="Low angle",
             location=location,
             action="Nika pauses under a flickering warning strip.",
@@ -1614,23 +1614,23 @@ class ComicBookAppTests(TestCase):
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
-            return "data:image/png;base64,canvasimage"
+            return "data:image/png;base64,panelimage"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-generate",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"ok": True, "image_url": "data:image/png;base64,canvasimage"})
+        self.assertEqual(response.json(), {"ok": True, "image_url": "data:image/png;base64,panelimage"})
         node.refresh_from_db()
-        self.assertEqual(node.image_data_url, "data:image/png;base64,canvasimage")
-        self.assertEqual(node.image_status, ComicCanvasNode.ImageStatus.READY)
+        self.assertEqual(node.image_data_url, "data:image/png;base64,panelimage")
+        self.assertEqual(node.image_status, ComicPanelNode.ImageStatus.READY)
         self.assertEqual(len(prompts), 1)
         self.assertIn("Comic bible visual rules: Signal glow marks forbidden infrastructure.", prompts[0])
         self.assertIn("Location name: Relay Port", prompts[0])
@@ -1643,7 +1643,7 @@ class ComicBookAppTests(TestCase):
         self.assertNotIn("Issue notes: The relay lock is the emotional priority for this issue.", prompts[0])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_generate_canvas_node_image_compacts_long_prompt_under_provider_limit(self):
+    def test_generate_panel_node_image_compacts_long_prompt_under_provider_limit(self):
         project = self._create_project()
         project.art_style_notes = "Style. " * 500
         project.save(update_fields=["art_style_notes", "updated_at"])
@@ -1656,9 +1656,9 @@ class ComicBookAppTests(TestCase):
             planned_page_count=1,
         )
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Page summary. " * 300)
-        node = ComicCanvasNode.objects.create(
+        node = ComicPanelNode.objects.create(
             page=page,
-            canvas_key="canvas-2",
+            panel_key="panel-2",
             focus="Nika at the threshold",
             action="Nika pauses under the warning strip. " * 80,
             must_include="Relay lock",
@@ -1669,13 +1669,13 @@ class ComicBookAppTests(TestCase):
 
         def fake_generate_image_data_url(*, prompt, model_name, size):
             prompts.append(prompt)
-            return "data:image/png;base64,canvasimage"
+            return "data:image/png;base64,panelimage"
 
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-generate",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1683,16 +1683,16 @@ class ComicBookAppTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(len(prompts[0]), 3800)
-        self.assertIn("Canvas brief:", prompts[0])
+        self.assertIn("panel brief:", prompts[0])
         self.assertIn("Focus: Nika at the threshold", prompts[0])
         self.assertIn("Must include: Relay lock", prompts[0])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_generate_canvas_node_image_returns_moderation_message_without_fallback(self):
+    def test_generate_panel_node_image_returns_moderation_message_without_fallback(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Blocked prompt")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", focus="Blocked prompt")
         self.client.force_login(self.user)
 
         calls = []
@@ -1707,8 +1707,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-generate",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1719,14 +1719,14 @@ class ComicBookAppTests(TestCase):
         self.assertIn("blocked by the safety system", response.json()["error"])
         self.assertEqual(calls, ["gpt-image-2"])
         node.refresh_from_db()
-        self.assertEqual(node.image_status, ComicCanvasNode.ImageStatus.FAILED)
+        self.assertEqual(node.image_status, ComicPanelNode.ImageStatus.FAILED)
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_generate_canvas_node_image_does_not_fallback_from_gpt_image_2_failure(self):
+    def test_generate_panel_node_image_does_not_fallback_from_gpt_image_2_failure(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Nika waits")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", focus="Nika waits")
         self.client.force_login(self.user)
 
         calls = []
@@ -1738,8 +1738,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.generate_image_data_url", side_effect=fake_generate_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-generate",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1750,18 +1750,18 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(calls, ["gpt-image-2"])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_generate_canvas_node_image_returns_specific_provider_error(self):
+    def test_generate_panel_node_image_returns_specific_provider_error(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", focus="Nika waits")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", focus="Nika waits")
         self.client.force_login(self.user)
 
         with patch("comic_book.views.generate_image_data_url", side_effect=Exception("Model does not exist.")):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-generate",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1771,11 +1771,11 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Image generation failed: Model does not exist.", response.json()["error"])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_quick_prompt_canvas_node_image_uses_only_reference_image_prompt(self):
+    def test_quick_prompt_panel_node_image_uses_only_reference_image_prompt(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,old")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,old")
         self.client.force_login(self.user)
 
         prompts = []
@@ -1790,8 +1790,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.edit_image_data_url", side_effect=fake_edit_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={"prompt": "Make the background sunset.", "reference_image_data_url": "data:image/png;base64,reference"},
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1811,11 +1811,11 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Make the background sunset.", prompts[0])
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_quick_prompt_canvas_node_image_uses_saved_image_when_reference_not_posted(self):
+    def test_quick_prompt_panel_node_image_uses_saved_image_when_reference_not_posted(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         def fake_edit_image_data_url(*, prompt, image_data_url, model_name, size):
@@ -1825,8 +1825,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.edit_image_data_url", side_effect=fake_edit_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={"prompt": "Make the jacket blue."},
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1837,11 +1837,11 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.json()["image_url"], "data:image/png;base64,edited")
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_quick_prompt_canvas_node_image_uses_uploaded_reference_image(self):
+    def test_quick_prompt_panel_node_image_uses_uploaded_reference_image(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         def fake_edit_image_data_url(*, prompt, image_data_url, model_name, size):
@@ -1851,8 +1851,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.edit_image_data_url", side_effect=fake_edit_image_data_url):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={
                     "prompt": "Make the jacket blue.",
@@ -1866,11 +1866,11 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.json()["image_url"], "data:image/png;base64,edited")
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_accept_quick_prompt_canvas_node_image_persists_pending_preview(self):
+    def test_accept_quick_prompt_panel_node_image_persists_pending_preview(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         def fake_edit_image_data_url(*, prompt, image_data_url, model_name, size):
@@ -1879,8 +1879,8 @@ class ComicBookAppTests(TestCase):
         with patch("comic_book.views.edit_image_data_url", side_effect=fake_edit_image_data_url):
             quick_response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={"prompt": "Make the jacket blue."},
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1892,8 +1892,8 @@ class ComicBookAppTests(TestCase):
 
         accept_response = self.client.post(
             reverse(
-                "comic_book:canvas-node-quick-prompt-accept",
-                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                "comic_book:panel-node-quick-prompt-accept",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
             ),
             data={"pending_token": quick_response.json()["pending_token"]},
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1905,18 +1905,18 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(node.image_data_url, "data:image/png;base64,edited")
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_reject_quick_prompt_canvas_node_image_keeps_original_image(self):
+    def test_reject_quick_prompt_panel_node_image_keeps_original_image(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         with patch("comic_book.views.edit_image_data_url", return_value="data:image/png;base64,edited"):
             quick_response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={"prompt": "Make the jacket blue."},
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1925,8 +1925,8 @@ class ComicBookAppTests(TestCase):
 
         reject_response = self.client.post(
             reverse(
-                "comic_book:canvas-node-quick-prompt-reject",
-                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                "comic_book:panel-node-quick-prompt-reject",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
             ),
             data={"pending_token": quick_response.json()["pending_token"]},
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1938,11 +1938,11 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(node.image_data_url, "data:image/png;base64,saved")
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
-    def test_quick_prompt_canvas_node_image_returns_provider_billing_limit_message(self):
+    def test_quick_prompt_panel_node_image_returns_provider_billing_limit_message(self):
         project = self._create_project()
         issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
-        node = ComicCanvasNode.objects.create(page=page, canvas_key="canvas-2", image_data_url="data:image/png;base64,saved")
+        node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
         self.client.force_login(self.user)
 
         with patch(
@@ -1954,8 +1954,8 @@ class ComicBookAppTests(TestCase):
         ):
             response = self.client.post(
                 reverse(
-                    "comic_book:canvas-node-quick-prompt",
-                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "canvas_key": node.canvas_key},
+                    "comic_book:panel-node-quick-prompt",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": node.panel_key},
                 ),
                 data={"prompt": "Make the jacket blue."},
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",

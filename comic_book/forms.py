@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ComicBible, ComicCanvasNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
+from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicPage, ComicPanel, ComicProject
 
 
 def _autogrow_textarea(*, rows: int):
@@ -131,7 +131,7 @@ class ComicPageForm(forms.ModelForm):
             "layout_type",
             "page_turn_hook",
             "notes",
-            "canvas_layout",
+            "panel_layout",
         ]
         widgets = {
             "page_number": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
@@ -141,7 +141,7 @@ class ComicPageForm(forms.ModelForm):
             "layout_type": forms.Select(attrs={"class": "form-control"}),
             "page_turn_hook": _autogrow_textarea(rows=4),
             "notes": _autogrow_textarea(rows=4),
-            "canvas_layout": forms.HiddenInput(attrs={"data-canvas-layout-input": "true"}),
+            "panel_layout": forms.HiddenInput(attrs={"data-panel-layout-input": "true"}),
         }
 
 
@@ -190,9 +190,9 @@ class ComicPanelForm(forms.ModelForm):
         self.fields["characters"].queryset = ComicCharacter.objects.filter(project=resolved_project).order_by("name")
 
 
-class ComicCanvasNodeForm(forms.ModelForm):
+class ComicPanelNodeForm(forms.ModelForm):
     class Meta:
-        model = ComicCanvasNode
+        model = ComicPanelNode
         fields = [
             "focus",
             "shot_type",

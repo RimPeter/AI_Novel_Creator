@@ -7,17 +7,17 @@
   const panelResetMenu = document.querySelector("[data-panel-reset-menu]");
   const panelResetCancelButton = document.querySelector("[data-panel-reset-cancel]");
   const panelResetConfirmButton = document.querySelector("[data-panel-reset-confirm]");
-  const PanelNodeUrlTemplate = pageEditor?.dataset.panelNodeUrlTemplate || "";
-  const PanelGenerateUrlTemplate = pageEditor?.dataset.panelGenerateUrlTemplate || "";
-  const PanelQuickPromptUrlTemplate = pageEditor?.dataset.panelQuickPromptUrlTemplate || "";
-  const PanelQuickPromptAcceptUrlTemplate = pageEditor?.dataset.panelQuickPromptAcceptUrlTemplate || "";
-  const PanelQuickPromptRejectUrlTemplate = pageEditor?.dataset.panelQuickPromptRejectUrlTemplate || "";
+  const panelNodeUrlTemplate = pageEditor?.dataset.panelNodeUrlTemplate || "";
+  const panelGenerateUrlTemplate = pageEditor?.dataset.panelGenerateUrlTemplate || "";
+  const panelQuickPromptUrlTemplate = pageEditor?.dataset.panelQuickPromptUrlTemplate || "";
+  const panelQuickPromptAcceptUrlTemplate = pageEditor?.dataset.panelQuickPromptAcceptUrlTemplate || "";
+  const panelQuickPromptRejectUrlTemplate = pageEditor?.dataset.panelQuickPromptRejectUrlTemplate || "";
   if (!rootPanel || !(layoutInput instanceof HTMLInputElement) || !(pageEditor instanceof HTMLElement)) return;
 
-  const MIN_panel_SIZE = 80;
+  const MIN_PANEL_SIZE = 80;
   const MIN_BUBBLE_SIZE = 42;
   let splitIdSequence = 0;
-  let PanelKeySequence = 0;
+  let panelKeySequence = 0;
   let speechBubbleSequence = 0;
   let draggedPanelPanel = null;
   const usedPanelKeys = new Set();
@@ -30,19 +30,19 @@
     menuVisibilityToggle.setAttribute("aria-pressed", isHidden ? "true" : "false");
   };
 
-  const buildPanelNodeUrl = (PanelKey) =>
-    PanelNodeUrlTemplate && PanelKey ? PanelNodeUrlTemplate.replace("__panel_key__", encodeURIComponent(PanelKey)) : "";
-  const buildPanelGenerateUrl = (PanelKey) =>
-    PanelGenerateUrlTemplate && PanelKey ? PanelGenerateUrlTemplate.replace("__panel_key__", encodeURIComponent(PanelKey)) : "";
-  const buildPanelQuickPromptUrl = (PanelKey) =>
-    PanelQuickPromptUrlTemplate && PanelKey ? PanelQuickPromptUrlTemplate.replace("__panel_key__", encodeURIComponent(PanelKey)) : "";
-  const buildPanelQuickPromptAcceptUrl = (PanelKey) =>
-    PanelQuickPromptAcceptUrlTemplate && PanelKey
-      ? PanelQuickPromptAcceptUrlTemplate.replace("__panel_key__", encodeURIComponent(PanelKey))
+  const buildPanelNodeUrl = (panelKey) =>
+    panelNodeUrlTemplate && panelKey ? panelNodeUrlTemplate.replace("__panel_key__", encodeURIComponent(panelKey)) : "";
+  const buildPanelGenerateUrl = (panelKey) =>
+    panelGenerateUrlTemplate && panelKey ? panelGenerateUrlTemplate.replace("__panel_key__", encodeURIComponent(panelKey)) : "";
+  const buildPanelQuickPromptUrl = (panelKey) =>
+    panelQuickPromptUrlTemplate && panelKey ? panelQuickPromptUrlTemplate.replace("__panel_key__", encodeURIComponent(panelKey)) : "";
+  const buildPanelQuickPromptAcceptUrl = (panelKey) =>
+    panelQuickPromptAcceptUrlTemplate && panelKey
+      ? panelQuickPromptAcceptUrlTemplate.replace("__panel_key__", encodeURIComponent(panelKey))
       : "";
-  const buildPanelQuickPromptRejectUrl = (PanelKey) =>
-    PanelQuickPromptRejectUrlTemplate && PanelKey
-      ? PanelQuickPromptRejectUrlTemplate.replace("__panel_key__", encodeURIComponent(PanelKey))
+  const buildPanelQuickPromptRejectUrl = (panelKey) =>
+    panelQuickPromptRejectUrlTemplate && panelKey
+      ? panelQuickPromptRejectUrlTemplate.replace("__panel_key__", encodeURIComponent(panelKey))
       : "";
 
   const registerPanelKey = (key) => {
@@ -51,16 +51,16 @@
     usedPanelKeys.add(normalized);
     const match = normalized.match(/^panel-(\d+)$/);
     if (match) {
-      PanelKeySequence = Math.max(PanelKeySequence, Number(match[1]) || 0);
+      panelKeySequence = Math.max(panelKeySequence, Number(match[1]) || 0);
     }
     return normalized;
   };
 
   const nextPanelKey = () => {
     do {
-      PanelKeySequence += 1;
-    } while (usedPanelKeys.has(`panel-${PanelKeySequence}`));
-    return registerPanelKey(`panel-${PanelKeySequence}`);
+      panelKeySequence += 1;
+    } while (usedPanelKeys.has(`panel-${panelKeySequence}`));
+    return registerPanelKey(`panel-${panelKeySequence}`);
   };
 
   const assignPanelKey = (panel, key) => {
@@ -111,17 +111,17 @@
     const panel = document.createElement("div");
     panel.className = "comic-panel-menu-panel";
 
-    const PanelEditUrl = buildPanelNodeUrl(ensurePanelKey(ownerPanel));
-    const PanelGenerateUrl = buildPanelGenerateUrl(ensurePanelKey(ownerPanel));
-    const PanelQuickPromptUrl = buildPanelQuickPromptUrl(ensurePanelKey(ownerPanel));
-    if (PanelEditUrl) {
+    const panelEditUrl = buildPanelNodeUrl(ensurePanelKey(ownerPanel));
+    const panelGenerateUrl = buildPanelGenerateUrl(ensurePanelKey(ownerPanel));
+    const panelQuickPromptUrl = buildPanelQuickPromptUrl(ensurePanelKey(ownerPanel));
+    if (panelEditUrl) {
       const link = document.createElement("a");
       link.className = "comic-panel-menu-action comic-panel-menu-link";
-      link.href = PanelEditUrl;
+      link.href = panelEditUrl;
       link.textContent = "Edit panel brief";
       panel.appendChild(link);
     }
-    if (PanelGenerateUrl) {
+    if (panelGenerateUrl) {
       const generateButton = document.createElement("button");
       generateButton.type = "button";
       generateButton.className = "comic-panel-menu-action";
@@ -129,7 +129,7 @@
       generateButton.textContent = "Generate";
       panel.appendChild(generateButton);
     }
-    if (PanelQuickPromptUrl) {
+    if (panelQuickPromptUrl) {
       const quickPromptButton = document.createElement("button");
       quickPromptButton.type = "button";
       quickPromptButton.className = "comic-panel-menu-action";
@@ -496,7 +496,7 @@
     return bubble;
   };
 
-  const setpanelimage = (panel, imageUrl) => {
+  const setPanelImage = (panel, imageUrl) => {
     if (!(panel instanceof HTMLElement) || !imageUrl) return;
     const surface = panel.querySelector(":scope > .comic-panel-surface");
     if (!(surface instanceof HTMLElement)) return;
@@ -508,7 +508,7 @@
     surface.appendChild(image);
   };
 
-  const loadpanelimages = () => {
+  const loadPanelImages = () => {
     const dataScript = document.getElementById("comic-panel-image-data");
     if (!dataScript) return;
     let imageMap = {};
@@ -518,10 +518,10 @@
       imageMap = {};
     }
     if (!imageMap || typeof imageMap !== "object") return;
-    rootPanel.querySelectorAll("[data-panel-panel]").forEach((panel) => {
+    [rootPanel, ...Array.from(rootPanel.querySelectorAll("[data-panel-panel]"))].forEach((panel) => {
       if (!(panel instanceof HTMLElement)) return;
       const imageUrl = imageMap[ensurePanelKey(panel)];
-      if (imageUrl) setpanelimage(panel, imageUrl);
+      if (imageUrl) setPanelImage(panel, imageUrl);
     });
   };
 
@@ -539,7 +539,7 @@
     const panels = [rootPanel, ...Array.from(rootPanel.querySelectorAll("[data-panel-panel]"))].filter(
       (panel) => panel instanceof HTMLElement
     );
-    let PanelNumber = 1;
+    let panelNumber = 1;
     panels.forEach((panel) => {
       const menuToggle = panel.querySelector(":scope > .comic-panel-menu > .comic-panel-menu-toggle");
       if (hasNestedPanelSplit(panel)) {
@@ -550,12 +550,12 @@
         }
         return;
       }
-      panel.dataset.panelNumber = String(PanelNumber);
-      panel.setAttribute("aria-label", `Panel ${PanelNumber}`);
+      panel.dataset.panelNumber = String(panelNumber);
+      panel.setAttribute("aria-label", `Panel ${panelNumber}`);
       if (menuToggle instanceof HTMLElement) {
-        menuToggle.textContent = `Panel ${PanelNumber} menu`;
+        menuToggle.textContent = `Panel ${panelNumber} menu`;
       }
-      PanelNumber += 1;
+      panelNumber += 1;
     });
   };
 
@@ -623,11 +623,11 @@
     return true;
   };
 
-  const generatepanelimage = async (panel, action, menu) => {
+  const generatePanelImage = async (panel, action, menu) => {
     const ui = window.AppUI;
     if (!ui || !(panel instanceof HTMLElement)) return;
-    const PanelKey = ensurePanelKey(panel);
-    const url = buildPanelGenerateUrl(PanelKey);
+    const panelKey = ensurePanelKey(panel);
+    const url = buildPanelGenerateUrl(panelKey);
     if (!url) return;
 
     const originalText = action.textContent;
@@ -635,9 +635,12 @@
     action.setAttribute("aria-busy", "true");
     action.disabled = true;
     try {
+      syncLayoutInput();
+      const params = new URLSearchParams();
+      params.set("panel_layout", layoutInput.value || "");
       const result = await ui.postFormUrlEncoded({
         url,
-        params: new URLSearchParams(),
+        params,
         csrfToken: ui.getCsrfToken(),
         failureLabel: "Generate failed",
       });
@@ -651,8 +654,9 @@
         ui.showMessage("No image returned.", "warning");
         return;
       }
-      setpanelimage(panel, imageUrl);
-      ui.showMessage("panel image generated.", "success");
+      setPanelImage(panel, imageUrl);
+      const savedLayout = await autosavePageLayout();
+      ui.showMessage(savedLayout ? "Panel image generated and saved." : "Panel image generated. Save the page to keep this layout.", savedLayout ? "success" : "warning");
       if (menu instanceof HTMLDetailsElement) menu.open = false;
     } finally {
       action.textContent = originalText;
@@ -749,8 +753,8 @@
       ui.showMessage("Write what to change first.", "warning");
       return;
     }
-    const PanelKey = ensurePanelKey(panel);
-    const url = buildPanelQuickPromptUrl(PanelKey);
+    const panelKey = ensurePanelKey(panel);
+    const url = buildPanelQuickPromptUrl(panelKey);
     if (!url) return;
 
     const originalText = action.textContent;
@@ -764,7 +768,9 @@
         return;
       }
       const formData = new FormData();
+      syncLayoutInput();
       formData.set("prompt", prompt);
+      formData.set("panel_layout", layoutInput.value || "");
       const referenceImageBlob = await createPanelReferenceImageBlob(panel);
       if (referenceImageBlob instanceof Blob) {
         formData.set("reference_image_upload", referenceImageBlob, "reference.png");
@@ -793,8 +799,8 @@
         return;
       }
       const previousImage = image instanceof HTMLImageElement ? image.src : "";
-      setpanelimage(panel, imageUrl);
-      pendingQuickPrompts.set(PanelKey, { previousImage, previewImage: imageUrl, pendingToken });
+      setPanelImage(panel, imageUrl);
+      pendingQuickPrompts.set(panelKey, { previousImage, previewImage: imageUrl, pendingToken });
       if (input instanceof HTMLTextAreaElement) input.value = "";
       setQuickPromptVisibility(menu, false);
       setQuickPromptReviewVisibility(menu, true);
@@ -810,15 +816,15 @@
   const resolveQuickPromptPreview = async (panel, action, menu, shouldAccept) => {
     const ui = window.AppUI;
     if (!ui || !(panel instanceof HTMLElement)) return;
-    const PanelKey = ensurePanelKey(panel);
-    const pending = pendingQuickPrompts.get(PanelKey);
+    const panelKey = ensurePanelKey(panel);
+    const pending = pendingQuickPrompts.get(panelKey);
     if (!pending?.pendingToken) {
       ui.showMessage("No Quick Prompt preview is waiting.", "warning");
       setQuickPromptReviewVisibility(menu, false);
       return;
     }
 
-    const url = shouldAccept ? buildPanelQuickPromptAcceptUrl(PanelKey) : buildPanelQuickPromptRejectUrl(PanelKey);
+    const url = shouldAccept ? buildPanelQuickPromptAcceptUrl(panelKey) : buildPanelQuickPromptRejectUrl(panelKey);
     if (!url) return;
 
     const originalText = action.textContent;
@@ -827,6 +833,8 @@
     try {
       const params = new URLSearchParams();
       params.set("pending_token", pending.pendingToken);
+      syncLayoutInput();
+      params.set("panel_layout", layoutInput.value || "");
       const result = await ui.postFormUrlEncoded({
         url,
         params,
@@ -840,13 +848,14 @@
 
       if (shouldAccept) {
         const imageUrl = result.data?.image_url || pending.previewImage;
-        setpanelimage(panel, imageUrl);
-        ui.showMessage("Quick Prompt accepted.", "success");
+        setPanelImage(panel, imageUrl);
+        const savedLayout = await autosavePageLayout();
+        ui.showMessage(savedLayout ? "Quick Prompt accepted and saved." : "Quick Prompt accepted. Save the page to keep this layout.", savedLayout ? "success" : "warning");
       } else {
-        setpanelimage(panel, pending.previousImage || result.data?.image_url || "");
+        setPanelImage(panel, pending.previousImage || result.data?.image_url || "");
         ui.showMessage("Quick Prompt rejected.", "info");
       }
-      pendingQuickPrompts.delete(PanelKey);
+      pendingQuickPrompts.delete(panelKey);
       setQuickPromptReviewVisibility(menu, false);
       if (menu instanceof HTMLDetailsElement) menu.open = false;
     } finally {
@@ -921,11 +930,11 @@
     const dividerSize = info.direction === "horizontal" ? divider.offsetHeight : divider.offsetWidth;
     const axis = getAxisMetrics(split);
     const availableSize = axis.size - dividerSize;
-    if (availableSize <= MIN_panel_SIZE * 2) return false;
+    if (availableSize <= MIN_PANEL_SIZE * 2) return false;
 
     const pointerOffset = info.direction === "horizontal" ? clientY - axis.start : clientX - axis.start;
     const rawFirstSize = pointerOffset - dividerSize / 2;
-    const nextFirstSize = Math.max(MIN_panel_SIZE, Math.min(availableSize - MIN_panel_SIZE, rawFirstSize));
+    const nextFirstSize = Math.max(MIN_PANEL_SIZE, Math.min(availableSize - MIN_PANEL_SIZE, rawFirstSize));
     const firstRatio = nextFirstSize / availableSize;
     setPanelRatio(firstPanel, firstRatio);
     setPanelRatio(secondPanel, 1 - firstRatio);
@@ -1011,6 +1020,28 @@
     layoutInput.value = JSON.stringify(serializePanel(rootPanel));
   };
 
+  const autosavePageLayout = async () => {
+    if (!(pageForm instanceof HTMLFormElement)) return false;
+    syncLayoutInput();
+
+    try {
+      const response = await fetch(pageForm.action || window.location.href, {
+        method: (pageForm.method || "post").toUpperCase(),
+        body: new FormData(pageForm),
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Comic-Page-Autosave": "true",
+        },
+        credentials: "same-origin",
+      });
+      if (!response.ok) return false;
+      pageForm.dispatchEvent(new CustomEvent("comic-page-autosaved", { bubbles: true }));
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  };
+
   const splitPanel = (panel, direction, ratio = 0.5) => {
     if (!(panel instanceof HTMLElement) || !direction) return;
 
@@ -1090,7 +1121,7 @@
     const dividerSize = direction === "horizontal" ? divider.offsetHeight : divider.offsetWidth;
     const axis = getAxisMetrics(split);
     const availableSize = axis.size - dividerSize;
-    if (availableSize <= MIN_panel_SIZE * 2) return;
+    if (availableSize <= MIN_PANEL_SIZE * 2) return;
 
     divider.classList.add("is-dragging");
     document.body.style.userSelect = "none";
@@ -1098,7 +1129,7 @@
     const updateFromPointer = (clientX, clientY) => {
       const pointerOffset = direction === "horizontal" ? clientY - axis.start : clientX - axis.start;
       const rawFirstSize = pointerOffset - dividerSize / 2;
-      const nextFirstSize = Math.max(MIN_panel_SIZE, Math.min(availableSize - MIN_panel_SIZE, rawFirstSize));
+      const nextFirstSize = Math.max(MIN_PANEL_SIZE, Math.min(availableSize - MIN_PANEL_SIZE, rawFirstSize));
       const firstRatio = nextFirstSize / availableSize;
       setPanelRatio(firstPanel, firstRatio);
       setPanelRatio(secondPanel, 1 - firstRatio);
@@ -1344,7 +1375,7 @@
     }
 
     if ((action.dataset.panelAction || "") === "generate") {
-      generatepanelimage(panel, action, menu);
+      generatePanelImage(panel, action, menu);
       return;
     }
 
@@ -1473,7 +1504,12 @@
         stayInput.type = "hidden";
         stayInput.name = "stay_on_page";
         stayInput.value = "1";
+        const resetInput = document.createElement("input");
+        resetInput.type = "hidden";
+        resetInput.name = "panel_layout_reset";
+        resetInput.value = "1";
         pageForm.appendChild(stayInput);
+        pageForm.appendChild(resetInput);
         pageForm.requestSubmit();
       }
     });
@@ -1483,7 +1519,7 @@
 
   ensurePanelKey(rootPanel, "root");
   loadSavedLayout();
-  loadpanelimages();
+  loadPanelImages();
   updatePanelNumbers();
   updateMenuVisibilityButton();
   rootPanel.querySelectorAll(".comic-panel-menu").forEach((menu) => ensureMenuToggleListener(menu));

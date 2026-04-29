@@ -1630,7 +1630,7 @@ def _ensure_unique_panel_layout_keys(layout) -> dict:
         if not isinstance(node, dict):
             return
         key = str(node.get("panel_key") or "").strip()
-        match = re.fullmatch(r"panel-(\\d+)", key)
+        match = re.fullmatch(r"panel-(\d+)", key)
         if match:
             max_sequence = max(max_sequence, int(match.group(1)))
         for child in node.get("children") or []:
@@ -1643,7 +1643,7 @@ def _ensure_unique_panel_layout_keys(layout) -> dict:
         nonlocal max_sequence
         while True:
             max_sequence += 1
-            candidate = f"Panel-{max_sequence}"
+            candidate = f"panel-{max_sequence}"
             if candidate not in used:
                 used.add(candidate)
                 return candidate
@@ -1669,6 +1669,52 @@ def _ensure_unique_panel_layout_keys(layout) -> dict:
         return next_node
 
     return normalize(layout, is_root=True)
+
+
+def _is_trivial_root_panel_layout(layout) -> bool:
+    return (
+        isinstance(layout, dict)
+        and str(layout.get("type") or "").strip() == "panel"
+        and str(layout.get("panel_key") or "").strip() == "root"
+        and not layout.get("children")
+        and not layout.get("speech_bubbles")
+    )
+
+
+def _submitted_panel_layout_or_existing(form, *, existing_layout=None, allow_reset: bool = False) -> dict:
+    submitted_layout = form.cleaned_data.get("panel_layout")
+    if (
+        not allow_reset
+        and _is_trivial_root_panel_layout(submitted_layout)
+        and isinstance(existing_layout, dict)
+        and existing_layout
+        and not _is_trivial_root_panel_layout(existing_layout)
+    ):
+        return _ensure_unique_panel_layout_keys(existing_layout)
+    if isinstance(submitted_layout, dict) and submitted_layout:
+        return _ensure_unique_panel_layout_keys(submitted_layout)
+    if isinstance(existing_layout, dict) and existing_layout:
+        return _ensure_unique_panel_layout_keys(existing_layout)
+    return _ensure_unique_panel_layout_keys(submitted_layout)
+
+
+def _panel_layout_from_request(request) -> dict | None:
+    raw_layout = (request.POST.get("panel_layout") or "").strip()
+    if not raw_layout:
+        return None
+    try:
+        layout = json.loads(raw_layout)
+    except json.JSONDecodeError:
+        return None
+    return layout if isinstance(layout, dict) else None
+
+
+def _save_panel_layout_from_request(page: ComicPage, request) -> None:
+    layout = _panel_layout_from_request(request)
+    if not layout:
+        return
+    page.panel_layout = _ensure_unique_panel_layout_keys(layout)
+    page.save(update_fields=["panel_layout", "updated_at"])
 
 
 def _sync_panel_node_from_layout(node: ComicPanelNode) -> ComicPanelNode:
@@ -2555,7 +2601,10 @@ class ComicPageCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.issue = self.issue
-        form.instance.panel_layout = _ensure_unique_panel_layout_keys(form.instance.panel_layout)
+        form.instance.panel_layout = _submitted_panel_layout_or_existing(
+            form,
+            allow_reset=self.request.POST.get("panel_layout_reset") == "1",
+        )
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         messages.success(self.request, "Page created.")
@@ -2588,7 +2637,14 @@ class ComicPageUpdateView(LoginRequiredMixin, UpdateView):
         return ComicPage.objects.filter(issue=self.issue)
 
     def form_valid(self, form):
-        form.instance.panel_layout = _ensure_unique_panel_layout_keys(form.instance.panel_layout)
+        existing_layout = {}
+        if form.instance.pk:
+            existing_layout = ComicPage.objects.filter(pk=form.instance.pk).values_list("panel_layout", flat=True).first() or {}
+        form.instance.panel_layout = _submitted_panel_layout_or_existing(
+            form,
+            existing_layout=existing_layout,
+            allow_reset=self.request.POST.get("panel_layout_reset") == "1",
+        )
         response = super().form_valid(form)
         _renumber_issue_pages(self.issue)
         if self.request.headers.get("x-comic-page-autosave") == "true":
@@ -3048,6 +3104,7 @@ def generate_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: 
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
+    _save_panel_layout_from_request(page, request)
     node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
         panel_key=(panel_key or "").strip(),
@@ -3094,6 +3151,7 @@ def quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, panel_k
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
+    _save_panel_layout_from_request(page, request)
     node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
         panel_key=(panel_key or "").strip(),
@@ -3161,6 +3219,7 @@ def accept_quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, 
     project = _get_project_for_user(request, slug)
     issue = _get_issue_for_project(project, issue_pk)
     page = _get_page_for_issue(issue, page_pk)
+    _save_panel_layout_from_request(page, request)
     node, _created = ComicPanelNode.objects.get_or_create(
         page=page,
         panel_key=(panel_key or "").strip(),

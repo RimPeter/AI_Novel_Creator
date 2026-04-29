@@ -131,6 +131,11 @@
     isSubmitting = true;
   });
 
+  form.addEventListener("comic-page-autosaved", () => {
+    initial = serializeForm();
+    isSubmitting = false;
+  });
+
   document.addEventListener(
     "click",
     (event) => {

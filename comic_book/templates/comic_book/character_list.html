@@ -1,4 +1,5 @@
 {% extends "main/base.html" %}
+{% load static %}
 
 {% block title %}Characters | {{ project.title }}{% endblock %}
 
@@ -29,7 +30,10 @@
       {% if characters %}
         <ul class="list">
           {% for character in characters %}
-            <li class="list-item comic-list-item">
+            <li
+              class="list-item comic-list-item character-card{% if character.frontal_face_image_data_url %} character-card-has-portrait{% endif %}"
+              {% if character.frontal_face_image_data_url %}data-portrait-url="{{ character.frontal_face_image_data_url }}"{% endif %}
+            >
               <div>
                 <div class="list-title">{{ character.name }}</div>
                 {% if character.role %}
@@ -51,4 +55,5 @@
       {% endif %}
     </section>
   </div>
+  <script src="{% static 'main/character_portrait_hover.js' %}" defer></script>
 {% endblock %}

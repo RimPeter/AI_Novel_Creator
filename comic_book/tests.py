@@ -356,6 +356,23 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, 'name="age"', html=False)
         self.assertContains(response, 'name="gender"', html=False)
 
+    def test_character_list_uses_frontal_face_image_for_hover_preview(self):
+        project = self._create_project()
+        ComicCharacter.objects.create(
+            project=project,
+            name="Sera Flint",
+            role="Cipher thief",
+            frontal_face_image_data_url="data:image/png;base64,frontal-saved",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:character-list", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="list-item comic-list-item character-card character-card-has-portrait"', html=False)
+        self.assertContains(response, 'data-portrait-url="data:image/png;base64,frontal-saved"', html=False)
+        self.assertContains(response, "main/character_portrait_hover")
+
     def test_character_edit_page_renders_face_generation_controls(self):
         project = self._create_project()
         character = ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
@@ -934,6 +951,34 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(character.gender, "Woman")
         self.assertEqual(character.full_body_image_data_url, "data:image/png;base64,body")
 
+    def test_character_create_accepts_large_generated_reference_images(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+        large_image = "data:image/png;base64," + ("a" * 900_000)
+
+        response = self.client.post(
+            reverse("comic_book:character-create", kwargs={"slug": project.slug}),
+            data={
+                "name": "Sera Flint",
+                "role": "Cipher thief",
+                "age": "29",
+                "gender": "Woman",
+                "description": "Lean, guarded, and always reading exits before people.",
+                "costume_notes": "Dark utility jacket with signal-thread seams.",
+                "visual_notes": "Shaved sidecut, narrow face, tired eyes.",
+                "voice_notes": "Short tactical phrasing with dry sarcasm.",
+                "frontal_face_image_data_url": large_image,
+                "sideways_face_image_data_url": large_image,
+                "full_body_image_data_url": large_image,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        character = ComicCharacter.objects.get(project=project, name="Sera Flint")
+        self.assertEqual(character.frontal_face_image_data_url, large_image)
+        self.assertEqual(character.sideways_face_image_data_url, large_image)
+        self.assertEqual(character.full_body_image_data_url, large_image)
+
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_character_faces_saves_both_project_style_images(self):
         project = self._create_project()
@@ -1301,7 +1346,142 @@ class ComicBookAppTests(TestCase):
         children = page.panel_layout["children"]
         self.assertEqual(children[0]["panel_key"], "panel-2")
         self.assertNotEqual(children[0]["panel_key"], children[1]["panel_key"])
-        self.assertTrue(children[1]["panel_key"].startswith("Panel-"))
+        self.assertTrue(children[1]["panel_key"].startswith("panel-"))
+
+    def test_page_update_preserves_existing_panel_layout_when_layout_post_is_empty(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        existing_layout = {
+            "type": "split",
+            "panel_key": "root",
+            "direction": "vertical",
+            "ratio": 0.5,
+            "children": [
+                {"type": "panel", "panel_key": "panel-1"},
+                {"type": "panel", "panel_key": "panel-2"},
+            ],
+        }
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", panel_layout=existing_layout)
+        ComicPanelNode.objects.create(page=page, panel_key="panel-2", image_data_url="data:image/png;base64,saved")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "panel_layout": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page.refresh_from_db()
+        self.assertEqual(page.panel_layout, existing_layout)
+        self.assertTrue(page.panel_nodes.filter(panel_key="panel-2", image_data_url="data:image/png;base64,saved").exists())
+
+    def test_page_update_does_not_collapse_existing_split_layout_without_explicit_reset(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        existing_layout = {
+            "type": "split",
+            "panel_key": "root",
+            "direction": "vertical",
+            "ratio": 0.5,
+            "children": [
+                {"type": "panel", "panel_key": "panel-1"},
+                {"type": "panel", "panel_key": "panel-2"},
+            ],
+        }
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", panel_layout=existing_layout)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "panel_layout": '{"type":"panel","panel_key":"root"}',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page.refresh_from_db()
+        self.assertEqual(page.panel_layout, existing_layout)
+
+    def test_page_update_allows_explicit_panel_layout_reset(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(
+            issue=issue,
+            page_number=1,
+            title="Opening page",
+            panel_layout={
+                "type": "split",
+                "panel_key": "root",
+                "direction": "vertical",
+                "ratio": 0.5,
+                "children": [
+                    {"type": "panel", "panel_key": "panel-1"},
+                    {"type": "panel", "panel_key": "panel-2"},
+                ],
+            },
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            ),
+            data={
+                "page_number": 1,
+                "title": "Saved opening page",
+                "summary": "The courier arrives.",
+                "page_role": ComicPage.PageRole.STORY,
+                "layout_type": ComicPage.LayoutType.STANDARD,
+                "page_turn_hook": "",
+                "notes": "",
+                "panel_layout": '{"type":"panel","panel_key":"root"}',
+                "panel_layout_reset": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page.refresh_from_db()
+        self.assertEqual(page.panel_layout, {"type": "panel", "panel_key": "root"})
+
+    def test_page_edit_includes_root_panel_image_for_hoverless_reload(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", panel_layout={"type": "panel", "panel_key": "root"})
+        ComicPanelNode.objects.create(page=page, panel_key="root", image_data_url="data:image/png;base64,rootimage")
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse(
+                "comic_book:page-edit",
+                kwargs={"slug": project.slug, "issue_pk": issue.pk, "pk": page.pk},
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"root": "data:image/png;base64,rootimage"', html=False)
 
     def test_page_update_preserves_panel_speech_bubbles(self):
         project = self._create_project()
@@ -1641,6 +1821,40 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Must include: Relay lock", prompts[0])
         self.assertIn("Primary issue notes: The relay lock is the emotional priority for this issue.", prompts[0])
         self.assertNotIn("Issue notes: The relay lock is the emotional priority for this issue.", prompts[0])
+
+    @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
+    def test_generate_panel_node_image_saves_posted_page_layout_before_generation(self):
+        project = self._create_project()
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", panel_layout={"type": "panel", "panel_key": "root"})
+        posted_layout = {
+            "type": "split",
+            "panel_key": "root",
+            "direction": "vertical",
+            "ratio": 0.5,
+            "children": [
+                {"type": "panel", "panel_key": "panel-1"},
+                {"type": "panel", "panel_key": "panel-2"},
+            ],
+        }
+        self.client.force_login(self.user)
+
+        with patch("comic_book.views.generate_image_data_url", return_value="data:image/png;base64,panelimage"):
+            response = self.client.post(
+                reverse(
+                    "comic_book:panel-node-generate",
+                    kwargs={"slug": project.slug, "issue_pk": issue.pk, "page_pk": page.pk, "panel_key": "panel-2"},
+                ),
+                data={"panel_layout": json.dumps(posted_layout)},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                HTTP_ACCEPT="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        page.refresh_from_db()
+        node = ComicPanelNode.objects.get(page=page, panel_key="panel-2")
+        self.assertEqual(page.panel_layout, posted_layout)
+        self.assertEqual(node.image_data_url, "data:image/png;base64,panelimage")
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
     def test_generate_panel_node_image_compacts_long_prompt_under_provider_limit(self):

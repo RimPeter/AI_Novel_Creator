@@ -85,6 +85,49 @@
                 <div class="field-error">{{ error }}</div>
               {% endfor %}
             </div>
+          {% elif field.name == "referenced_objects" %}
+            <div class="form-row">
+              <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {% if object_list %}
+                <details class="multi-select" data-panel-object-menu>
+                  <summary class="multi-select-summary form-control" data-panel-object-summary>
+                    {% if selected_object_ids %}
+                      {{ selected_object_ids|length }} selected
+                    {% else %}
+                      Select objects
+                    {% endif %}
+                  </summary>
+                  <div class="multi-select-list">
+                    <ul class="checkbox-list">
+                      {% for object_ref in object_list %}
+                        {% with object_id=object_ref.id|stringformat:"s" %}
+                          <li>
+                            <label>
+                              <input
+                                type="checkbox"
+                                name="referenced_objects"
+                                value="{{ object_id }}"
+                                data-object-name="{{ object_ref.name }}"
+                                {% if object_id in selected_object_ids %}checked{% endif %}
+                              />
+                              {{ object_ref.name }}
+                            </label>
+                          </li>
+                        {% endwith %}
+                      {% endfor %}
+                    </ul>
+                  </div>
+                </details>
+              {% else %}
+                <div class="muted">No objects yet. Add objects to the project first.</div>
+              {% endif %}
+              {% if field.help_text %}
+                <div class="muted">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <div class="field-error">{{ error }}</div>
+              {% endfor %}
+            </div>
           {% else %}
             <div class="form-row">
               <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -157,6 +200,12 @@
             .filter(Boolean)
             .join(", ");
         }
+        if (name === "referenced_objects") {
+          return Array.from(form.querySelectorAll('input[name="referenced_objects"]:checked'))
+            .map((input) => (input.dataset.objectName || "").trim())
+            .filter(Boolean)
+            .join(", ");
+        }
 
         const el = getFieldEl(name);
         if (!(el instanceof HTMLSelectElement)) return "";
@@ -174,6 +223,21 @@
           .filter(Boolean);
         if (!selected.length) {
           summary.textContent = "Select characters";
+        } else if (selected.length <= 2) {
+          summary.textContent = selected.join(", ");
+        } else {
+          summary.textContent = `${selected.length} selected`;
+        }
+      };
+
+      const updateObjectSummary = () => {
+        const summary = form.querySelector("[data-panel-object-summary]");
+        if (!summary) return;
+        const selected = Array.from(form.querySelectorAll('input[name="objects"]:checked'))
+          .map((input) => (input.dataset.objectName || "").trim())
+          .filter(Boolean);
+        if (!selected.length) {
+          summary.textContent = "Select objects";
         } else if (selected.length <= 2) {
           summary.textContent = selected.join(", ");
         } else {
@@ -262,10 +326,33 @@
         return changed;
       };
 
+      const selectObjectOptions = (value) => {
+        const names = Array.isArray(value) ? value : String(value || "").split(",");
+        const requested = new Set(names.map((name) => String(name || "").trim().toLowerCase()).filter(Boolean));
+        if (!requested.size) return 0;
+
+        let changed = 0;
+        for (const checkbox of Array.from(form.querySelectorAll('input[name="referenced_objects"]'))) {
+          const label = (checkbox.dataset.objectName || "").trim().toLowerCase();
+          if (!requested.has(label) || checkbox.checked) continue;
+          checkbox.checked = true;
+          changed += 1;
+        }
+        if (changed) {
+          updateObjectSummary();
+          form.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        return changed;
+      };
+
       form.querySelectorAll('input[name="characters"]').forEach((checkbox) => {
         checkbox.addEventListener("change", updateCharacterSummary);
       });
+      form.querySelectorAll('input[name="referenced_objects"]').forEach((checkbox) => {
+        checkbox.addEventListener("change", updateObjectSummary);
+      });
       updateCharacterSummary();
+      updateObjectSummary();
 
       const postForSuggestions = async (url) => {
         const params = new URLSearchParams();
@@ -277,6 +364,7 @@
         }
         params.set("location_label", getSelectedLabels("location"));
         params.set("characters_label", getSelectedLabels("characters"));
+        params.set("objects_label", getSelectedLabels("referenced_objects"));
 
         const result = await ui.postFormUrlEncoded({
           url,
@@ -303,6 +391,9 @@
         if (!getSelectedLabels("characters")) {
           emptyFields.push("characters");
         }
+        if (!getSelectedLabels("referenced_objects")) {
+          emptyFields.push("objects");
+        }
         if (!emptyFields.length) {
           ui.showMessage("Nothing to fill - all panel brief fields already have values.", "info");
           return;
@@ -321,6 +412,10 @@
               changed += selectCharacterOptions(value);
               continue;
             }
+            if (name === "objects") {
+              changed += selectObjectOptions(value);
+              continue;
+            }
             if (setIfEmpty(name, value)) changed += 1;
           }
           if (!changed) ui.showMessage("No suggestions returned for empty panel brief fields.", "warning");
@@ -335,7 +430,7 @@
         if (window.AIBillingGuard?.redirectToBillingIfNeeded(section)) return;
 
         const current = getCurrentValues(targetFields);
-        if (!Object.values(current).some(Boolean) && !getSelectedLabels("characters")) {
+        if (!Object.values(current).some(Boolean) && !getSelectedLabels("characters") && !getSelectedLabels("referenced_objects")) {
           ui.showMessage("Add at least one panel brief detail first.", "warning");
           return;
         }
@@ -351,6 +446,10 @@
           for (const [name, value] of Object.entries(suggestions)) {
             if (name === "characters") {
               changed += selectCharacterOptions(value);
+              continue;
+            }
+            if (name === "objects") {
+              changed += selectObjectOptions(value);
               continue;
             }
             if (appendFields.has(name)) {

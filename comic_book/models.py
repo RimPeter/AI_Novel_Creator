@@ -245,6 +245,7 @@ class ComicPanelNode(TimeStampedModel):
         null=True,
     )
     characters = models.ManyToManyField(ComicCharacter, related_name="panel_nodes", blank=True)
+    referenced_objects = models.ManyToManyField(ComicObject, related_name="panel_nodes", blank=True)
     image_prompt = models.TextField(blank=True, default="")
     image_data_url = models.TextField(blank=True, default="")
     image_status = models.CharField(max_length=12, choices=ImageStatus.choices, default=ImageStatus.IDLE)

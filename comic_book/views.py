@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import re
+import textwrap
 import uuid
 from datetime import timedelta
 from urllib.parse import urlencode
@@ -15,7 +16,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Max, Prefetch
-from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -96,7 +97,7 @@ panel_node_AI_FIELDS = [
     "style_override",
     "notes",
 ]
-panel_node_AI_OUTPUT_FIELDS = panel_node_AI_FIELDS + ["characters"]
+panel_node_AI_OUTPUT_FIELDS = panel_node_AI_FIELDS + ["characters", "objects"]
 panel_node_AI_APPEND_FIELDS = {
     "action",
     "lighting_notes",
@@ -640,6 +641,7 @@ def _comic_object_image_prompt(*, project: ComicProject, current: dict[str, str]
 def _comic_panel_node_image_prompt(*, project: ComicProject, issue: ComicIssue, page: ComicPage, node: ComicPanelNode) -> str:
     _sync_panel_node_from_layout(node)
     characters = list(node.characters.order_by("name"))
+    objects = list(node.referenced_objects.order_by("name"))
     location = node.location
     shot_type = node.get_shot_type_display()
 
@@ -694,6 +696,14 @@ def _comic_panel_node_image_prompt(*, project: ComicProject, issue: ComicIssue, 
             _append_detail_line(prompt_lines, "  Description", character.description, limit=160)
             _append_detail_line(prompt_lines, "  Costume notes", character.costume_notes, limit=140)
             _append_detail_line(prompt_lines, "  Visual notes", character.visual_notes, limit=140)
+
+    if objects:
+        prompt_lines.extend(["", "Selected object details:"])
+        for object_ref in objects:
+            prompt_lines.append(f"- Object: {object_ref.name}")
+            _append_detail_line(prompt_lines, "  Description", object_ref.description, limit=160)
+            _append_detail_line(prompt_lines, "  Visual notes", object_ref.visual_notes, limit=140)
+            _append_detail_line(prompt_lines, "  Continuity notes", object_ref.continuity_notes, limit=120)
 
     context_lines = []
     project_lines = _comic_project_context_lines(project)
@@ -757,7 +767,9 @@ def _panel_node_ai_meta(request, node: ComicPanelNode) -> dict[str, str]:
         "shot_type": (request.POST.get("shot_type") or node.shot_type or "").strip(),
         "location": (request.POST.get("location_label") or "").strip(),
         "characters": (request.POST.get("characters_label") or "").strip(),
+        "objects": (request.POST.get("objects_label") or "").strip(),
         "available_characters": ", ".join(ComicCharacter.objects.filter(project=node.page.issue.project).order_by("name").values_list("name", flat=True)),
+        "available_objects": ", ".join(ComicObject.objects.filter(project=node.page.issue.project).order_by("name").values_list("name", flat=True)),
     }
 
 
@@ -1088,6 +1100,37 @@ def _panel_character_suggestions(value, *, project: ComicProject, selected_label
     return names
 
 
+def _panel_object_suggestions(value, *, project: ComicProject, selected_labels: str = "") -> list[str]:
+    allowed = {
+        name.casefold(): name
+        for name in ComicObject.objects.filter(project=project).order_by("name").values_list("name", flat=True)
+        if name
+    }
+    if not allowed:
+        return []
+
+    selected = {
+        item.strip().casefold()
+        for item in str(selected_labels or "").split(",")
+        if item.strip()
+    }
+
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = str(value or "").replace("\n", ",").split(",")
+
+    names = []
+    seen = set()
+    for item in raw_items:
+        key = str(item or "").strip().casefold()
+        if not key or key in selected or key in seen or key not in allowed:
+            continue
+        seen.add(key)
+        names.append(allowed[key])
+    return names
+
+
 def _page_brainstorm_suggestions(*, project: ComicProject, issue: ComicIssue, current: dict[str, str], meta: dict[str, str], user) -> dict[str, str]:
     empty_fields = [field for field in PAGE_AI_FIELDS if not current.get(field)]
     if not empty_fields:
@@ -1210,8 +1253,11 @@ def _panel_node_brainstorm_suggestions(
 ) -> dict[str, str]:
     empty_fields = [field for field in panel_node_AI_FIELDS if not current.get(field)]
     selected_characters = meta.get("characters") or ""
+    selected_objects = meta.get("objects") or ""
     if not selected_characters:
         empty_fields.append("characters")
+    if not selected_objects:
+        empty_fields.append("objects")
     if not empty_fields:
         return {}
 
@@ -1224,6 +1270,7 @@ def _panel_node_brainstorm_suggestions(
         "- Only include keys that are empty right now: " + ", ".join(empty_fields),
         "- focus: a short phrase naming the visual subject.",
         "- characters: an array of exact names selected from Available characters only. Omit characters if none fit.",
+        "- objects: an array of exact names selected from Available objects only. Omit objects if none fit.",
         "- camera_angle, mood, and dialogue_space: concise production notes.",
         "- action: 1-3 sentences describing what is visibly happening in this panel.",
         "- lighting_notes, must_include, must_avoid, style_override, and notes: 2-5 short concrete lines each.",
@@ -1250,7 +1297,9 @@ def _panel_node_brainstorm_suggestions(
             "Shot type: " + (meta.get("shot_type") or ""),
             "Selected location: " + (meta.get("location") or ""),
             "Selected characters: " + (meta.get("characters") or ""),
+            "Selected objects: " + (meta.get("objects") or ""),
             "Available characters: " + (meta.get("available_characters") or ""),
+            "Available objects: " + (meta.get("available_objects") or ""),
             "",
             "Current panel fields (JSON):",
             json.dumps(current, ensure_ascii=False),
@@ -1269,6 +1318,13 @@ def _panel_node_brainstorm_suggestions(
             if key not in empty_fields:
                 continue
             names = _panel_character_suggestions(value, project=project, selected_labels=selected_characters)
+            if names:
+                filtered[key] = names
+            continue
+        if key == "objects":
+            if key not in empty_fields:
+                continue
+            names = _panel_object_suggestions(value, project=project, selected_labels=selected_objects)
             if names:
                 filtered[key] = names
             continue
@@ -1298,6 +1354,7 @@ def _panel_node_add_detail_suggestions(
         "- Return STRICT JSON only (no markdown, no extra text).",
         "- Output an object with only keys from: " + ", ".join(panel_node_AI_OUTPUT_FIELDS),
         "- characters: an array of exact names selected from Available characters only. Include only names not already selected.",
+        "- objects: an array of exact names selected from Available objects only. Include only names not already selected.",
         "- focus, camera_angle, mood, and dialogue_space: only include them if they are currently blank.",
         "- action, lighting_notes, must_include, must_avoid, style_override, and notes: return ONLY additive text to append, not a rewrite.",
         "- Keep additions visually actionable for comic layout, staging, and image generation.",
@@ -1324,7 +1381,9 @@ def _panel_node_add_detail_suggestions(
             "Shot type: " + (meta.get("shot_type") or ""),
             "Selected location: " + (meta.get("location") or ""),
             "Selected characters: " + (meta.get("characters") or ""),
+            "Selected objects: " + (meta.get("objects") or ""),
             "Available characters: " + (meta.get("available_characters") or ""),
+            "Available objects: " + (meta.get("available_objects") or ""),
             "",
             "Current panel fields (JSON):",
             json.dumps(current, ensure_ascii=False),
@@ -1341,6 +1400,11 @@ def _panel_node_add_detail_suggestions(
     for key, value in data.items():
         if key == "characters":
             names = _panel_character_suggestions(value, project=project, selected_labels=meta.get("characters") or "")
+            if names:
+                filtered[key] = names
+            continue
+        if key == "objects":
+            names = _panel_object_suggestions(value, project=project, selected_labels=meta.get("objects") or "")
             if names:
                 filtered[key] = names
             continue
@@ -1957,6 +2021,268 @@ def _sync_panel_node_from_layout(node: ComicPanelNode) -> ComicPanelNode:
     return node
 
 
+def _escape_pdf_text(value: str) -> str:
+    text = str(value or "")
+    text = text.translate(
+        {
+            ord("\u2018"): "'",
+            ord("\u2019"): "'",
+            ord("\u201a"): "'",
+            ord("\u201b"): "'",
+            ord("\u201c"): '"',
+            ord("\u201d"): '"',
+            ord("\u201e"): '"',
+            ord("\u201f"): '"',
+            ord("\u2032"): "'",
+            ord("\u2033"): '"',
+            ord("\u2013"): "-",
+            ord("\u2014"): "-",
+            ord("\u2026"): "...",
+            ord("\u00a0"): " ",
+        }
+    )
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _build_paginated_text_pdf(
+    lines: list[str],
+    *,
+    wrap_width: int = 72,
+    lines_per_page: int = 52,
+    page_break_token: str | None = None,
+    heading_token: str | None = None,
+) -> bytes:
+    page_chunks: list[list[tuple[str, str]]] = []
+    current_page: list[tuple[str, str]] = []
+
+    def append_line(line: str, style: str) -> None:
+        nonlocal current_page
+        if len(current_page) >= lines_per_page:
+            page_chunks.append(current_page)
+            current_page = []
+        current_page.append((line, style))
+
+    for raw_line in lines:
+        line_value = str(raw_line or "")
+        if page_break_token is not None and line_value == page_break_token:
+            if current_page:
+                page_chunks.append(current_page)
+                current_page = []
+            continue
+
+        style = "body"
+        line_wrap_width = wrap_width
+        if heading_token is not None and line_value.startswith(heading_token):
+            style = "heading"
+            line_value = line_value[len(heading_token) :]
+            line_wrap_width = 58
+
+        text = line_value.strip()
+        if not text:
+            append_line("", "body")
+            continue
+        for wrapped_line in textwrap.wrap(text, width=line_wrap_width) or [""]:
+            append_line(wrapped_line, style)
+
+    if current_page:
+        page_chunks.append(current_page)
+    if not page_chunks:
+        page_chunks = [[("", "body")]]
+
+    objects: list[bytes] = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n",
+        b"3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> endobj\n",
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n",
+    ]
+    page_refs: list[str] = []
+
+    for idx, chunk in enumerate(page_chunks):
+        page_object_id = 5 + idx * 2
+        stream_object_id = page_object_id + 1
+        page_refs.append(f"{page_object_id} 0 R")
+
+        y = 756.0
+        content_lines: list[str] = []
+        for line, style in chunk:
+            font_name = "/F2" if style == "heading" else "/F1"
+            font_size = 11.0 if style == "heading" else 10.5
+            content_lines.extend(
+                [
+                    "BT",
+                    f"{font_name} {font_size:.2f} Tf",
+                    f"36.00 {y:.2f} Td",
+                    f"({_escape_pdf_text(line)}) Tj",
+                    "ET",
+                ]
+            )
+            y -= 14.0
+        stream = "\n".join(content_lines).encode("latin-1", "replace")
+
+        objects.append(
+            f"{page_object_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {stream_object_id} 0 R >> endobj\n".encode("ascii")
+        )
+        objects.append(
+            f"{stream_object_id} 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
+            + stream
+            + b"\nendstream endobj\n"
+        )
+
+    objects[1] = f"2 0 obj << /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >> endobj\n".encode("ascii")
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
+
+
+def _append_labeled_pdf_line(lines: list[str], label: str, value) -> None:
+    text = str(value or "").strip()
+    if text:
+        lines.append(f"{label}: {text}")
+
+
+def _build_project_download_pdf(project: ComicProject) -> bytes:
+    heading_token = "[[H]]"
+    page_break_token = "\f"
+    lines: list[str] = [
+        f"{heading_token}{project.title} - Project Download",
+        "",
+        f"{heading_token}Project Details",
+    ]
+    for label, value in [
+        ("Logline", project.logline),
+        ("Genre", project.genre),
+        ("Tone", project.tone),
+        ("Target audience", project.target_audience),
+        ("Art style notes", project.art_style_notes),
+        ("Format notes", project.format_notes),
+    ]:
+        _append_labeled_pdf_line(lines, label, value)
+
+    lines.extend(["", f"{heading_token}Characters and Details"])
+    characters = list(project.characters.all())
+    if characters:
+        for character in characters:
+            lines.append(character.name)
+            for label, value in [
+                ("Role", character.role),
+                ("Age", character.age),
+                ("Gender", character.gender),
+                ("Description", character.description),
+                ("Costume notes", character.costume_notes),
+                ("Visual notes", character.visual_notes),
+                ("Voice notes", character.voice_notes),
+            ]:
+                _append_labeled_pdf_line(lines, label, value)
+            lines.append("")
+    else:
+        lines.append("No characters yet.")
+
+    lines.extend([page_break_token, f"{heading_token}Locations and Details"])
+    locations = list(project.locations.all())
+    if locations:
+        for location in locations:
+            lines.append(location.name)
+            _append_labeled_pdf_line(lines, "Description", location.description)
+            _append_labeled_pdf_line(lines, "Visual notes", location.visual_notes)
+            _append_labeled_pdf_line(lines, "Continuity notes", location.continuity_notes)
+            lines.append("")
+    else:
+        lines.append("No locations yet.")
+
+    lines.extend(["", f"{heading_token}Objects and Details"])
+    objects = list(project.comic_objects.all())
+    if objects:
+        for comic_object in objects:
+            lines.append(comic_object.name)
+            _append_labeled_pdf_line(lines, "Description", comic_object.description)
+            _append_labeled_pdf_line(lines, "Visual notes", comic_object.visual_notes)
+            _append_labeled_pdf_line(lines, "Continuity notes", comic_object.continuity_notes)
+            lines.append("")
+    else:
+        lines.append("No objects yet.")
+
+    lines.extend([page_break_token, f"{heading_token}Comic Bible"])
+    try:
+        bible = project.bible
+    except ComicBible.DoesNotExist:
+        bible = None
+    if bible:
+        for label, value in [
+            ("Premise", bible.premise),
+            ("World rules", bible.world_rules),
+            ("Visual rules", bible.visual_rules),
+            ("Continuity rules", bible.continuity_rules),
+            ("Cast notes", bible.cast_notes),
+        ]:
+            _append_labeled_pdf_line(lines, label, value)
+    else:
+        lines.append("No comic bible yet.")
+
+    lines.extend([page_break_token, f"{heading_token}Panel Briefs"])
+    issues = list(project.issues.all())
+    if not issues:
+        lines.append("No issues yet.")
+    for issue in issues:
+        lines.append(f"Issue {issue.number}: {issue.title}")
+        _append_labeled_pdf_line(lines, "Summary", issue.summary)
+        for page in issue.pages.all():
+            lines.append(f"Page {page.page_number}: {page.title or 'Untitled page'}")
+            _append_labeled_pdf_line(lines, "Page summary", page.summary)
+            panel_nodes = [node for node in page.panel_nodes.all() if node.node_type == ComicPanelNode.NodeType.PANEL]
+            if panel_nodes:
+                for panel_number, node in enumerate(panel_nodes, start=1):
+                    lines.append(f"Page {page.page_number}, Panel {panel_number}")
+                    _append_labeled_pdf_line(lines, "Panel key", node.panel_key)
+                    _append_labeled_pdf_line(lines, "Focus", node.focus)
+                    _append_labeled_pdf_line(lines, "Action", node.action)
+                    _append_labeled_pdf_line(lines, "Shot type", node.get_shot_type_display())
+                    _append_labeled_pdf_line(lines, "Camera angle", node.camera_angle)
+                    _append_labeled_pdf_line(lines, "Mood", node.mood)
+                    _append_labeled_pdf_line(lines, "Lighting notes", node.lighting_notes)
+                    _append_labeled_pdf_line(lines, "Dialogue space", node.dialogue_space)
+                    _append_labeled_pdf_line(lines, "Must include", node.must_include)
+                    _append_labeled_pdf_line(lines, "Must avoid", node.must_avoid)
+                    _append_labeled_pdf_line(lines, "Style override", node.style_override)
+                    _append_labeled_pdf_line(lines, "Notes", node.notes)
+                    if node.location:
+                        _append_labeled_pdf_line(lines, "Location", node.location.name)
+                    character_names = ", ".join(character.name for character in node.characters.all())
+                    object_names = ", ".join(comic_object.name for comic_object in node.referenced_objects.all())
+                    _append_labeled_pdf_line(lines, "Characters", character_names)
+                    _append_labeled_pdf_line(lines, "Objects", object_names)
+                    lines.append("")
+            else:
+                for panel in page.panels.all():
+                    lines.append(f"Page {page.page_number}, Panel {panel.panel_number}")
+                    _append_labeled_pdf_line(lines, "Title", panel.title)
+                    _append_labeled_pdf_line(lines, "Focus", panel.focus)
+                    _append_labeled_pdf_line(lines, "Action", panel.action)
+                    _append_labeled_pdf_line(lines, "Dialogue", panel.dialogue)
+                    _append_labeled_pdf_line(lines, "Caption", panel.caption)
+                    _append_labeled_pdf_line(lines, "SFX", panel.sfx)
+                    _append_labeled_pdf_line(lines, "Notes", panel.notes)
+                    if panel.location:
+                        _append_labeled_pdf_line(lines, "Location", panel.location.name)
+                    character_names = ", ".join(character.name for character in panel.characters.all())
+                    _append_labeled_pdf_line(lines, "Characters", character_names)
+                    lines.append("")
+
+    return _build_paginated_text_pdf(lines, page_break_token=page_break_token, heading_token=heading_token)
+
+
 def _seed_issue_pages(issue: ComicIssue) -> int:
     if issue.pages.exists():
         return 0
@@ -2110,6 +2436,49 @@ class ComicProjectDashboardView(LoginRequiredMixin, DetailView):
         ctx["location_count"] = project.locations.count()
         ctx["object_count"] = project.comic_objects.count()
         return ctx
+
+
+@login_required
+def download_project_pdf(request, slug: str):
+    project = get_object_or_404(
+        _project_queryset_for_user(request.user)
+        .select_related("bible")
+        .prefetch_related(
+            "characters",
+            "locations",
+            "comic_objects",
+            Prefetch(
+                "issues",
+                queryset=ComicIssue.objects.order_by("number").prefetch_related(
+                    Prefetch(
+                        "pages",
+                        queryset=ComicPage.objects.order_by("page_number").prefetch_related(
+                            Prefetch(
+                                "panel_nodes",
+                                queryset=ComicPanelNode.objects.order_by("created_at", "id").prefetch_related(
+                                    "characters",
+                                    "referenced_objects",
+                                    "location",
+                                ),
+                            ),
+                            Prefetch(
+                                "panels",
+                                queryset=ComicPanel.objects.order_by("panel_number", "created_at", "id").prefetch_related(
+                                    "characters",
+                                    "location",
+                                ),
+                            ),
+                        ),
+                    )
+                ),
+            ),
+        ),
+        slug=slug,
+    )
+    response = HttpResponse(_build_project_download_pdf(project), content_type="application/pdf")
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", project.slug or project.title or "comic-project").strip("-") or "comic-project"
+    response["Content-Disposition"] = f'attachment; filename="{filename}-project.pdf"'
+    return response
 
 
 @login_required
@@ -3201,16 +3570,22 @@ class ComicPanelNodeUpdateView(LoginRequiredMixin, UpdateView):
         panel_node = self.object
         form = ctx.get("form")
         selected_character_ids = []
+        selected_object_ids = []
         if form is not None:
             raw_value = form["characters"].value()
             if raw_value:
                 selected_character_ids = [str(value) for value in raw_value]
+            raw_object_value = form["referenced_objects"].value()
+            if raw_object_value:
+                selected_object_ids = [str(value) for value in raw_object_value]
         ctx["project"] = self.project
         ctx["issue"] = self.issue
         ctx["page"] = self.page
         ctx["panel_node"] = panel_node
         ctx["character_list"] = self.project.characters.order_by("name")
+        ctx["object_list"] = self.project.comic_objects.order_by("name")
         ctx["selected_character_ids"] = selected_character_ids
+        ctx["selected_object_ids"] = selected_object_ids
         ctx.update(_ai_context_for_request(self.request))
         return ctx
 
@@ -3463,7 +3838,11 @@ def add_panel_node_details(request, slug: str, issue_pk, page_pk, panel_key: str
         return blocked
 
     current = _panel_node_ai_current(request)
-    if not any(current.values()) and not (request.POST.get("characters_label") or "").strip():
+    if (
+        not any(current.values())
+        and not (request.POST.get("characters_label") or "").strip()
+        and not (request.POST.get("objects_label") or "").strip()
+    ):
         return JsonResponse({"ok": False, "error": "Add at least one panel brief detail first."}, status=400)
 
     meta = _panel_node_ai_meta(request, node)

@@ -216,6 +216,7 @@ class ComicPanelNodeForm(forms.ModelForm):
             "camera_angle",
             "location",
             "characters",
+            "referenced_objects",
             "action",
             "mood",
             "lighting_notes",
@@ -231,6 +232,7 @@ class ComicPanelNodeForm(forms.ModelForm):
             "camera_angle": forms.TextInput(attrs={"class": "form-control"}),
             "location": forms.Select(attrs={"class": "form-control"}),
             "characters": forms.SelectMultiple(attrs={"class": "form-control multi-select", "size": 6}),
+            "referenced_objects": forms.SelectMultiple(attrs={"class": "form-control multi-select", "size": 6}),
             "action": _autogrow_textarea(rows=5),
             "mood": forms.TextInput(attrs={"class": "form-control"}),
             "lighting_notes": _autogrow_textarea(rows=4),
@@ -250,7 +252,10 @@ class ComicPanelNodeForm(forms.ModelForm):
         if resolved_project is None:
             self.fields["location"].queryset = ComicLocation.objects.none()
             self.fields["characters"].queryset = ComicCharacter.objects.none()
+            self.fields["referenced_objects"].queryset = ComicObject.objects.none()
             return
 
         self.fields["location"].queryset = ComicLocation.objects.filter(project=resolved_project).order_by("name")
         self.fields["characters"].queryset = ComicCharacter.objects.filter(project=resolved_project).order_by("name")
+        self.fields["referenced_objects"].queryset = ComicObject.objects.filter(project=resolved_project).order_by("name")
+        self.fields["referenced_objects"].label = "Objects"

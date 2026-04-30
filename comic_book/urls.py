@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.ComicBookHomeView.as_view(), name="index"),
     path("projects/new/", views.ComicProjectCreateView.as_view(), name="project-create"),
     path("projects/<slug:slug>/", views.ComicProjectDashboardView.as_view(), name="project-dashboard"),
+    path("projects/<slug:slug>/download/", views.download_project_pdf, name="project-download"),
     path("projects/<slug:slug>/edit/", views.ComicProjectUpdateView.as_view(), name="project-edit"),
     path("projects/<slug:slug>/delete/", views.ComicProjectDeleteView.as_view(), name="project-delete"),
     path("projects/<slug:slug>/bible/", views.ComicBibleUpdateView.as_view(), name="bible-edit"),

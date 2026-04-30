@@ -733,6 +733,82 @@ class ComicBookAppTests(TestCase):
         self.assertContains(response, "Objects")
         self.assertContains(response, "<strong>1</strong>", html=False)
 
+    def test_project_dashboard_includes_project_download_button(self):
+        project = self._create_project()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:project-dashboard", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Project")
+        self.assertContains(response, reverse("comic_book:project-download", kwargs={"slug": project.slug}))
+
+    def test_project_download_returns_pdf_with_project_reference_and_panel_briefs(self):
+        project = self._create_project()
+        bible = ComicBible.objects.create(
+            project=project,
+            premise="A signal changes the courier's route.",
+            world_rules="Relays are illegal.",
+            visual_rules="Amber light marks the signal.",
+            continuity_rules="The key never leaves Nika.",
+            cast_notes="Nika leads the run.",
+        )
+        character = ComicCharacter.objects.create(
+            project=project,
+            name="Nika Vale",
+            role="Courier",
+            description="A courier with a cracked wrist display.",
+        )
+        location = ComicLocation.objects.create(
+            project=project,
+            name="Static Market",
+            description="A black-market concourse.",
+        )
+        comic_object = ComicObject.objects.create(
+            project=project,
+            name="Signal Key",
+            description="A palm-sized relay key.",
+        )
+        issue = ComicIssue.objects.create(project=project, number=1, title="Issue One", planned_page_count=1)
+        page = ComicPage.objects.create(issue=issue, page_number=2, title="Relay breach")
+        node = ComicPanelNode.objects.create(
+            page=page,
+            panel_key="panel-1",
+            focus="Nika opens the relay door.",
+            action="The market lights cut out.",
+            location=location,
+        )
+        node.characters.add(character)
+        node.referenced_objects.add(comic_object)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:project-download", kwargs={"slug": project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn(f"{project.slug}-project.pdf", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-1.4"))
+        self.assertIn(b"Characters and Details", response.content)
+        self.assertIn(character.name.encode(), response.content)
+        self.assertIn(location.name.encode(), response.content)
+        self.assertIn(comic_object.name.encode(), response.content)
+        self.assertIn(bible.visual_rules.encode(), response.content)
+        self.assertIn(b"Page 2, Panel 1", response.content)
+        self.assertIn(b"Nika opens the relay door.", response.content)
+
+    def test_project_download_is_scoped_to_owner(self):
+        other_user = get_user_model().objects.create_user(
+            username="comic_intruder",
+            email="comic_intruder@example.com",
+            password="password123",
+        )
+        other_project = self._create_project(owner=other_user, slug="hidden-signal", title="Hidden Signal")
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("comic_book:project-download", kwargs={"slug": other_project.slug}))
+
+        self.assertEqual(response.status_code, 404)
+
     def test_object_create_saves_generated_image_from_hidden_input(self):
         project = self._create_project()
         self.client.force_login(self.user)
@@ -1754,6 +1830,7 @@ class ComicBookAppTests(TestCase):
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
         node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        comic_object = ComicObject.objects.create(project=project, name="Signal Key")
         self.client.force_login(self.user)
 
         response = self.client.get(
@@ -1791,6 +1868,7 @@ class ComicBookAppTests(TestCase):
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page")
         node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         character = ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        comic_object = ComicObject.objects.create(project=project, name="Signal Key")
         self.client.force_login(self.user)
 
         edit_url = reverse(
@@ -1805,6 +1883,7 @@ class ComicBookAppTests(TestCase):
                 "camera_angle": "Low angle",
                 "location": "",
                 "characters": [str(character.pk)],
+                "referenced_objects": [str(comic_object.pk)],
                 "action": "Nika pauses under a flickering warning strip.",
                 "mood": "Uneasy",
                 "lighting_notes": "Cold warning light.",
@@ -1820,6 +1899,7 @@ class ComicBookAppTests(TestCase):
         node.refresh_from_db()
         self.assertEqual(node.focus, "Nika at the threshold")
         self.assertEqual(list(node.characters.values_list("name", flat=True)), ["Nika Vale"])
+        self.assertEqual(list(node.referenced_objects.values_list("name", flat=True)), ["Signal Key"])
 
     def test_panel_node_brainstorm_returns_only_empty_field_suggestions(self):
         project = self._create_project()
@@ -1827,12 +1907,13 @@ class ComicBookAppTests(TestCase):
         page = ComicPage.objects.create(issue=issue, page_number=1, title="Opening page", summary="Nika crosses the abandoned dock.")
         node = ComicPanelNode.objects.create(page=page, panel_key="panel-2", focus="Nika at the threshold")
         ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
+        ComicObject.objects.create(project=project, name="Signal Key", description="A cracked amber relay key.")
         self.client.force_login(self.user)
 
         with patch(
             "comic_book.views.call_llm",
             return_value=LLMResult(
-                text='{"focus":"Do not replace","characters":["Nika Vale","Unknown Extra"],"camera_angle":"Low angle from behind the broken hatch.","action":"Nika pauses under a flickering warning strip.","mood":"Uneasy","notes":"Keep the relay door readable in silhouette."}',
+                text='{"focus":"Do not replace","characters":["Nika Vale","Unknown Extra"],"objects":["Signal Key","Unknown Object"],"camera_angle":"Low angle from behind the broken hatch.","action":"Nika pauses under a flickering warning strip.","mood":"Uneasy","notes":"Keep the relay door readable in silhouette."}',
                 usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
             ),
         ) as mock_call:
@@ -1855,6 +1936,7 @@ class ComicBookAppTests(TestCase):
                     "notes": "",
                     "location_label": "Relay Port",
                     "characters_label": "",
+                    "objects_label": "",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1867,6 +1949,7 @@ class ComicBookAppTests(TestCase):
                 "ok": True,
                 "suggestions": {
                     "characters": ["Nika Vale"],
+                    "objects": ["Signal Key"],
                     "camera_angle": "Low angle from behind the broken hatch.",
                     "action": "Nika pauses under a flickering warning strip.",
                     "mood": "Uneasy",
@@ -1879,7 +1962,9 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Page summary: Nika crosses the abandoned dock.", prompt)
         self.assertIn("Selected location: Relay Port", prompt)
         self.assertIn("Selected characters: ", prompt)
+        self.assertIn("Selected objects: ", prompt)
         self.assertIn("Available characters: Nika Vale", prompt)
+        self.assertIn("Available objects: Signal Key", prompt)
 
     def test_panel_node_add_details_trims_overlapping_rewrite_to_prevent_duplication(self):
         project = self._create_project()
@@ -1888,12 +1973,14 @@ class ComicBookAppTests(TestCase):
         node = ComicPanelNode.objects.create(page=page, panel_key="panel-2")
         ComicCharacter.objects.create(project=project, name="Nika Vale", role="Courier")
         ComicCharacter.objects.create(project=project, name="Sera Flint", role="Cipher thief")
+        ComicObject.objects.create(project=project, name="Signal Key")
+        ComicObject.objects.create(project=project, name="Relay Compass")
         self.client.force_login(self.user)
 
         with patch(
             "comic_book.views.call_llm",
             return_value=LLMResult(
-                text='{"characters":["Nika Vale","Sera Flint","Unknown Extra"],"action":"Nika pauses under a flickering warning strip. Her hand hovers over the sealed relay lock.","mood":"Do not replace"}',
+                text='{"characters":["Nika Vale","Sera Flint","Unknown Extra"],"objects":["Signal Key","Relay Compass","Unknown Object"],"action":"Nika pauses under a flickering warning strip. Her hand hovers over the sealed relay lock.","mood":"Do not replace"}',
                 usage={"prompt_tokens": 20, "completion_tokens": 35, "total_tokens": 55},
             ),
         ):
@@ -1915,6 +2002,7 @@ class ComicBookAppTests(TestCase):
                     "style_override": "",
                     "notes": "",
                     "characters_label": "Nika Vale",
+                    "objects_label": "Signal Key",
                 },
                 HTTP_X_REQUESTED_WITH="XMLHttpRequest",
                 HTTP_ACCEPT="application/json",
@@ -1923,7 +2011,14 @@ class ComicBookAppTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json(),
-            {"ok": True, "suggestions": {"characters": ["Sera Flint"], "action": "Her hand hovers over the sealed relay lock."}},
+            {
+                "ok": True,
+                "suggestions": {
+                    "characters": ["Sera Flint"],
+                    "objects": ["Relay Compass"],
+                    "action": "Her hand hovers over the sealed relay lock.",
+                },
+            },
         )
 
     @override_settings(OPENAI_API_KEY="test-key", OPENAI_IMAGE_MODEL="gpt-image-2")
@@ -1955,6 +2050,13 @@ class ComicBookAppTests(TestCase):
             costume_notes="Signal-thread jacket.",
             visual_notes="Sharp undercut silhouette.",
         )
+        comic_object = ComicObject.objects.create(
+            project=project,
+            name="Signal Key",
+            description="A palm-sized relay key with a cracked amber core.",
+            visual_notes="- Amber core glows near forbidden infrastructure.",
+            continuity_notes="- Never opens modern locks.",
+        )
         node = ComicPanelNode.objects.create(
             page=page,
             panel_key="panel-2",
@@ -1969,6 +2071,7 @@ class ComicBookAppTests(TestCase):
             must_avoid="Crowded background",
         )
         node.characters.add(character)
+        node.referenced_objects.add(comic_object)
         self.client.force_login(self.user)
 
         prompts = []
@@ -1998,6 +2101,8 @@ class ComicBookAppTests(TestCase):
         self.assertIn("Location visual notes: - Hanging cable veils.", prompts[0])
         self.assertIn("- Character: Nika Vale", prompts[0])
         self.assertIn("Costume notes: Signal-thread jacket.", prompts[0])
+        self.assertIn("- Object: Signal Key", prompts[0])
+        self.assertIn("Visual notes: - Amber core glows near forbidden infrastructure.", prompts[0])
         self.assertIn("Focus: Nika at the threshold", prompts[0])
         self.assertIn("Must include: Relay lock", prompts[0])
         self.assertIn("Primary issue notes: The relay lock is the emotional priority for this issue.", prompts[0])

@@ -17,6 +17,7 @@
           <a class="btn btn-secondary" href="{% url 'comic_book:location-list' slug=project.slug %}">Locations</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:object-list' slug=project.slug %}">Objects</a>
           <a class="btn btn-secondary" href="{% url 'comic_book:project-edit' slug=project.slug %}">Edit</a>
+          <a class="btn btn-secondary" href="{% url 'comic_book:project-download' slug=project.slug %}">Download Project</a>
           <a class="btn btn-primary" href="{% url 'comic_book:issue-create' slug=project.slug %}">Create issue</a>
         </div>
       </div>

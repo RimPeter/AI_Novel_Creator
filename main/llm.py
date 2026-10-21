@@ -22,12 +22,12 @@ def _normalize_llm_text(text: str | None) -> str:
 
 def _uses_responses_api(model_name: str) -> bool:
     normalized = (model_name or "").strip().lower()
-    return normalized.startswith("gpt-5") or normalized.startswith("o")
+    return normalized.startswith(("gpt-5", "gpt-6", "o"))
 
 
 def _model_supports_custom_temperature(model_name: str) -> bool:
     normalized = (model_name or "").strip().lower()
-    if normalized.startswith("gpt-5") or normalized.startswith("o"):
+    if normalized.startswith(("gpt-5", "gpt-6", "o")):
         return False
     return True
 
@@ -65,7 +65,7 @@ def _normalize_finish_reason(value) -> str:
 
 def _responses_reasoning_effort(model_name: str) -> str | None:
     normalized = (model_name or "").strip().lower()
-    if normalized.startswith("gpt-5") or normalized.startswith("o"):
+    if normalized.startswith(("gpt-5", "gpt-6", "o")):
         return "low"
     return None
 
@@ -227,7 +227,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str 
             _get_object_value(_get_object_value(response, "incomplete_details", None), "reason", "")
             or ("length" if _normalize_finish_reason(_get_object_value(response, "status", "")) == "incomplete" else "")
         )
-        if text.strip():
+        if text.strip() or model_name.lower().startswith("gpt-6"):
             return LLMResult(
                 text=text,
                 usage={

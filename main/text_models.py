@@ -4,6 +4,15 @@ from .models import UserTextModelPreference
 
 
 TEXT_MODEL_OPTIONS = [
+    # Current general-purpose text models, verified against provider catalogs.
+    ("gpt-6.1-sol", "GPT-6.1 Sol"),
+    ("gpt-6-astra", "GPT-6 Astra"),
+    ("gpt-6-luna", "GPT-6 Luna"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+    ("claude-opus-5-5", "Claude Opus 5.5"),
+    ("claude-haiku-5-5", "Claude Haiku 5.5"),
+    ("claude-fable-5-1", "Claude Fable 5.1"),
+    # Retain existing choices for users who already selected them.
     ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
     ("claude-opus-4-6", "Claude Opus 4.6"),
     ("claude-haiku-4-5", "Claude Haiku 4.5"),

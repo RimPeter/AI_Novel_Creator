@@ -5,9 +5,13 @@ from allauth.account.internal.flows.manage_email import emit_email_changed
 from allauth.account.models import EmailAddress
 
 from .account_email import assess_email_removal, is_multi_account_test_email
+from .models import SignupConfiguration
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    def is_open_for_signup(self, request):
+        return SignupConfiguration.get_settings().allow_signups
+
     def can_delete_email(self, email_address) -> bool:
         can_remove, _reason = assess_email_removal(email_address)
         return can_remove

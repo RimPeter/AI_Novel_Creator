@@ -1,0 +1,11 @@
+{% extends "main/base.html" %}
+
+{% block title %}Signups Closed | AI Novel Creator{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <h1>New signups are closed</h1>
+    <p>New account creation is temporarily unavailable. If you already have an account, you can still sign in.</p>
+    <a class="btn btn-primary" href="{% url 'account_login' %}">Sign in</a>
+  </section>
+{% endblock %}

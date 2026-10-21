@@ -57,7 +57,7 @@ from .forms import (
     StoryBiblePdfUploadForm,
 )
 from .location_hierarchy import build_location_tree
-from .models import BillingCompanyProfile, BillingInformationProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, SceneCriticReview, StoryBible, StoryBibleDocument
+from .models import BillingCompanyProfile, BillingInformationProfile, BillingInvoice, Character, GenerationRun, HomeUpdate, Location, NovelProject, OutlineNode, SceneCriticReview, SignupConfiguration, StoryBible, StoryBibleDocument
 from .text_models import get_available_text_models, get_default_text_model, get_user_text_model, save_user_text_model
 from .tasks import generate_all_scenes, generate_bible, generate_outline
 from .llm import call_llm, generate_image_data_url
@@ -4376,6 +4376,28 @@ class SuperuserRequiredMixin(UserPassesTestMixin):
 
     def test_func(self):
         return bool(self.request.user.is_authenticated and self.request.user.is_superuser)
+
+
+class SignupConfigurationView(LoginRequiredMixin, SuperuserRequiredMixin, TemplateView):
+    template_name = "main/signup_configuration.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["signup_configuration"] = SignupConfiguration.get_settings()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("action")
+        if action not in {"enable", "disable"}:
+            messages.error(request, "Choose whether to enable or disable new signups.")
+            return HttpResponseRedirect(reverse("signup-configuration"))
+
+        configuration = SignupConfiguration.get_settings()
+        configuration.allow_signups = action == "enable"
+        configuration.save(update_fields=["allow_signups"])
+        state = "enabled" if configuration.allow_signups else "disabled"
+        messages.success(request, f"New signups have been {state}.")
+        return HttpResponseRedirect(reverse("signup-configuration"))
 
 
 class BillingCompanyProfileUpdateView(LoginRequiredMixin, SuperuserRequiredMixin, UpdateView):

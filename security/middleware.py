@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from typing import Any
 
@@ -72,6 +73,18 @@ class SecurityRateLimitMiddleware:
         counter_key = f"rate-limit:{url_name}:{actor}"
         count = _increment(counter_key, window_seconds)
 
+        if url_name == "account_request_login_code" and request.method.upper() == "POST":
+            email = str(request.POST.get("email", "") or "").strip().casefold()
+            if email:
+                email_limit = int(getattr(settings, "ACCOUNT_LOGIN_CODE_EMAIL_LIMIT", 3))
+                email_window = int(getattr(settings, "ACCOUNT_LOGIN_CODE_EMAIL_WINDOW_SECONDS", 900))
+                email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()
+                email_key = f"rate-limit:{url_name}:email:{email_hash}"
+                email_count = _increment(email_key, email_window)
+                if email_count > email_limit:
+                    logger.warning("Email rate limit exceeded for %s (%s)", url_name, actor)
+                    return self._too_many_requests(request, url_name)
+
         if url_name == "contact" and request.method.upper() == "POST":
             threshold = int(getattr(settings, "CONTACT_SPIKE_ALERT_THRESHOLD", 100))
             if count == threshold:
@@ -81,6 +94,10 @@ class SecurityRateLimitMiddleware:
             return None
 
         logger.warning("Rate limit exceeded for %s (%s): %s/%s", url_name, actor, count, limit)
+        return self._too_many_requests(request, url_name)
+
+    @staticmethod
+    def _too_many_requests(request, url_name: str):
         wants_json = "application/json" in str(request.headers.get("accept", "") or "") or request.headers.get("x-requested-with") == "XMLHttpRequest"
         if wants_json or url_name == "billing-webhook":
             return JsonResponse({"ok": False, "error": "Too many requests. Try again later."}, status=429)

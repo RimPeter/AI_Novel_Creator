@@ -474,6 +474,27 @@ class BillingCompanyProfile(TimeStampedModel):
         return self.company_name or "Billing company profile"
 
 
+class SignupConfiguration(models.Model):
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    allow_signups = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Signup configuration"
+        verbose_name_plural = "Signup configuration"
+
+    def save(self, *args, **kwargs):
+        self.singleton_key = 1
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def get_settings(cls):
+        configuration, _created = cls.objects.get_or_create(singleton_key=1)
+        return configuration
+
+    def __str__(self) -> str:
+        return "Signup configuration"
+
+
 class BillingInformationProfile(TimeStampedModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

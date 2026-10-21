@@ -36,6 +36,7 @@ from .models import (
     OutlineNode,
     ProcessedStripeEvent,
     SceneCriticReview,
+    SignupConfiguration,
     StoryBible,
     StoryBibleDocument,
     UserSubscription,
@@ -117,6 +118,7 @@ class AccountEmailFlowTests(TestCase):
         email_address = EmailAddress.objects.get(user=user, email=user.email)
         self.assertTrue(email_address.verified)
 
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
     def test_signup_sends_confirmation_email_and_requires_verification(self):
         response = self.client.post(
             reverse("account_signup"),
@@ -136,6 +138,60 @@ class AccountEmailFlowTests(TestCase):
 
         email_address = EmailAddress.objects.get(email="newwriter@example.com")
         self.assertFalse(email_address.verified)
+
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_disabled_signups_show_closed_page_and_reject_registration(self):
+        SignupConfiguration.objects.create(allow_signups=False)
+
+        get_response = self.client.get(reverse("account_signup"))
+        post_response = self.client.post(
+            reverse("account_signup"),
+            data={
+                "username": "blockedwriter",
+                "email": "blockedwriter@example.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+        )
+
+        self.assertContains(get_response, "New signups are closed")
+        self.assertContains(post_response, "New signups are closed")
+        self.assertFalse(get_user_model().objects.filter(username="blockedwriter").exists())
+
+    @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_superuser_can_manage_signup_availability(self):
+        response = self.client.get(reverse("signup-configuration"))
+        self.assertEqual(response.status_code, 403)
+
+        user = get_user_model().objects.create_user(
+            username="signupmanager",
+            email="signupmanager@example.com",
+            password="test-password-123",
+        )
+        self.client.force_login(user)
+        forbidden_response = self.client.get(reverse("signup-configuration"))
+        self.assertEqual(forbidden_response.status_code, 403)
+
+        user.is_superuser = True
+        user.is_staff = True
+        user.save(update_fields=["is_superuser", "is_staff"])
+        self.client.force_login(user)
+        page_response = self.client.get(reverse("signup-configuration"))
+        self.assertContains(page_response, "New users can currently create accounts.")
+
+        disable_response = self.client.post(
+            reverse("signup-configuration"),
+            {"action": "disable"},
+        )
+        self.assertRedirects(disable_response, reverse("signup-configuration"))
+        self.assertFalse(SignupConfiguration.get_settings().allow_signups)
+
+        enable_response = self.client.post(
+            reverse("signup-configuration"),
+            {"action": "enable"},
+        )
+        self.assertRedirects(enable_response, reverse("signup-configuration"))
+        self.assertTrue(SignupConfiguration.get_settings().allow_signups)
 
     def test_signup_allows_duplicate_testing_email_for_multiple_accounts(self):
         get_user_model().objects.create_user(
@@ -4532,4 +4588,3 @@ class LocationViewsTests(AuthenticatedTestCase):
         self.assertContains(resp, 'data-billing-enabled="true"')
         self.assertContains(resp, 'data-has-active-plan="false"')
         self.assertContains(resp, 'data-ai-billing-url="')
-

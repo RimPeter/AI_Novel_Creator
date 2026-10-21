@@ -16,6 +16,7 @@ urlpatterns = [
     path("billing/cancel-recurring/", views.cancel_billing_recurring, name="billing-cancel-recurring"),
     path("updates/new/", views.HomeUpdateCreateView.as_view(), name="home-update-create"),
     path("updates/regenerate/", views.regenerate_home_update, name="home-update-regenerate"),
+    path("site-settings/signups/", views.SignupConfigurationView.as_view(), name="signup-configuration"),
     path("projects/", views.ProjectListView.as_view(), name="project-list"),
     path("projects/archive/", views.ProjectArchiveListView.as_view(), name="project-archive-list"),
     path("projects/new/", views.ProjectCreateView.as_view(), name="project-create"),

@@ -123,6 +123,10 @@ SECURITY_RATE_LIMIT_RULES = {
     "billing-clear-status": (12, 3600),
     "billing-webhook": (120, 60),
 }
+ACCOUNT_LOGIN_CODE_EMAIL_LIMIT = int(os.environ.get("ACCOUNT_LOGIN_CODE_EMAIL_LIMIT", "3"))
+ACCOUNT_LOGIN_CODE_EMAIL_WINDOW_SECONDS = int(
+    os.environ.get("ACCOUNT_LOGIN_CODE_EMAIL_WINDOW_SECONDS", "900")
+)
 USE_S3_MEDIA = env_bool("USE_S3_MEDIA", False)
 YOUTUBE_APP_ENABLED = importlib.util.find_spec("youtube") is not None
 

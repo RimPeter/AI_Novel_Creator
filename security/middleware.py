@@ -24,6 +24,7 @@ def _limit_rule(url_name: str) -> tuple[int, int] | None:
         "account_reset_password": (8, 900),
         "contact": (20, 3600),
         "billing-checkout": (20, 3600),
+        "ai-settings": (30, 3600),
         "billing-portal": (30, 3600),
         "billing-cancel-recurring": (12, 3600),
         "billing-clear-status": (12, 3600),

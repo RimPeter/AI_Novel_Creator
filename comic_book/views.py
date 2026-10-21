@@ -1,4 +1,6 @@
 from __future__ import annotations
+import sys
+from main.ai_credentials import AIConfigurationError, has_ai_connection
 
 import base64
 import json
@@ -25,7 +27,6 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
-from main.billing import billing_enabled, user_has_active_plan
 from main.llm import call_llm, edit_image_data_url, generate_image_data_url
 from main.text_models import get_user_text_model
 
@@ -180,7 +181,7 @@ def _log_exception(message: str, *args) -> None:
 
 
 def _get_billing_url(request, *, reason: str = "") -> str:
-    billing_url = reverse("billing")
+    billing_url = reverse("ai-settings")
     params = {}
     next_url = request.get_full_path()
     if next_url:
@@ -194,19 +195,17 @@ def _get_billing_url(request, *, reason: str = "") -> str:
 
 def _ai_context_for_request(request) -> dict[str, object]:
     return {
-        "billing_enabled": billing_enabled(),
-        "has_active_plan": user_has_active_plan(request.user),
-        "ai_billing_url": _get_billing_url(request, reason="active-plan"),
+        "billing_enabled": True,
+        "has_active_plan": has_ai_connection(request.user),
+        "ai_billing_url": _get_billing_url(request, reason="api-key"),
     }
 
 
 def _subscription_required_response(request):
-    if not billing_enabled():
+    if has_ai_connection(request.user):
         return None
-    if user_has_active_plan(request.user):
-        return None
-    error = "An active plan is required to generate text and use tokens."
-    billing_url = _get_billing_url(request, reason="active-plan")
+    error = "Connect your API key in AI Settings to generate content."
+    billing_url = _get_billing_url(request, reason="api-key")
     return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
 
 
@@ -223,6 +222,9 @@ def _ensure_json_ai_request(request):
 
 
 def _json_internal_error() -> JsonResponse:
+    error = sys.exception()
+    if isinstance(error, AIConfigurationError):
+        return JsonResponse({"ok": False, "error": str(error), "billing_url": reverse("ai-settings")}, status=402)
     _log_exception("Comic book issue AI request failed.")
     return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
 
@@ -288,13 +290,15 @@ def _json_provider_billing_limit_error() -> JsonResponse:
     return JsonResponse(
         {
             "ok": False,
-            "error": "OpenAI image generation billing hard limit has been reached. Increase the OpenAI project billing limit or switch OPENAI_API_KEY to a project with available image budget.",
+            "error": "OpenAI image generation billing hard limit has been reached. Check your OpenAI account budget or replace your key in AI Settings.",
         },
         status=400,
     )
 
 
 def _json_image_generation_error(error: Exception) -> JsonResponse:
+    if isinstance(error, AIConfigurationError):
+        return JsonResponse({"ok": False, "error": str(error), "billing_url": reverse("ai-settings")}, status=402)
     message = str(error or "").strip()
     if "Error code:" in message:
         message = message.split("Error code:", 1)[-1].strip()
@@ -2672,8 +2676,6 @@ class ComicCharacterUpdateView(LoginRequiredMixin, UpdateView):
 @require_POST
 def preview_character_faces(request, slug: str):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -2715,8 +2717,6 @@ def preview_character_faces(request, slug: str):
 @require_POST
 def preview_character_full_body(request, slug: str):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -2750,8 +2750,6 @@ def preview_character_full_body(request, slug: str):
 @require_POST
 def generate_character_faces(request, slug: str, pk):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -2796,8 +2794,6 @@ def generate_character_faces(request, slug: str, pk):
 @require_POST
 def generate_character_full_body(request, slug: str, pk):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -2833,8 +2829,6 @@ def generate_character_full_body(request, slug: str, pk):
 @require_POST
 def preview_location_image(request, slug: str):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -2858,8 +2852,6 @@ def preview_location_image(request, slug: str):
 @require_POST
 def preview_object_image(request, slug: str):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -3880,8 +3872,6 @@ def generate_panel_node_image(request, slug: str, issue_pk, page_pk, panel_key: 
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked
@@ -3927,8 +3917,6 @@ def quick_prompt_panel_node_image(request, slug: str, issue_pk, page_pk, panel_k
     )
     if not wants_json:
         return JsonResponse({"ok": False, "error": "JSON requests only."}, status=400)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image editing is not configured."}, status=400)
     blocked = _subscription_required_response(request)
     if blocked is not None:
         return blocked

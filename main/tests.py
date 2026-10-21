@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import tempfile
+import zlib
 from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -42,10 +43,15 @@ from .models import (
     UserSubscription,
     UserTextModelPreference,
 )
+from cryptography.fernet import Fernet
+from .ai_credentials import encrypt_key
+from .models import UserAICredential
+
 from .signals import sync_legacy_account_emails
 from .views import _get_story_bible_context
 
 
+@override_settings(AI_CREDENTIAL_ENCRYPTION_KEY=Fernet.generate_key().decode())
 class AuthenticatedTestCase(TestCase):
     def setUp(self):
         super().setUp()
@@ -54,6 +60,7 @@ class AuthenticatedTestCase(TestCase):
             email="tester@example.com",
             password="password123",
         )
+        UserAICredential.objects.create(user=self.user, provider="openai", encrypted_key=encrypt_key("sk-test-key"), key_suffix="-key")
         self.client.force_login(self.user)
 
 
@@ -563,6 +570,14 @@ class ContactViewTests(TestCase):
 
 
 class LLMTests(TestCase):
+    def setUp(self):
+        self.api_client = MagicMock()
+        factory = patch("main.ai_providers.OpenAI").start()
+        factory.return_value.__enter__.return_value = self.api_client
+        key_patch = patch("main.ai_providers.get_api_key", return_value="sk-unit-test")
+        key_patch.start()
+        self.addCleanup(patch.stopall)
+
     def test_normalize_image_model_name_always_uses_gpt_image_2(self):
         self.assertEqual(normalize_image_model_name("gpt-image-2"), "gpt-image-2")
         self.assertEqual(normalize_image_model_name("dall-e-3"), "gpt-image-2")
@@ -571,7 +586,7 @@ class LLMTests(TestCase):
     def test_generate_image_data_url_normalizes_image_model_before_api_call(self):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
 
-        with patch("main.llm.client.images.generate", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.images, "generate", return_value=fake_response) as mocked:
             data_url = generate_image_data_url(prompt="Test prompt", model_name="gpt-image-2", size="1024x1024")
 
         self.assertEqual(data_url, "data:image/png;base64,abc123")
@@ -583,7 +598,7 @@ class LLMTests(TestCase):
     def test_generate_image_data_url_forces_gpt_image_2_for_other_models(self):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="abc123")])
 
-        with patch("main.llm.client.images.generate", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.images, "generate", return_value=fake_response) as mocked:
             data_url = generate_image_data_url(prompt="Test prompt", model_name="dall-e-3", size="1024x1024")
 
         self.assertEqual(data_url, "data:image/png;base64,abc123")
@@ -596,7 +611,7 @@ class LLMTests(TestCase):
         fake_response = SimpleNamespace(data=[SimpleNamespace(b64_json="edited123")])
 
         with (
-            patch("main.llm.client.images.edit", return_value=fake_response) as mocked,
+            patch.object(self.api_client.images, "edit", return_value=fake_response) as mocked,
             patch("main.llm._match_image_tone_to_reference", return_value="data:image/png;base64,matched123") as mocked_match,
         ):
             data_url = edit_image_data_url(
@@ -625,7 +640,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
         )
 
-        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.chat.completions, "create", return_value=fake_response) as mocked:
             result = call_llm(prompt="Test prompt", model_name="test-model", params={"temperature": 0.2, "max_tokens": 42})
 
         self.assertEqual(result.text, "Wait-no. Use this-instead.")
@@ -646,7 +661,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.chat.completions, "create", return_value=fake_response) as mocked:
             call_llm(
                 prompt="Test prompt",
                 model_name="test-model",
@@ -663,7 +678,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.chat.completions, "create", return_value=fake_response) as mocked:
             call_llm(
                 prompt="Describe this location.",
                 model_name="gpt-4.1-mini",
@@ -681,7 +696,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(input_tokens=9, output_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.responses, "create", return_value=fake_response) as mocked:
             call_llm(
                 prompt="Describe this location.",
                 model_name="gpt-5-mini",
@@ -708,7 +723,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(input_tokens=9, output_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.responses, "create", return_value=fake_response) as mocked:
             result = call_llm(
                 prompt="Test prompt",
                 model_name="gpt-5-mini",
@@ -731,7 +746,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.chat.completions.create", return_value=fake_response):
+        with patch.object(self.api_client.chat.completions, "create", return_value=fake_response):
             result = call_llm(prompt="Test prompt", model_name="test-model", params={"max_tokens": 64})
 
         self.assertEqual(result.finish_reason, "length")
@@ -744,7 +759,7 @@ class LLMTests(TestCase):
             incomplete_details=SimpleNamespace(reason="max_output_tokens"),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response):
+        with patch.object(self.api_client.responses, "create", return_value=fake_response):
             result = call_llm(prompt="Test prompt", model_name="gpt-5-mini", params={"max_tokens": 64})
 
         self.assertEqual(result.finish_reason, "max_output_tokens")
@@ -755,7 +770,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=9, completion_tokens=4, total_tokens=13),
         )
 
-        with patch("main.llm.client.chat.completions.create", return_value=fake_response) as mocked:
+        with patch.object(self.api_client.chat.completions, "create", return_value=fake_response) as mocked:
             call_llm(
                 prompt="Test prompt",
                 model_name="gpt-4.1-mini",
@@ -772,7 +787,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response):
+        with patch.object(self.api_client.responses, "create", return_value=fake_response):
             result = call_llm(
                 prompt="Test prompt",
                 model_name="o4-mini",
@@ -788,7 +803,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response):
+        with patch.object(self.api_client.responses, "create", return_value=fake_response):
             result = call_llm(
                 prompt="Test prompt",
                 model_name="gpt-5-mini",
@@ -811,7 +826,7 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(input_tokens=6, output_tokens=3, total_tokens=9),
         )
 
-        with patch("main.llm.client.responses.create", return_value=fake_response):
+        with patch.object(self.api_client.responses, "create", return_value=fake_response):
             result = call_llm(
                 prompt="Test prompt",
                 model_name="gpt-5-mini",
@@ -833,8 +848,8 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6),
         )
 
-        with patch("main.llm.client.responses.create", return_value=responses_response):
-            with patch("main.llm.client.chat.completions.create", return_value=chat_response):
+        with patch.object(self.api_client.responses, "create", return_value=responses_response):
+            with patch.object(self.api_client.chat.completions, "create", return_value=chat_response):
                 result = call_llm(
                     prompt="Test prompt",
                     model_name="gpt-5-mini",
@@ -855,8 +870,8 @@ class LLMTests(TestCase):
             usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6),
         )
 
-        with patch("main.llm.client.responses.create", return_value=responses_response) as responses_mock:
-            with patch("main.llm.client.chat.completions.create", return_value=chat_response) as chat_mock:
+        with patch.object(self.api_client.responses, "create", return_value=responses_response) as responses_mock:
+            with patch.object(self.api_client.chat.completions, "create", return_value=chat_response) as chat_mock:
                 result = call_llm(
                     prompt="Test prompt",
                     model_name="gpt-5-mini",
@@ -900,17 +915,11 @@ class BillingTests(AuthenticatedTestCase):
         )
 
     def test_billing_page_renders_subscription_controls(self):
-        resp = self.client.get(reverse("billing"))
-
+        resp = self.client.get(reverse("billing-history"))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Billing")
-        self.assertContains(resp, "Choose Monthly subscription")
-        self.assertContains(resp, "Choose Yearly subscription")
-        self.assertContains(resp, "Choose One month pass")
-        self.assertContains(resp, "Choose One week trial")
+        self.assertContains(resp, "Previous billing")
+        self.assertNotContains(resp, "billing-plan-card")
         self.assertNotContains(resp, "Clear current status")
-        self.assertContains(resp, "20% VAT included")
-        self.assertContains(resp, "inc VAT GBP 15.00 (ex VAT GBP 12.50 + VAT GBP 2.50 (20%))")
 
     def test_ferdinand_superuser_sees_clear_status_option(self):
         self.user.username = "Ferdinand"
@@ -918,7 +927,7 @@ class BillingTests(AuthenticatedTestCase):
         self.user.is_staff = True
         self.user.save(update_fields=["username", "is_superuser", "is_staff"])
 
-        resp = self.client.get(reverse("billing"))
+        resp = self.client.get(reverse("billing-history"))
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Clear current status")
@@ -935,7 +944,7 @@ class BillingTests(AuthenticatedTestCase):
             amount_paid=1500,
         )
 
-        resp = self.client.get(reverse("billing"))
+        resp = self.client.get(reverse("billing-history"))
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Invoices")
@@ -945,29 +954,12 @@ class BillingTests(AuthenticatedTestCase):
         self.assertNotContains(resp, "Edit invoice")
 
     def test_billing_information_page_prefills_saved_profile(self):
-        BillingInformationProfile.objects.create(
-            user=self.user,
-            first_name="Ada",
-            last_name="Lovelace",
-            company_name="Analytical Engines Ltd",
-            email="ada@example.com",
-            country="United Kingdom",
-            is_business_purchase=True,
-        )
-
         resp = self.client.get(reverse("billing-information") + "?plan=monthly")
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Billing information")
-        self.assertContains(resp, 'value="Ada"', html=False)
-        self.assertContains(resp, 'value="Analytical Engines Ltd"', html=False)
+        self.assertRedirects(resp, reverse("ai-settings"))
 
     def test_billing_page_plan_choice_redirects_to_billing_information(self):
         resp = self.client.get(reverse("billing-information"), data={"plan": "monthly"})
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Monthly subscription")
-        self.assertContains(resp, reverse("billing-checkout"))
+        self.assertRedirects(resp, reverse("ai-settings"))
 
     @patch("main.views.get_subscription_display")
     @patch("main.views.sync_checkout_session")
@@ -981,7 +973,7 @@ class BillingTests(AuthenticatedTestCase):
             "cancel_at_period_end": False,
         }
 
-        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=cs_test_123")
+        resp = self.client.get(reverse("billing-history") + "?checkout=success&session_id=cs_test_123")
 
         self.assertEqual(resp.status_code, 200)
         mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
@@ -998,7 +990,7 @@ class BillingTests(AuthenticatedTestCase):
             "cancel_at_period_end": False,
         }
 
-        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=cs_test_123")
+        resp = self.client.get(reverse("billing-history") + "?checkout=success&session_id=cs_test_123")
 
         self.assertEqual(resp.status_code, 200)
         mock_sync_checkout.assert_called_once_with(user=self.user, session_id="cs_test_123")
@@ -1016,59 +1008,23 @@ class BillingTests(AuthenticatedTestCase):
             "cancel_at_period_end": False,
         }
 
-        resp = self.client.get(reverse("billing") + "?checkout=success&session_id=%7BCHECKOUT_SESSION_ID%7D")
+        resp = self.client.get(reverse("billing-history") + "?checkout=success&session_id=%7BCHECKOUT_SESSION_ID%7D")
 
         self.assertEqual(resp.status_code, 200)
         mock_sync_checkout.assert_not_called()
         self.assertContains(resp, "Stripe did not return a usable session id in the redirect.")
 
     @patch("main.views.create_checkout_session")
-    def test_checkout_redirects_to_stripe_checkout(self, mock_create_session):
-        mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_123")
-
-        resp = self.client.post(
-            reverse("billing-checkout"),
-            data={
-                "plan": "monthly",
-                "accepted_terms": "1",
-                "add_billing_information": "1",
-                "first_name": "Ada",
-                "last_name": "Lovelace",
-                "company_name": "Analytical Engines Ltd",
-                "email": "ada@example.com",
-                "address_line_1": "1 Logic Lane",
-                "city": "London",
-                "country": "United Kingdom",
-                "is_business_purchase": "1",
-                "tax_id": "GB123",
-            },
-        )
-
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_123")
-        self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "monthly")
-        self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_monthly_123")
-        self.assertEqual(mock_create_session.call_args.kwargs["user"], self.user)
-        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"]["first_name"], "Ada")
-        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"]["company_name"], "Analytical Engines Ltd")
-        self.assertIn("checkout=success", mock_create_session.call_args.kwargs["success_url"])
-        self.assertIn("session_id={CHECKOUT_SESSION_ID}", mock_create_session.call_args.kwargs["success_url"])
-        self.assertNotIn("%7BCHECKOUT_SESSION_ID%7D", mock_create_session.call_args.kwargs["success_url"])
-        profile = BillingInformationProfile.objects.get(user=self.user)
-        self.assertEqual(profile.first_name, "Ada")
-        self.assertTrue(profile.is_business_purchase)
+    def test_recurring_checkout_is_retired(self, mock_create_session):
+        resp = self.client.post(reverse("billing-checkout"), {"plan": "monthly"})
+        self.assertRedirects(resp, reverse("ai-settings"))
+        mock_create_session.assert_not_called()
 
     @patch("main.views.create_checkout_session")
-    def test_one_time_checkout_redirects_to_stripe_checkout(self, mock_create_session):
-        mock_create_session.return_value = SimpleNamespace(url="https://checkout.stripe.test/session_456")
-
-        resp = self.client.post(reverse("billing-checkout"), data={"plan": "single_month", "accepted_terms": "1"})
-
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], "https://checkout.stripe.test/session_456")
-        self.assertEqual(mock_create_session.call_args.kwargs["option"]["key"], "single_month")
-        self.assertEqual(mock_create_session.call_args.kwargs["option"]["price_id"], "price_single_month_123")
-        self.assertEqual(mock_create_session.call_args.kwargs["billing_details"], {})
+    def test_one_time_checkout_is_retired(self, mock_create_session):
+        resp = self.client.post(reverse("billing-checkout"), {"plan": "single_month"})
+        self.assertRedirects(resp, reverse("ai-settings"))
+        mock_create_session.assert_not_called()
 
     @patch("main.views.create_billing_portal_session")
     def test_portal_redirects_to_stripe_portal(self, mock_create_portal):
@@ -1086,7 +1042,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(resp["Location"], "https://billing.stripe.test/session_123")
         self.assertEqual(mock_create_portal.call_args.kwargs["user"], self.user)
 
-    def test_invoice_pdf_download_returns_pdf(self):
+    @patch("main.views._load_invoice_logo_png", return_value=(1, 1, zlib.compress(bytes([255, 255, 255]))))
+    def test_invoice_pdf_download_returns_pdf(self, mock_logo):
         BillingCompanyProfile.objects.create(
             company_name="Example Books Ltd",
             company_email="accounts@example.com",
@@ -1174,7 +1131,7 @@ class BillingTests(AuthenticatedTestCase):
         self.user.is_staff = True
         self.user.save(update_fields=["is_superuser", "is_staff"])
 
-        resp = self.client.get(reverse("billing"))
+        resp = self.client.get(reverse("billing-history"))
 
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, reverse("billing-company-details"))
@@ -1227,7 +1184,8 @@ class BillingTests(AuthenticatedTestCase):
         self.assertEqual(record.stripe_subscription_id, "sub_123")
         self.assertEqual(record.status, "active")
 
-    def test_generation_endpoint_requires_subscription_when_billing_enabled(self):
+    def test_generation_endpoint_requires_api_key(self):
+        UserAICredential.objects.filter(user=self.user).delete()
         resp = self.client.post(
             reverse("project-brainstorm", kwargs={"slug": self.project.slug}),
             data={},
@@ -1237,8 +1195,8 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 402)
         self.assertEqual(resp.json()["ok"], False)
-        self.assertIn("active plan", resp.json()["error"].lower())
-        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+        self.assertIn("api key", resp.json()["error"].lower())
+        self.assertIn(reverse("ai-settings"), resp.json()["billing_url"])
 
     def test_ferdinand_superuser_has_active_plan_without_subscription(self):
         self.user.username = "Ferdinand"
@@ -1275,14 +1233,15 @@ class BillingTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 200)
 
-    def test_dashboard_generation_redirects_to_billing_without_subscription(self):
+    def test_dashboard_generation_requires_api_key(self):
+        UserAICredential.objects.filter(user=self.user).delete()
         resp = self.client.post(
             reverse("project-dashboard", kwargs={"slug": self.project.slug}),
             data={"action": "generate_bible"},
         )
 
         self.assertEqual(resp.status_code, 302)
-        self.assertIn(reverse("billing"), resp["Location"])
+        self.assertIn(reverse("ai-settings"), resp["Location"])
 
     def test_generation_endpoint_allows_status_trialing(self):
         self._create_subscription(status="trialing", days=7)
@@ -1349,10 +1308,10 @@ class BillingTests(AuthenticatedTestCase):
         self.assertContains(resp, "Token usage")
 
     def test_billing_page_shows_active_plan_notice(self):
-        resp = self.client.get(reverse("billing") + "?required=active-plan")
+        resp = self.client.get(reverse("billing-history") + "?required=active-plan")
 
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "An active plan is required to generate text and use tokens.")
+        self.assertContains(resp, "Connect your API key in AI Settings to generate content.")
 
     @patch("main.billing.stripe.Subscription.retrieve")
     def test_checkout_webhook_syncs_subscription_record(self, mock_retrieve):
@@ -3361,7 +3320,8 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
         STRIPE_BILLING_ENABLED=True,
     )
-    def test_reshuffle_redirects_to_billing_when_no_active_plan(self):
+    def test_reshuffle_redirects_to_ai_settings_without_key(self):
+        UserAICredential.objects.filter(user=self.user).delete()
         self.scene.structure_json = "{Protected only.}"
         self.scene.save(update_fields=["structure_json"])
 
@@ -3382,8 +3342,8 @@ class SceneStructurizeRenderTests(AuthenticatedTestCase):
         )
 
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "An active plan is required to generate text and use tokens.")
-        self.assertContains(resp, "Billing")
+        self.assertContains(resp, "Connect your API key in AI Settings to generate content.")
+        self.assertContains(resp, "AI Settings")
         self.assertNotContains(resp, "Reshuffle ignored protected text; kept the existing draft. Try again.")
 
     def test_edit_scene_shows_regenerate_marker_buttons(self):
@@ -4551,7 +4511,8 @@ class LocationViewsTests(AuthenticatedTestCase):
         STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
         STRIPE_BILLING_ENABLED=True,
     )
-    def test_extract_location_objects_requires_active_plan_when_billing_enabled(self):
+    def test_extract_location_objects_requires_api_key(self):
+        UserAICredential.objects.filter(user=self.user).delete()
         url = reverse("location-extract-objects", kwargs={"slug": self.project_a.slug})
         resp = self.client.post(
             url,
@@ -4567,8 +4528,8 @@ class LocationViewsTests(AuthenticatedTestCase):
 
         self.assertEqual(resp.status_code, 402)
         self.assertEqual(resp.json()["ok"], False)
-        self.assertIn("active plan", resp.json()["error"].lower())
-        self.assertIn(reverse("billing"), resp.json()["billing_url"])
+        self.assertIn("api key", resp.json()["error"].lower())
+        self.assertIn(reverse("ai-settings"), resp.json()["billing_url"])
 
     @override_settings(
         STRIPE_PUBLISHABLE_KEY="pk_test_123",
@@ -4580,7 +4541,8 @@ class LocationViewsTests(AuthenticatedTestCase):
         STRIPE_PRICE_TRIAL_WEEK="price_trial_week_123",
         STRIPE_BILLING_ENABLED=True,
     )
-    def test_location_edit_page_exposes_billing_redirect_for_ai_actions(self):
+    def test_location_edit_page_exposes_ai_settings_redirect_without_key(self):
+        UserAICredential.objects.filter(user=self.user).delete()
         url = reverse("location-edit", kwargs={"slug": self.project_a.slug, "pk": self.loc_a.id})
         resp = self.client.get(url)
 

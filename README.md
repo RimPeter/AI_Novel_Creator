@@ -2,48 +2,52 @@
 
 ## Dev Services
 
-Create `.env` from `.env.example` and set `OPENAI_API_KEY`.
+Create `.env` from `.env.example`. Install dependencies with `python -m pip install -r requirements.txt`.
 
-For account emails, set `SITE_DOMAIN` and `SITE_NAME` so confirmation and recovery messages use the correct branding and host.
+## Bring your own API key
 
-## Stripe Billing
+Users connect OpenAI (GPT), Anthropic (Claude), or both at `/ai-settings/`.
+The selected writing model determines the text provider. Image generation and editing
+use the user's OpenAI key. Reading, editing, and image uploads need no API key.
+Provider usage is billed directly to the user's provider account; app plans are retired.
 
-The app already includes hosted Stripe Checkout, the Stripe customer portal, webhook processing, and billing gating for AI features.
+Before starting the app:
 
-Required environment variables:
+1. Generate an encryption secret with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+2. Set `AI_CREDENTIAL_ENCRYPTION_KEY` in the deployment secret store (or local `.env`).
+   Keep it separate from database backups and stable across all web/worker processes.
+   Losing or changing it makes existing keys unreadable; users must reconnect.
+3. Run `python manage.py migrate`.
+4. Sign in, open AI Settings, and verify/save a provider key. Select a writing model.
 
-- `STRIPE_PUBLISHABLE_KEY`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_PRICE_MONTHLY`
-- `STRIPE_PRICE_YEARLY`
-- `STRIPE_PRICE_SINGLE_MONTH`
-- `STRIPE_PRICE_TRIAL_WEEK`
+Keys are encrypted at rest, masked in the UI, and resolved for the authenticated user
+at request time. The app never falls back to a server `OPENAI_API_KEY`.
+Connection tests list provider models without generating content; successful authentication
+does not guarantee model access or available credit. Network errors and quota errors are
+shown without exposing provider response bodies. Removal takes effect for subsequent
+calls; a request already sent to a provider cannot be recalled.
 
-Use a real `whsec_...` value for `STRIPE_WEBHOOK_SECRET`. Placeholder strings such as `NONE`, `null`, or `undefined` are treated as unset and will keep billing disabled.
+API calls outside HTTP requests must run inside `main.ai_credentials.ai_user_context(user)`.
+Never pass plaintext keys through Celery arguments. Existing Celery bible/outline/scene
+tasks produce local templates and do not call providers; this behavior is unchanged.
 
-Configured plans:
+Integration references: [OpenAI authentication](https://developers.openai.com/api/reference/overview)
+and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).
 
-- Monthly subscription: `£15`
-- Yearly subscription: `£100`
-- One month pass: `£20`
-- One week trial: `£5`
+## Legacy Stripe transition
 
-Routes:
+New checkout and plan selection are disabled. `/billing/` redirects to AI Settings.
+`/billing/history/` retains invoices and subscription management. Webhooks remain active
+for existing payments and subscriptions. Keep the existing Stripe configuration during
+the transition. Removing app plans does **not** cancel subscriptions in Stripe.
 
-- Billing page: `/billing/`
-- Checkout start: `/billing/checkout/`
-- Billing portal: `/billing/portal/`
-- Webhook endpoint: `/billing/webhook/`
-- Home memo board source: `main/data/home_updates.json`
+Before production rollout, review active recurring subscriptions and prepaid access,
+communicate the transition, decide cancellation/refund handling, and reconcile Stripe.
+Do not remove legacy invoice tables or historical migrations. After reconciliation,
+retire unused Stripe secrets and integrations separately.
 
-Local webhook forwarding with the Stripe CLI:
-
-```powershell
-stripe listen --forward-to http://127.0.0.1:8010/billing/webhook/
-```
-
-Copy the signing secret from the Stripe CLI output into `STRIPE_WEBHOOK_SECRET`.
+For account emails, set `SITE_DOMAIN` and `SITE_NAME` so confirmation and recovery
+messages use the correct branding and host.
 
 ### 1) Start Redis
 

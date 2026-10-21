@@ -40,6 +40,7 @@ def env_str(name, default=""):
 
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+AI_CREDENTIAL_ENCRYPTION_KEY = env_str("AI_CREDENTIAL_ENCRYPTION_KEY")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_IMAGE_MODEL = env_str("OPENAI_IMAGE_MODEL", "gpt-image-2")
 RUNNING_TESTS = "test" in sys.argv
@@ -162,6 +163,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'main.ai_credentials.AICredentialMiddleware',
     'allauth.account.middleware.AccountMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',

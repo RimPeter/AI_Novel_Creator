@@ -11,7 +11,7 @@
           <h1 class="page-title">Billing information</h1>
         </div>
         <div class="actions">
-          <a class="btn btn-secondary" href="{% url 'billing' %}">Back to billing</a>
+          <a class="btn btn-secondary" href="{% url 'billing-history' %}">Back to billing</a>
           <a class="btn btn-secondary" href="{% url 'billing-terms' %}">Terms and conditions</a>
         </div>
       </div>
@@ -148,7 +148,7 @@
 
           <div class="actions">
             <button class="btn btn-primary" type="submit">Continue to Stripe Checkout</button>
-            <a class="btn btn-secondary" href="{% url 'billing' %}">Cancel</a>
+            <a class="btn btn-secondary" href="{% url 'billing-history' %}">Cancel</a>
           </div>
         </form>
       {% else %}

@@ -1,0 +1,46 @@
+{% extends "main/base.html" %}
+{% block title %}AI Settings | AI Novel Creator{% endblock %}
+{% block content %}
+<div class="page-shell">
+  <section class="card page-hero page-hero-compact">
+    <span class="page-kicker">Your AI connections</span>
+    <h1 class="page-title">AI Settings</h1>
+    <p class="page-lead">Use your own OpenAI or Claude API key. Your provider bills API usage directly; no app plan is required.</p>
+    <p>Connect either provider for writing, or both. Image generation and editing use your OpenAI key. You can always read, edit, and upload images without a key.</p>
+    <a href="{% url 'billing-history' %}">Previous billing and invoices</a>
+  </section>
+  <section class="card page-panel">
+    <h2>Connected providers</h2>
+    {% for connection in connections %}
+      <div class="header-row">
+        <p><strong>{{ connection.get_provider_display }}</strong> &mdash; key ending {{ connection.key_suffix }}</p>
+        <form method="post" class="actions">
+          {% csrf_token %}<input type="hidden" name="provider" value="{{ connection.provider }}">
+          <button class="btn btn-secondary" name="action" value="test">Test connection</button>
+          <button class="btn btn-secondary" name="action" value="remove">Remove key</button>
+        </form>
+      </div>
+    {% empty %}<p>No API keys connected yet.</p>{% endfor %}
+  </section>
+  <section class="card page-panel">
+    <h2>Add or replace a key</h2>
+    <p>Keys are encrypted before storage and are never displayed again. Connecting a replacement keeps your existing key until verification succeeds.</p>
+    <form method="post">
+      {% csrf_token %}{{ form.as_p }}
+      <button class="btn" name="action" value="connect">Verify and save key</button>
+    </form>
+    <p><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API keys</a> &middot; <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Claude API keys</a></p>
+    <p class="muted">Connection testing checks authentication. Access to individual models and available credit are checked when you generate.</p>
+  </section>
+  <section class="card page-panel">
+    <h2>Writing model</h2>
+    <form method="post">
+      {% csrf_token %}
+      <label for="writing-model">Default provider and model</label>
+      <select id="writing-model" name="model">{% for model in models %}<option value="{{ model.value }}" {% if model.value == selected_model %}selected{% endif %}>{{ model.label }}</option>{% endfor %}</select>
+      <button class="btn" name="action" value="model">Save writing model</button>
+    </form>
+    <p class="muted">The selected model determines your writing provider. Images always use OpenAI.</p>
+  </section>
+</div>
+{% endblock %}

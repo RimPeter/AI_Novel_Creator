@@ -8,7 +8,7 @@
       <div class="page-hero-head">
         <div>
           <span class="page-kicker">Account billing</span>
-          <h1 class="page-title">Billing</h1>
+          <h1 class="page-title">Previous billing</h1>
         </div>
         <div class="actions">
           <a class="btn btn-secondary" href="{% url 'project-list' %}">Projects</a>
@@ -30,7 +30,7 @@
           {% endif %}
         </div>
       </div>
-      <p class="page-lead">Pay with Stripe using a monthly subscription, yearly subscription, one-month pass, or one-week trial.</p>
+      <p class="page-lead">Previous billing records. New plans are no longer available. Existing Stripe subscriptions must be cancelled separately using the controls below.</p>
     </section>
 
     <section class="card page-panel">
@@ -81,7 +81,7 @@
           <p class="muted">Cancellation applies at period end. You keep access until then.</p>
         {% endif %}
       {% else %}
-        <p class="muted">Stripe billing is not configured yet. Add the Stripe keys, webhook secret, and all four price IDs in the environment to enable checkout.</p>
+        <p class="muted">Legacy billing management is unavailable. Contact the site administrator for help with an existing subscription.</p>
       {% endif %}
     </section>
 
@@ -118,31 +118,5 @@
       </details>
     </section>
 
-    {% if billing_enabled %}
-      <section class="card page-panel">
-        <div class="header-row">
-          <div>
-            <h2 class="page-panel-title">Plans</h2>
-            <p class="muted">Recurring subscriptions can be managed in the Stripe billing portal. One-off passes expire automatically.</p>
-          </div>
-        </div>
-        <div class="billing-plan-grid">
-          {% for option in price_options %}
-            <article class="billing-plan-card">
-              <div class="billing-plan-kicker">{{ option.interval|title }}</div>
-              <h3 class="billing-plan-title">{{ option.label }}</h3>
-              <p class="billing-plan-price">{{ option.price_display }}</p>
-              <div class="billing-plan-vat-badge">{{ option.vat_badge }}</div>
-              <p class="billing-plan-vat-note">{{ option.price_breakdown_display }}</p>
-              <p class="muted">{{ option.description }}</p>
-              <form method="get" action="{% url 'billing-information' %}">
-                <input type="hidden" name="plan" value="{{ option.key }}" />
-                <button class="btn btn-primary" type="submit">Choose {{ option.label }}</button>
-              </form>
-            </article>
-          {% endfor %}
-        </div>
-      </section>
-    {% endif %}
   </div>
 {% endblock %}

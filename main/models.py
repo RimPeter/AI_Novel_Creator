@@ -582,3 +582,16 @@ class ProcessedStripeEvent(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.event_type or 'stripe.event'} {self.stripe_event_id}"
+
+
+class UserAICredential(TimeStampedModel):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="ai_credentials")
+    provider = models.CharField(max_length=20, choices=[("openai", "OpenAI"), ("anthropic", "Claude")])
+    encrypted_key = models.TextField()
+    key_suffix = models.CharField(max_length=4)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "provider"], name="unique_user_ai_provider")]
+
+    def __str__(self):
+        return f"{self.get_provider_display()} connection for user {self.user_id}"

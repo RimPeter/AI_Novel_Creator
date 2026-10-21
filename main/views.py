@@ -1,3 +1,5 @@
+import sys
+from main.ai_credentials import AIConfigurationError, has_ai_connection
 import ast
 import hashlib
 import json
@@ -41,7 +43,6 @@ from .billing import (
     get_price_options,
     get_subscription_display,
     sync_checkout_session,
-    user_has_active_plan,
     user_has_active_subscription,
 )
 from .forms import (
@@ -163,7 +164,7 @@ def _get_project_redirect_url(request, fallback_url: str) -> str:
 
 
 def _get_billing_url(request, *, reason: str = "") -> str:
-    billing_url = reverse("billing")
+    billing_url = reverse("ai-settings")
     next_url = request.get_full_path()
     params = {}
     if next_url:
@@ -176,12 +177,10 @@ def _get_billing_url(request, *, reason: str = "") -> str:
 
 
 def _subscription_required_response(request, *, wants_json: bool = False):
-    if not billing_enabled():
+    if has_ai_connection(request.user):
         return None
-    if user_has_active_plan(request.user):
-        return None
-    error = "An active plan is required to generate text and use tokens."
-    billing_url = _get_billing_url(request, reason="active-plan")
+    error = "Connect your API key in AI Settings to generate content."
+    billing_url = _get_billing_url(request, reason="api-key")
     if wants_json:
         return JsonResponse({"ok": False, "error": error, "billing_url": billing_url}, status=402)
     messages.error(request, error)
@@ -201,6 +200,9 @@ def _ensure_json_ai_request(request):
 
 
 def _json_internal_error() -> JsonResponse:
+    error = sys.exception()
+    if isinstance(error, AIConfigurationError):
+        return JsonResponse({"ok": False, "error": str(error), "billing_url": reverse("ai-settings")}, status=402)
     _log_exception("Request processing failed.")
     return JsonResponse({"ok": False, "error": "Request failed. Please try again."}, status=400)
 
@@ -817,7 +819,7 @@ def _is_stripe_checkout_session_placeholder(session_id: str) -> bool:
 def _build_stripe_checkout_success_url(request) -> str:
     placeholder_token = "__stripe_checkout_session_id__"
     success_path = _add_query_params(
-        reverse("billing"),
+        reverse("billing-history"),
         checkout="success",
         session_id=placeholder_token,
     )
@@ -1932,8 +1934,6 @@ def add_character_details(request, slug):
 @login_required
 def generate_character_portrait(request, slug, pk):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request, wants_json=True)
     if blocked is not None:
         return blocked
@@ -2121,7 +2121,7 @@ class BillingView(LoginRequiredMixin, TemplateView):
         ctx["required_access"] = (self.request.GET.get("required") or "").strip()
         ctx["access_notice"] = ""
         if ctx["required_access"] == "active-plan":
-            ctx["access_notice"] = "An active plan is required to generate text and use tokens."
+            ctx["access_notice"] = "Connect your API key in AI Settings to generate content."
         ctx["checkout_sync_error"] = ""
         ctx["checkout_sync_notice"] = ""
         if (
@@ -2179,17 +2179,17 @@ class BillingInformationView(LoginRequiredMixin, TemplateView):
 def create_billing_checkout(request):
     if not billing_enabled():
         messages.error(request, "Stripe billing is not configured yet.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
 
     if user_has_active_subscription(request.user):
         messages.warning(request, "You already have active paid access. Use Manage billing for recurring plans.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
 
     plan = (request.POST.get("plan") or "").strip().lower()
     option = next((item for item in get_price_options() if item["key"] == plan and item["price_id"]), None)
     if option is None:
         messages.error(request, "Choose a valid billing plan.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
     form = BillingInformationForm(request.POST)
     if not form.is_valid():
         return render(
@@ -2201,7 +2201,7 @@ def create_billing_checkout(request):
     _save_billing_information_profile(user=request.user, cleaned_data=form.cleaned_data)
 
     success_url = _build_stripe_checkout_success_url(request)
-    cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing"), checkout="cancelled"))
+    cancel_url = request.build_absolute_uri(_add_query_params(reverse("billing-history"), checkout="cancelled"))
     try:
         session = create_checkout_session(
             user=request.user,
@@ -2213,7 +2213,7 @@ def create_billing_checkout(request):
     except Exception as e:
         _log_exception("Failed to create Stripe checkout session for user_id=%s", request.user.pk)
         messages.error(request, "Could not start Stripe Checkout right now. Please try again.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
     return HttpResponseRedirect(session.url)
 
 
@@ -2222,16 +2222,16 @@ def create_billing_checkout(request):
 def create_billing_portal(request):
     if not billing_enabled():
         messages.error(request, "Stripe billing is not configured yet.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
     try:
         session = create_billing_portal_session(
             user=request.user,
-            return_url=request.build_absolute_uri(reverse("billing")),
+            return_url=request.build_absolute_uri(reverse("billing-history")),
         )
     except Exception as e:
         _log_exception("Failed to create Stripe billing portal session for user_id=%s", request.user.pk)
         messages.error(request, "Could not open the billing portal right now. Please try again.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
     return HttpResponseRedirect(session.url)
 
 
@@ -2240,21 +2240,21 @@ def create_billing_portal(request):
 def cancel_billing_recurring(request):
     if not billing_enabled():
         messages.error(request, "Stripe billing is not configured yet.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
 
     try:
         record = cancel_recurring_subscription(user=request.user)
     except Exception as e:
         _log_exception("Failed to cancel recurring subscription for user_id=%s", request.user.pk)
         messages.error(request, "Could not cancel recurring payments right now. Please try again.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
 
     if record is None:
         messages.error(request, "No recurring subscription was found to cancel.")
-        return HttpResponseRedirect(reverse("billing"))
+        return HttpResponseRedirect(reverse("billing-history"))
 
     messages.success(request, "Recurring payments cancelled. Access remains active until the current period ends.")
-    return HttpResponseRedirect(reverse("billing"))
+    return HttpResponseRedirect(reverse("billing-history"))
 
 
 @require_POST
@@ -2267,7 +2267,7 @@ def clear_billing_status(request):
         messages.info(request, "No billing status was stored for this account.")
     else:
         messages.success(request, "Billing status cleared for test checkout.")
-    return HttpResponseRedirect(reverse("billing"))
+    return HttpResponseRedirect(reverse("billing-history"))
 
 
 def _get_billing_invoice_for_request(request, pk) -> BillingInvoice:
@@ -3776,8 +3776,6 @@ def extract_location_objects(request, slug):
 @login_required
 def generate_location_image(request, slug, pk):
     project = _get_project_for_user(request, slug)
-    if not getattr(settings, "OPENAI_API_KEY", ""):
-        return JsonResponse({"ok": False, "error": "Image generation is not configured."}, status=400)
     blocked = _subscription_required_response(request, wants_json=True)
     if blocked is not None:
         return blocked
@@ -3870,9 +3868,9 @@ class LocationCreateView(LoginRequiredMixin, CreateView):
         ctx["project"] = self.project
         ctx["object_rows"] = []
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
-        ctx["billing_enabled"] = billing_enabled()
-        ctx["has_active_plan"] = user_has_active_plan(self.request.user)
-        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
+        ctx["billing_enabled"] = True
+        ctx["has_active_plan"] = has_ai_connection(self.request.user)
+        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="api-key")
         return ctx
 
     def get_form_kwargs(self):
@@ -3920,9 +3918,9 @@ class LocationUpdateView(LoginRequiredMixin, UpdateView):
         ctx["project"] = self.project
         ctx["object_rows"] = sorted((self.object.objects_map or {}).items(), key=lambda kv: kv[0].lower())
         ctx["next_url"] = (self.request.GET.get("next") or "").strip()
-        ctx["billing_enabled"] = billing_enabled()
-        ctx["has_active_plan"] = user_has_active_plan(self.request.user)
-        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
+        ctx["billing_enabled"] = True
+        ctx["has_active_plan"] = has_ai_connection(self.request.user)
+        ctx["ai_billing_url"] = _get_billing_url(self.request, reason="api-key")
         return ctx
 
     def form_valid(self, form):
@@ -4654,9 +4652,9 @@ class OutlineNodeUpdateView(LoginRequiredMixin, UpdateView):
         ctx["parent_node"] = obj.parent
         ctx["node_kind"] = "chapter" if obj.node_type == OutlineNode.NodeType.CHAPTER else "scene"
         if obj.node_type == OutlineNode.NodeType.SCENE:
-            ctx["billing_enabled"] = billing_enabled()
-            ctx["has_active_plan"] = user_has_active_plan(self.request.user)
-            ctx["ai_billing_url"] = _get_billing_url(self.request, reason="active-plan")
+            ctx["billing_enabled"] = True
+            ctx["has_active_plan"] = has_ai_connection(self.request.user)
+            ctx["ai_billing_url"] = _get_billing_url(self.request, reason="api-key")
             ctx["chapter_scenes"] = _get_chapter_scene_links(obj)
             ctx["character_list"] = Character.objects.filter(project=self.project).order_by("name")
             form = ctx.get("form")

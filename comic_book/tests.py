@@ -18,10 +18,15 @@ from .forms import (
     ComicPanelForm,
     ComicProjectForm,
 )
+from cryptography.fernet import Fernet
+from main.ai_credentials import encrypt_key
+from main.models import UserAICredential
+
 from main.llm import LLMResult
 from .models import ComicBible, ComicPanelNode, ComicCharacter, ComicIssue, ComicLocation, ComicObject, ComicPage, ComicPanel, ComicProject
 
 
+@override_settings(AI_CREDENTIAL_ENCRYPTION_KEY=Fernet.generate_key().decode())
 class ComicBookAppTests(TestCase):
     def setUp(self):
         super().setUp()
@@ -30,6 +35,8 @@ class ComicBookAppTests(TestCase):
             email="panelmaker@example.com",
             password="password123",
         )
+
+        UserAICredential.objects.create(user=self.user, provider="openai", encrypted_key=encrypt_key("sk-test-key"), key_suffix="-key")
 
     def _create_project(self, *, owner=None, slug="star-signal", title="Star Signal") -> ComicProject:
         return ComicProject.objects.create(

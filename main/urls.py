@@ -1,14 +1,17 @@
 from django.urls import path
 
 from . import views
+from .ai_settings import ai_settings, retired_checkout
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("token-usage/", views.TokenUsageView.as_view(), name="token-usage"),
-    path("billing/", views.BillingView.as_view(), name="billing"),
+    path("ai-settings/", ai_settings, name="ai-settings"),
+    path("billing/", retired_checkout, name="billing"),
+    path("billing/history/", views.BillingView.as_view(), name="billing-history"),
     path("billing/terms-and-conditions/", views.BillingTermsView.as_view(), name="billing-terms"),
-    path("billing/information/", views.BillingInformationView.as_view(), name="billing-information"),
-    path("billing/checkout/", views.create_billing_checkout, name="billing-checkout"),
+    path("billing/information/", retired_checkout, name="billing-information"),
+    path("billing/checkout/", retired_checkout, name="billing-checkout"),
     path("billing/clear-status/", views.clear_billing_status, name="billing-clear-status"),
     path("billing/company-details/", views.BillingCompanyProfileUpdateView.as_view(), name="billing-company-details"),
     path("billing/invoices/<uuid:pk>/pdf/", views.download_billing_invoice_pdf, name="billing-invoice-pdf"),

@@ -4,6 +4,9 @@ from .models import UserTextModelPreference
 
 
 TEXT_MODEL_OPTIONS = [
+    ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+    ("claude-opus-4-6", "Claude Opus 4.6"),
+    ("claude-haiku-4-5", "Claude Haiku 4.5"),
     ("gpt-4o-mini", "GPT-4o mini"),
     ("gpt-4.1-mini", "GPT-4.1 mini"),
     ("gpt-4.1", "GPT-4.1"),
@@ -54,6 +57,9 @@ def save_user_text_model(user, model_name: str) -> str:
     available_models = {option["value"] for option in get_available_text_models()}
     if selected_model not in available_models:
         raise ValueError("Choose a valid model.")
+
+    from .ai_credentials import get_api_key
+    get_api_key("anthropic" if selected_model.startswith("claude-") else "openai", user)
 
     default_model = get_default_text_model()
     preference, _created = UserTextModelPreference.objects.get_or_create(user=user)

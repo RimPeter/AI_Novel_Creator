@@ -2,12 +2,10 @@ import base64
 from dataclasses import dataclass
 from io import BytesIO
 
-from django.conf import settings
-from openai import OpenAI
 from PIL import Image, ImageFilter, ImageStat
 
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+from .ai_providers import openai_request, anthropic_request
 SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash character (U+2014); use a plain hyphen instead."
 
 
@@ -170,7 +168,7 @@ def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict, im
     if _model_supports_custom_temperature(model_name):
         request_kwargs["temperature"] = params.get("temperature", 0.7)
 
-    response = client.chat.completions.create(**request_kwargs)
+    response = openai_request("chat.completions.create", **request_kwargs)
 
     return LLMResult(
         text=_normalize_llm_text(response.choices[0].message.content),
@@ -184,6 +182,27 @@ def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict, im
 
 
 def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str = "") -> LLMResult:
+    if model_name.startswith("claude-"):
+        content = [{"type": "text", "text": prompt}]
+        if image_data_url:
+            if not image_data_url.startswith("data:image/") or ";base64," not in image_data_url:
+                raise ValueError("Claude image inputs must be base64 image data.")
+            header, data = image_data_url.split(",", 1)
+            content.insert(0, {"type": "image", "source": {"type": "base64", "media_type": header[5:].split(";")[0], "data": data}})
+        response = anthropic_request("messages", payload={
+            "model": model_name,
+            "max_tokens": params.get("max_completion_tokens", params.get("max_tokens", 1500)),
+            "system": SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": content}],
+        })
+        usage = response.get("usage", {})
+        input_tokens = sum(int(usage.get(k, 0) or 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        return LLMResult(
+            text=_normalize_llm_text("\n".join(block.get("text", "") for block in response.get("content", []) if block.get("type") == "text")),
+            usage={"prompt_tokens": input_tokens, "completion_tokens": output_tokens, "total_tokens": input_tokens + output_tokens, "provider": "anthropic"},
+            finish_reason="length" if response.get("stop_reason") == "max_tokens" else response.get("stop_reason", ""),
+        )
     max_output_tokens = params.get("max_completion_tokens", params.get("max_tokens", 1500))
     image_data_url = (image_data_url or "").strip()
 
@@ -197,7 +216,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str 
         reasoning_effort = _responses_reasoning_effort(model_name)
         if reasoning_effort:
             request_kwargs["reasoning"] = {"effort": reasoning_effort}
-        response = client.responses.create(**request_kwargs)
+        response = openai_request("responses.create", **request_kwargs)
         prompt_tokens = _get_usage_value(getattr(response, "usage", None), "input_tokens")
         completion_tokens = _get_usage_value(getattr(response, "usage", None), "output_tokens")
         total_tokens = _get_usage_value(getattr(response, "usage", None), "total_tokens")
@@ -251,7 +270,7 @@ def generate_image_data_url(*, prompt: str, model_name: str, size: str = "1024x1
     else:
         image_params["response_format"] = "b64_json"
 
-    response = client.images.generate(**image_params)
+    response = openai_request("images.generate", **image_params)
     data = response.data[0].b64_json
     return f"data:image/png;base64,{data}"
 
@@ -318,7 +337,7 @@ def edit_image_data_url(*, prompt: str, image_data_url: str, model_name: str, si
     else:
         image_params["response_format"] = "b64_json"
 
-    response = client.images.edit(**image_params)
+    response = openai_request("images.edit", **image_params)
     data = response.data[0].b64_json
     edited_data_url = f"data:image/png;base64,{data}"
     return _match_image_tone_to_reference(edited_data_url=edited_data_url, reference_data_url=image_data_url)

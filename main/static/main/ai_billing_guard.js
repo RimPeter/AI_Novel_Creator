@@ -1,5 +1,5 @@
 (() => {
-  const REQUIRED_PLAN_MESSAGE = "An active plan is required to generate text and use tokens.";
+  const REQUIRED_PLAN_MESSAGE = "Connect your API key in AI Settings to generate content.";
 
   const readConfig = (element) => ({
     billingEnabled: element?.getAttribute("data-billing-enabled") === "true",

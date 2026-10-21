@@ -207,6 +207,24 @@
     "source_key": "2026-04-12-home-updates-json-sync",
     "date": "2026-04-12",
     "title": "Home memo board now deploy-syncs from JSON",
-    "body": "The home page update board is now synced from this file during deploy, so pushing commits updates production automatically."
+    "body": "The home page update board is synced from release notes in this file during deployment. New announcements appear when entries are added to the file and deployed."
+  },
+  {
+    "source_key": "2026-10-21-signup-controls",
+    "date": "2026-10-21",
+    "title": "Signup controls and email rate limits",
+    "body": "Administrators can control whether new accounts can sign up. Email rate limits help protect account sign-in and recovery flows."
+  },
+  {
+    "source_key": "2026-10-21-bring-your-own-api-key",
+    "date": "2026-10-21",
+    "title": "Connect your own OpenAI or Claude API key",
+    "body": "App plans have been replaced by your own AI provider connection. In AI Settings, add, test, replace, or remove an encrypted OpenAI or Claude API key and choose your writing model. Your provider bills API usage directly. Image generation uses your OpenAI connection. Previous invoices and subscription management remain available."
+  },
+  {
+    "source_key": "2026-10-21-writing-models",
+    "date": "2026-10-21",
+    "title": "New GPT and Claude writing models",
+    "body": "Writing model choices now include GPT-6.1 Sol, GPT-6 Astra, GPT-6 Luna, Claude Sonnet 5.5, Claude Opus 5.5, Claude Haiku 5.5, and Claude Fable 5.1. GPT-6 generation uses the Responses API. Existing model selections remain available; access depends on your provider account."
   }
 ]

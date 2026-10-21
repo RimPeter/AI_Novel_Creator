@@ -152,6 +152,12 @@ heroku run -a ai-novel-manager -- python manage.py migrate
 
 Sync home updates from the committed JSON source:
 
+The Recent updates board does not read Git history. For each user-facing release,
+add an entry to `main/data/home_updates.json` with a unique `source_key`, date,
+title, and description, and include that file in the commit. Run the command below
+to refresh the local board. Heroku runs the same sync during release after the
+updated file is deployed. Running `migrate` or `runserver` alone does not sync it.
+
 ```powershell
 python manage.py sync_home_updates
 ```

@@ -8,8 +8,9 @@ from django.views.decorators.http import require_http_methods
 
 from .ai_credentials import AIConfigurationError, cipher, encrypt_key, get_api_key
 from .ai_providers import validate_key
-from .models import UserAICredential
+from .models import UserAICredential, UserTextModelPreference
 from .text_models import get_available_text_models, get_user_text_model, save_user_text_model
+from .text_models import save_user_fallback
 
 
 class ConnectionForm(forms.Form):
@@ -44,17 +45,24 @@ def ai_settings(request):
             elif action in ("remove", "test") and provider in ("openai", "anthropic"):
                 if action == "remove":
                     UserAICredential.objects.filter(user=request.user, provider=provider).delete()
+                    UserTextModelPreference.objects.filter(user=request.user).update(fallback_enabled=False)
                     messages.success(request, "API key removed from this app.")
                 else:
                     validate_key(provider, get_api_key(provider, request.user))
                     messages.success(request, "Connection verified.")
+                return redirect("ai-settings")
+            elif action == "fallback":
+                save_user_fallback(request.user, enabled=request.POST.get("fallback_enabled") == "on",
+                                   model_name=request.POST.get("fallback_model", ""),
+                                   on_quota=request.POST.get("fallback_on_quota") == "on")
+                messages.success(request, "Backup provider settings saved.")
                 return redirect("ai-settings")
             elif action == "model":
                 model = request.POST.get("model", "")
                 provider = "anthropic" if model.startswith("claude-") else "openai"
                 get_api_key(provider, request.user)
                 save_user_text_model(request.user, model)
-                messages.success(request, "Writing model saved.")
+                messages.success(request, "Writing model saved. Review your backup settings if you changed providers.")
                 return redirect("ai-settings")
             else:
                 messages.error(request, "Choose a valid action.")
@@ -65,6 +73,7 @@ def ai_settings(request):
         "connections": UserAICredential.objects.filter(user=request.user).only("provider", "key_suffix"),
         "models": get_available_text_models(),
         "selected_model": get_user_text_model(request.user),
+        "fallback": UserTextModelPreference.objects.filter(user=request.user).first(),
     })
 
 

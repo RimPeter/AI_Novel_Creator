@@ -646,7 +646,7 @@ class LLMTests(TestCase):
         self.assertEqual(result.text, "Wait-no. Use this-instead.")
         self.assertEqual(
             result.usage,
-            {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18, "provider": "openai", "model": "test-model"},
         )
         self.assertEqual(result.finish_reason, "")
         kwargs = mocked.call_args.kwargs
@@ -737,7 +737,7 @@ class LLMTests(TestCase):
         self.assertEqual(kwargs["input"], "Test prompt")
         self.assertEqual(kwargs["reasoning"], {"effort": "low"})
         self.assertEqual(result.text, "Plain text.")
-        self.assertEqual(result.usage, {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13})
+        self.assertEqual(result.usage, {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13, "provider": "openai", "model": "gpt-5-mini"})
         self.assertEqual(result.finish_reason, "")
 
     def test_call_llm_captures_chat_completion_finish_reason(self):
@@ -857,7 +857,7 @@ class LLMTests(TestCase):
                 )
 
         self.assertEqual(result.text, "Fallback text.")
-        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "provider": "openai", "model": "gpt-5-mini"})
 
     def test_call_llm_falls_back_to_chat_completions_when_responses_text_is_empty(self):
         responses_response = SimpleNamespace(
@@ -881,7 +881,7 @@ class LLMTests(TestCase):
         self.assertEqual(responses_mock.call_count, 1)
         self.assertEqual(chat_mock.call_count, 1)
         self.assertEqual(result.text, "Fallback text.")
-        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+        self.assertEqual(result.usage, {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "provider": "openai", "model": "gpt-5-mini"})
 
 
 @override_settings(

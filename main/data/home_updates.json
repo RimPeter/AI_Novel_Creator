@@ -1,5 +1,11 @@
 [
   {
+    "source_key": "2026-10-21-backup-writing-provider",
+    "date": "2026-10-21",
+    "title": "Optional backup writing provider",
+    "body": "Connect both OpenAI and Claude in AI Settings to choose a backup writing model. Enable automatic fallback to try that provider when your primary provider is temporarily unavailable. You will see a notification when the request returns, and tracked generation history records the model used. Switching when credits are exhausted is a separate option. Backup usage is billed by that provider; image generation still uses OpenAI."
+  },
+  {
     "source_key": "legacy-1",
     "date": "2026-03-20",
     "title": "Improved AI Drafting and Editing Features",

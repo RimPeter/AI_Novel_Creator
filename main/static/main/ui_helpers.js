@@ -1,4 +1,5 @@
 (() => {
+  if (window.AppUI) return;
   const FLASH_STORAGE_KEY = "app-ui-flash-message";
   const DEFAULT_MESSAGE_TIMEOUT_MS = 7000;
   const LOADING_MESSAGE_TEXT = "Loading...";
@@ -42,6 +43,21 @@
     item.textContent = text;
     list.appendChild(item);
     removeMessageAfterDelay(item, timeoutMs);
+  };
+
+  // Include callers that use fetch directly as well as the shared form helpers.
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    const notices = response.headers.get("X-AI-Fallback-Notices");
+    if (notices) {
+      try {
+        JSON.parse(notices).forEach((notice) => showMessage(notice, "warning", 15000));
+      } catch (_error) {
+        // A malformed optional notice must not prevent processing the response.
+      }
+    }
+    return response;
   };
 
   const initializeExistingMessages = () => {

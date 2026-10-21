@@ -221,6 +221,7 @@ def _call_tracked_llm_json_object(
     run_type: str = GenerationRun.RunType.SCENE,
     outline_node: OutlineNode | None = None,
     use_json_object_extractor: bool = True,
+    result_metadata: dict | None = None,
 ):
     result = _call_tracked_llm(
         project=project,
@@ -232,6 +233,8 @@ def _call_tracked_llm_json_object(
         outline_node=outline_node,
     )
     raw_text = (result.text or "").strip()
+    if result_metadata is not None:
+        result_metadata.update(result.usage or {})
     payload = _extract_json_object(raw_text) if use_json_object_extractor else raw_text
     data = json.loads(payload) if payload else {}
     if not isinstance(data, dict):
@@ -669,7 +672,7 @@ def _call_tracked_llm(
         run_type=run_type,
         status=GenerationRun.Status.SUCCEEDED,
         prompt=prompt,
-        model_name=model_name,
+        model_name=usage.get("model", model_name),
         params=params,
         output_text=(result.text or "").strip(),
         usage=usage,
@@ -3551,6 +3554,7 @@ def _serialize_scene_review_history(scene: OutlineNode) -> list[dict[str, object
 def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> SceneCriticReview:
     previous_review = _get_latest_scene_review(scene)
     review = _build_scene_draft_review(scene, user=user, previous_review=previous_review)
+    review_model = review.pop("model_name", None) or get_user_text_model(user)
     review_record = SceneCriticReview.objects.create(
         scene=scene,
         scene_title_snapshot=(scene.title or "").strip(),
@@ -3559,13 +3563,13 @@ def _generate_and_store_scene_draft_review(scene: OutlineNode, *, user) -> Scene
         overall_assessment=review["overall_assessment"],
         recommendations=review["recommendations"],
         improvements_vs_previous=review["improvements_vs_previous"],
-        model_name=get_user_text_model(user),
+        model_name=review_model,
         source_fingerprint=_scene_draft_review_fingerprint(scene),
         source_truncated=bool(review.get("source_truncated")),
     )
     scene.draft_review_data = review
     scene.draft_review_fingerprint = _scene_draft_review_fingerprint(scene)
-    scene.draft_review_model_name = get_user_text_model(user)
+    scene.draft_review_model_name = review_record.model_name
     scene.draft_review_generated_at = review_record.reviewed_at
     scene.save(
         update_fields=[
@@ -3660,9 +3664,11 @@ def _build_scene_draft_review(
     prompt = "\n".join(prompt_lines).strip()
     model_name = get_user_text_model(user)
     params = {"temperature": 0.3, "max_tokens": 1200}
+    result_metadata = {}
     data = _call_tracked_llm_json_object(
         project=scene.project,
         action_label="Scene Draft Critic Review",
+        result_metadata=result_metadata,
         prompt=prompt,
         model_name=model_name,
         params=params,
@@ -3690,6 +3696,7 @@ def _build_scene_draft_review(
         "recommendations": recommendations,
         "improvements_vs_previous": improvements_vs_previous,
         "source_truncated": bool(truncated),
+        "model_name": result_metadata.get("model", model_name),
     }
 
 

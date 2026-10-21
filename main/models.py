@@ -402,6 +402,9 @@ class UserTextModelPreference(TimeStampedModel):
         related_name="text_model_preference",
     )
     text_model_name = models.CharField(max_length=120, blank=True, default="")
+    fallback_enabled = models.BooleanField(default=False)
+    fallback_model_name = models.CharField(max_length=120, blank=True, default="")
+    fallback_on_quota = models.BooleanField(default=False)
 
     def __str__(self) -> str:
         return f"Text model preference for {self.user}"

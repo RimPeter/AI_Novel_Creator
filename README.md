@@ -185,3 +185,32 @@ Deployment notes:
 - The `release` process then runs `python manage.py sync_home_updates`.
 - The `web` process runs `gunicorn novel_creator.wsgi`.
 - Static files are served with WhiteNoise, so `DISABLE_COLLECTSTATIC` should be unset on Heroku.
+
+### Optional backup writing provider
+
+After applying migration `0033_ai_provider_fallback`, connect both providers in
+AI Settings, choose your primary writing model, and enable automatic fallback
+with a model from the other provider. Existing users have fallback disabled.
+Exhausted credit/quota requires the separate checkbox. Removing either key
+disables fallback; switching the primary to the backup's provider also disables it.
+
+Text requests try the backup once for connection failures, network timeouts,
+rate limits, or provider server errors. Invalid keys, malformed requests,
+unavailable models, and refusals do not trigger provider switching. Only the
+signed-in user's encrypted keys are used. With fallback enabled, each provider
+has a 60-second network timeout and no SDK or alternate-endpoint retries.
+These are network inactivity timeouts, not a guaranteed wall-clock deadline.
+Gunicorn's worker timeout is 150 seconds to accommodate the two attempts;
+upstream proxy request deadlines still apply.
+
+Normal pages show a Django message; AJAX requests display a notification from
+the response header. Notifications arrive when the request returns, not during
+generation. Successful tracked runs and critic reviews record the actual model;
+fallback run usage includes the primary model and failure category. Primary
+usage after a timeout is unknown and may still be billed. Enabling fallback
+allows prompts and reference images to be sent to the chosen backup provider.
+
+Image generation/editing remains OpenAI-only. Existing Celery generation tasks
+produce local templates and do not call providers; any future provider task
+must use `ai_user_context(project.owner)` around `call_llm` and persist its usage
+metadata, just like the web generation paths.

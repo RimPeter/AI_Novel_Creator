@@ -10,6 +10,21 @@ from .models import UserAICredential
 
 
 current_ai_user = ContextVar("current_ai_user", default=None)
+current_ai_request = ContextVar("current_ai_request", default=None)
+
+
+def notify_fallback(message):
+    request = current_ai_request.get()
+    if request is None:
+        return
+    notices = getattr(request, "ai_fallback_notices", [])
+    if message in notices:
+        return
+    notices.append(message)
+    request.ai_fallback_notices = notices
+    if "application/json" not in request.headers.get("Accept", "") and request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        from django.contrib import messages
+        messages.warning(request, message)
 
 
 class AIConfigurationError(ValueError):
@@ -63,5 +78,13 @@ class AICredentialMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        with ai_user_context(request.user):
-            return self.get_response(request)
+        token = current_ai_request.set(request)
+        try:
+            with ai_user_context(request.user):
+                response = self.get_response(request)
+            if getattr(request, "ai_fallback_notices", None):
+                import json
+                response["X-AI-Fallback-Notices"] = json.dumps(request.ai_fallback_notices)
+            return response
+        finally:
+            current_ai_request.reset(token)

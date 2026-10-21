@@ -3,6 +3,25 @@ from django.conf import settings
 from .models import UserTextModelPreference
 
 
+def model_provider(model_name):
+    return "anthropic" if model_name.startswith("claude-") else "openai"
+
+
+def save_user_fallback(user, *, enabled, model_name="", on_quota=False):
+    from .ai_credentials import get_api_key
+    if enabled:
+        if model_name not in {item["value"] for item in get_available_text_models()}:
+            raise ValueError("Choose a valid backup model.")
+        if model_provider(model_name) == model_provider(get_user_text_model(user)):
+            raise ValueError("Choose a backup model from a different provider.")
+        get_api_key(model_provider(get_user_text_model(user)), user)
+        get_api_key(model_provider(model_name), user)
+    UserTextModelPreference.objects.update_or_create(user=user, defaults={
+        "fallback_enabled": enabled, "fallback_model_name": model_name if enabled else "",
+        "fallback_on_quota": bool(enabled and on_quota),
+    })
+
+
 TEXT_MODEL_OPTIONS = [
     # Current general-purpose text models, verified against provider catalogs.
     ("gpt-6.1-sol", "GPT-6.1 Sol"),
@@ -53,10 +72,7 @@ def get_user_text_model(user) -> str:
     if not getattr(user, "is_authenticated", False):
         return default_model
 
-    try:
-        preference = user.text_model_preference
-    except UserTextModelPreference.DoesNotExist:
-        preference = None
+    preference = UserTextModelPreference.objects.filter(user=user).first()
     selected_model = (getattr(preference, "text_model_name", "") or "").strip()
     return selected_model or default_model
 
@@ -75,5 +91,7 @@ def save_user_text_model(user, model_name: str) -> str:
     stored_value = "" if selected_model == default_model else selected_model
     if preference.text_model_name != stored_value:
         preference.text_model_name = stored_value
-        preference.save(update_fields=["text_model_name", "updated_at"])
+        if preference.fallback_enabled and model_provider(preference.fallback_model_name) == model_provider(selected_model):
+            preference.fallback_enabled = False
+        preference.save(update_fields=["text_model_name", "fallback_enabled", "updated_at"])
     return selected_model

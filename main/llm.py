@@ -6,6 +6,8 @@ from PIL import Image, ImageFilter, ImageStat
 
 
 from .ai_providers import openai_request, anthropic_request
+from .ai_providers import ProviderRequestError, request_timeout
+from .ai_credentials import AIConfigurationError, current_ai_user, get_api_key, notify_fallback
 SYSTEM_PROMPT = "You are a professional novelist. Never use the em dash character (U+2014); use a plain hyphen instead."
 
 
@@ -182,6 +184,45 @@ def _call_chat_completions_llm(*, prompt: str, model_name: str, params: dict, im
 
 
 def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str = "") -> LLMResult:
+    from .models import UserTextModelPreference
+    from .text_models import model_provider
+    user = current_ai_user.get()
+    preference = (UserTextModelPreference.objects.filter(user=user, fallback_enabled=True).first()
+                  if user is not None and user.is_authenticated else None)
+    backup = preference.fallback_model_name if preference else ""
+    if backup and model_provider(backup) == model_provider(model_name):
+        backup = ""
+    # One transport call per provider when fallback is enabled. SDK retries are disabled.
+    timeout_token = request_timeout.set(60 if backup else 120)
+    try:
+        try:
+            result = _call_llm_once(prompt=prompt, model_name=model_name, params=params,
+                                    image_data_url=image_data_url, allow_endpoint_retry=not bool(backup))
+            result.usage = {**(result.usage or {}), "provider": model_provider(model_name), "model": model_name}
+            return result
+        except ProviderRequestError as primary_error:
+            eligible = primary_error.kind in {"connection", "server", "rate_limit"}
+            eligible = eligible or (primary_error.kind == "quota" and preference and preference.fallback_on_quota)
+            if not backup or not eligible:
+                raise
+            try:
+                get_api_key(model_provider(backup), user)
+                result = _call_llm_once(prompt=prompt, model_name=backup, params=params,
+                                        image_data_url=image_data_url, allow_endpoint_retry=False)
+            except (AIConfigurationError, ValueError):
+                message = "The primary provider failed and the backup could not complete this request. Please try again or check AI Settings."
+                notify_fallback(message)
+                raise AIConfigurationError(message) from None
+            result.usage = {**(result.usage or {}), "provider": model_provider(backup), "model": backup,
+                            "fallback_used": True, "primary_model": model_name,
+                            "fallback_reason": primary_error.kind, "primary_usage_unknown": True}
+            notify_fallback(f"Primary provider unavailable. Completed using {backup}, your backup model.")
+            return result
+    finally:
+        request_timeout.reset(timeout_token)
+
+
+def _call_llm_once(*, prompt: str, model_name: str, params: dict, image_data_url: str = "", allow_endpoint_retry=True) -> LLMResult:
     if model_name.startswith("claude-"):
         content = [{"type": "text", "text": prompt}]
         if image_data_url:
@@ -227,7 +268,7 @@ def call_llm(*, prompt: str, model_name: str, params: dict, image_data_url: str 
             _get_object_value(_get_object_value(response, "incomplete_details", None), "reason", "")
             or ("length" if _normalize_finish_reason(_get_object_value(response, "status", "")) == "incomplete" else "")
         )
-        if text.strip() or model_name.lower().startswith("gpt-6"):
+        if text.strip() or model_name.lower().startswith("gpt-6") or not allow_endpoint_retry:
             return LLMResult(
                 text=text,
                 usage={

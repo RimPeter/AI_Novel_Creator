@@ -42,5 +42,22 @@
     </form>
     <p class="muted">The selected model determines your writing provider. Images always use OpenAI.</p>
   </section>
+  <section class="card page-panel">
+    <h2>Backup writing provider</h2>
+    <p>If the primary provider cannot connect, times out, reaches a rate limit, or is temporarily unavailable, try your backup once. Connect both providers and choose a backup from the other provider.</p>
+    <form method="post">
+      {% csrf_token %}
+      <p><label><input type="checkbox" name="fallback_enabled" {% if fallback.fallback_enabled %}checked{% endif %}> Enable automatic fallback</label></p>
+      <label for="fallback-model">Backup model</label>
+      <select id="fallback-model" name="fallback_model">
+        <option value="">Choose a backup model</option>
+        {% for model in models %}<option value="{{ model.value }}" {% if model.value == fallback.fallback_model_name %}selected{% endif %}>{{ model.label }}</option>{% endfor %}
+      </select>
+      <p><label><input type="checkbox" name="fallback_on_quota" {% if fallback.fallback_on_quota %}checked{% endif %}> Also switch when provider credit or quota is exhausted</label></p>
+      <p>Enabling fallback allows your prompt and any reference images to be sent to the backup provider. Its pricing and output may differ. A timed-out primary request may still incur charges. Images generated or edited by the app always use OpenAI.</p>
+      <p>You will be notified when a request completes using your backup. Removing either key disables fallback.</p>
+      <button class="btn" name="action" value="fallback">Save backup settings</button>
+    </form>
+  </section>
 </div>
 {% endblock %}
